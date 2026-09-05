@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# research outputs
+results/*
+!results/.gitkeep
+
+# model/data caches
+.cache/
+models/
+data/raw/
+
+# OS
+.DS_Store
