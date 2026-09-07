@@ -267,3 +267,44 @@ layerwise measurement is therefore repeated at the strongest reliable strength
 at the *same* layer, written to `exploratory/`, together with rank correlations
 between the two profiles for `log G_l`, `d_eff` and `N_l`. This is a robustness
 check, not a second preregistered measurement.
+
+---
+
+## D15. The intervention layer's effective dimensionality is undefined, and its
+observed value is recorded as the numerical noise floor
+
+At the intervention layer every `delta_l(x)` equals `alpha * v` by
+construction, so the centered `D_l` is exactly zero and both `d_eff` and `d90`
+are undefined there. In bf16 execution the *observed* centered variance at that
+layer is not zero but the rounding error of `h + alpha*v`, which is isotropic
+and therefore looks high-dimensional: the first Qwen3-0.6B pilot reported
+`d_eff = 24.3` (past_tense) and `42.3` (arithmetic_add) at the intervention
+layer, purely as arithmetic noise. Left in place this also corrupted the
+`depth_at_half_max_d_eff` feature and hence the automatic profile label.
+
+`d_eff` and `d90` at the intervention layer are therefore reported as `null`.
+The observed values are kept under `measurement.numerical_noise`, together with
+the centered variance at that layer and at the next one, because their ratio is
+a direct empirical bound on the numerical noise floor of every downstream
+dimensionality metric. The full per-layer `centered_variance` series is also
+serialized so a reader can see where a metric is signal and where it is noise.
+
+Note that the matched random controls share the layer, the norm and therefore
+the same rounding behaviour, so the `real_vs_null` z-scores were already immune
+to this artefact; only the absolute numbers were misleading.
+
+---
+
+## D16. The held-out steering gate is statistical, not a fixed effect size
+
+**Config:** `qualification.min_steering_improvement` (default `0.0`),
+`qualification.max_steering_p` (default `0.05`)
+
+A fixed nats-per-token threshold on the held-out improvement is arbitrary and
+task-dependent: it rejected `antonym` at `+0.095` against a `0.10` threshold in
+one run while accepting a weaker, less control-separated effect elsewhere. The
+held-out gate is now (i) improvement > 0 and (ii) a paired one-sided bootstrap
+over evaluation examples at `p <= 0.05`, with the matched-random-control
+comparison remaining the discriminating test, exactly as
+`docs/EXPERIMENT.md` requires ("Require steering to outperform matched random
+controls").

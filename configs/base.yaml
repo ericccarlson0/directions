@@ -57,7 +57,10 @@ qualification:
   min_fewshot_accuracy: 0.4
   min_target_logprob: -6.0
   min_direction_stability: 0.5
-  min_steering_improvement: 0.10   # nats per target token, on the held-out split
+  # The held-out effect must be positive and statistically supported; the
+  # discriminating test is the matched-random-control comparison below.
+  min_steering_improvement: 0.0
+  max_steering_p: 0.05
   max_control_p_value: 0.1
 
 controls:

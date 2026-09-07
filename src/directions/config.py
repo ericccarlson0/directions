@@ -114,7 +114,10 @@ class QualificationConfig:
     min_fewshot_accuracy: float = 0.4
     min_target_logprob: float = -6.0
     min_direction_stability: float = 0.5
-    min_steering_improvement: float = 0.30
+    min_steering_improvement: float = 0.0
+    # The held-out effect must be statistically supported (paired bootstrap over
+    # evaluation examples), mirroring the calibration rule. See D12/D16.
+    max_steering_p: float = 0.05
     max_control_p_value: float = 0.1
 
 
@@ -336,6 +339,8 @@ def validate(cfg: Config) -> None:
     unknown_kinds = set(cfg.controls.kinds) - {"isotropic", "orthogonal"}
     if unknown_kinds:
         raise ValueError(f"unknown control kind(s) {sorted(unknown_kinds)}")
+    if not 0.0 < cfg.qualification.max_steering_p <= 1.0:
+        raise ValueError("qualification.max_steering_p must lie in (0, 1]")
     if cfg.controls.n_random < 1:
         raise ValueError("controls.n_random must be >= 1")
     if min(cfg.data.n_extraction, cfg.data.n_calibration, cfg.data.n_eval) < 2:

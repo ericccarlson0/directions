@@ -43,8 +43,9 @@ def test_pure_propagation_gives_unit_gain_and_zero_conversion(cfg):
     assert np.allclose(m.G[2:6], 1.0)
     assert np.allclose(m.C[2:6], 0.0)
     assert np.allclose(m.control_alignment[2:], 1.0)
-    # every delta is identical, so the centered D_l has no variance
-    assert np.allclose(np.nan_to_num(m.d_eff[2:]), 0.0)
+    # every delta is identical, so the centered D_l has no variance anywhere
+    assert np.allclose(np.nan_to_num(m.centered_variance[2:]), 0.0, atol=1e-20)
+    assert np.allclose(np.nan_to_num(m.d_eff[3:]), 0.0)
 
 
 def test_pure_amplification_gives_the_expected_log_gain(cfg):
@@ -73,7 +74,9 @@ def test_effective_rank_tracks_planted_dimensionality(cfg):
         coeff = rng.standard_normal((n_ex, k))
         steer[l] += v + coeff @ np.eye(d)[1 : 1 + k]
     m = layerwise.measure(cfg, "t", 1, 1.0, v, base, steer)
-    assert m.d_eff[1] == pytest.approx(0.0, abs=1e-6)
+    # the intervention layer is degenerate by construction and reported as NaN
+    assert np.isnan(m.d_eff[1])
+    assert m.numerical_noise["intervention_layer_d_eff_observed"] == pytest.approx(0.0, abs=1e-6)
     assert m.d_eff[2] == pytest.approx(1.0, abs=1e-6)
     assert 3.0 < m.d_eff[3] <= 4.0
     assert m.d90[3] == 4
@@ -148,3 +151,29 @@ def test_profile_classification_is_deterministic_and_labelled(cfg):
     assert out == profiles.classify(m)
     assert out["features"]["max_conversion"] == pytest.approx(0.0, abs=1e-9)
     assert out["label"] == "conserved_transmission"
+
+
+def test_numerical_noise_diagnostic_is_recorded(cfg):
+    """The intervention layer's centered variance bounds the numerical noise floor."""
+    rng = np.random.default_rng(30)
+    base = rng.standard_normal((5, 20, 8)) + 4.0
+    v = np.eye(8)[0]
+    steer = base.copy()
+    steer[2:] += 2.0 * v
+    steer[4:] += 0.5 * rng.standard_normal((1, 20, 8))
+    m = layerwise.measure(cfg, "t", 2, 2.0, v, base, steer)
+    noise = m.numerical_noise
+    assert np.isnan(m.d_eff[2]) and np.isnan(m.d90[2])
+    assert noise["intervention_layer_centered_variance"] == pytest.approx(0.0, abs=1e-18)
+    assert noise["next_layer_centered_variance"] == pytest.approx(0.0, abs=1e-18)
+    assert m.centered_variance[4] > 1.0
+
+
+def test_centered_variance_is_reported_per_layer(cfg):
+    base = _streams()
+    steer = base + 0.3
+    m = layerwise.measure(cfg, "t", 1, 1.0, np.eye(8)[0], base, steer)
+    assert m.centered_variance.shape == (m.n_layers + 1,)
+    d = m.to_dict()
+    assert len(d["centered_variance"]) == m.n_layers + 1
+    assert d["numerical_noise"]["note"]

@@ -49,6 +49,8 @@ class LayerwiseMeasurement:
     N: np.ndarray
     N_uncentered: np.ndarray
     control_alignment: np.ndarray  # exploratory: median |cos(delta_l, v)|
+    centered_variance: np.ndarray  # total centered variance of D_l, per layer
+    numerical_noise: dict = field(default_factory=dict)
     summaries: dict = field(default_factory=dict)
 
     @property
@@ -75,6 +77,8 @@ class LayerwiseMeasurement:
                 "N": f(self.N),
                 "N_uncentered": f(self.N_uncentered),
                 "control_alignment": f(self.control_alignment),
+                "centered_variance": f(self.centered_variance),
+                "numerical_noise": self.numerical_noise,
                 "summaries": self.summaries,
             }
 
@@ -126,6 +130,7 @@ def measure(
     d_eff_unc = _nan(n_resid)
     N, N_unc = _nan(n_resid), _nan(n_resid)
     align = _nan(n_resid)
+    variance = _nan(n_resid)
 
     for l in range(intervention_layer, n_resid):
         D = deltas[l]
@@ -134,6 +139,7 @@ def measure(
         align[l] = float(np.median(np.abs(D @ v) / np.maximum(norms, mathx.EPS)))
         sm = mathx.spectrum_metrics(D, frac=frac, center=True)
         d_eff[l], d90[l] = sm.effective_rank, sm.d90
+        variance[l] = sm.total_variance
         d_eff_unc[l] = mathx.effective_rank(mathx.singular_values(D, center=False))
         if l < n_layers:
             B = blocks[l]
@@ -145,6 +151,34 @@ def measure(
             if sm.total_variance > mathx.EPS:
                 N[l] = mathx.new_subspace_fraction(D, B, frac=frac)
             N_unc[l] = _new_subspace_uncentered(D, B, frac)
+
+    # At the intervention layer every delta_l(x) equals alpha*v by construction,
+    # so the centered D_l is zero and its effective dimensionality is undefined.
+    # In bf16 execution the observed value is the arithmetic rounding of
+    # h + alpha*v, which is isotropic and therefore looks high-dimensional; it is
+    # recorded as an explicit noise-floor diagnostic instead of a measurement.
+    # See docs/DECISIONS.md (D15).
+    noise = {
+        "intervention_layer_d_eff_observed": _f(d_eff[intervention_layer]),
+        "intervention_layer_centered_variance": _f(variance[intervention_layer]),
+        "next_layer_centered_variance": _f(variance[intervention_layer + 1])
+        if intervention_layer + 1 < n_resid
+        else None,
+        "note": (
+            "delta is identical across examples at the intervention layer; any "
+            "centered variance there is numerical rounding, and bounds the noise "
+            "floor of the downstream dimensionality metrics"
+        ),
+    }
+    if (
+        noise["next_layer_centered_variance"]
+        and noise["intervention_layer_centered_variance"] is not None
+    ):
+        noise["noise_to_signal_ratio"] = (
+            noise["intervention_layer_centered_variance"] / noise["next_layer_centered_variance"]
+        )
+    d_eff[intervention_layer] = np.nan
+    d90[intervention_layer] = np.nan
 
     m = LayerwiseMeasurement(
         label=label,
@@ -161,9 +195,15 @@ def measure(
         N=N,
         N_uncentered=N_unc,
         control_alignment=align,
+        centered_variance=variance,
+        numerical_noise=noise,
     )
     m.summaries = _summaries(cfg, m)
     return m
+
+
+def _f(x) -> float | None:
+    return None if not np.isfinite(x) else float(x)
 
 
 def _new_subspace_uncentered(D: np.ndarray, B: np.ndarray, frac: float) -> float:

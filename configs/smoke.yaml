@@ -50,6 +50,7 @@ qualification:
   min_target_logprob: -1000000000.0
   min_direction_stability: -1.0
   min_steering_improvement: -1000.0
+  max_steering_p: 1.0
   max_control_p_value: 1.0
 
 controls:

@@ -204,18 +204,30 @@ def validate_task(cfg: Config, rundir: RunDirectory, lm: LanguageModel, task_nam
     base_eval = lm.score(eval_prompts, **compute)
     steer_eval = lm.score(eval_prompts, intervention=direction, **compute)
     improvement = steer_eval.metric(metric) - base_eval.metric(metric)
-    passed_steer = improvement >= cfg.qualification.min_steering_improvement
+    steer_p = mathx.paired_bootstrap_p(
+        steer_eval.per_example(metric) - base_eval.per_example(metric),
+        n_boot=cfg.bootstrap.n_boot,
+        seed=cfg.run.seed,
+    )
+    passed_steer = bool(
+        improvement >= cfg.qualification.min_steering_improvement
+        and steer_p <= cfg.qualification.max_steering_p
+    )
     rep.stages["heldout_steering"] = {
-        "passed": bool(passed_steer),
+        "passed": passed_steer,
         "metric": metric,
         "baseline": base_eval.summary(),
         "steered": steer_eval.summary(),
         "improvement": float(improvement),
-        "threshold": cfg.qualification.min_steering_improvement,
+        "paired_p_value": steer_p,
+        "thresholds": {
+            "min_steering_improvement": cfg.qualification.min_steering_improvement,
+            "max_steering_p": cfg.qualification.max_steering_p,
+        },
     }
     rundir.log(
         f"  [{task_name}] held-out {metric}: {base_eval.metric(metric):.3f} -> "
-        f"{steer_eval.metric(metric):.3f} (delta {improvement:+.3f})"
+        f"{steer_eval.metric(metric):.3f} (delta {improvement:+.3f}, p={steer_p:.4f})"
     )
     if not passed_steer:
         rep.failed_stage = "heldout_steering"
@@ -602,6 +614,7 @@ def execute(cfg: Config, command: str, do_layerwise: bool) -> dict:
                 "direction_layer": r.direction.layer if r.direction else None,
                 "alpha": r.direction.alpha if r.direction else None,
                 "heldout_improvement": r.stages.get("heldout_steering", {}).get("improvement"),
+            "heldout_p_value": r.stages.get("heldout_steering", {}).get("paired_p_value"),
                 "control_p_value": r.stages.get("random_control_comparison", {}).get("p_value"),
             }
             for t, r in reports.items()
