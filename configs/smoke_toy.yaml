@@ -59,8 +59,8 @@ calibration:
   extend_grid: true
   extension_factor: 1.5
   max_rho: 2.0
-  bootstrap_alpha: 0.05
-  min_improvement: 0.05
+  bootstrap_alpha: 1.0        # smoke: every grid point passes, so the random screen is exercised
+  min_improvement: -1.0
   n_random_screen: 2
   screen_kinds: [isotropic, orthogonal]
   random_screen_max_p: 0.5

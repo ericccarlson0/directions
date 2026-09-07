@@ -21,6 +21,8 @@ uv run directions pilot    --config configs/pilot_qwen3_0.6b.yaml   # full pilot
 uv run directions pilot    --config configs/pilot_qwen3_1.7b.yaml   # same protocol, second model
 uv run directions compare  results/<run_a> results/<run_b>          # reproducibility diff of two runs
 uv run directions pilot    --config configs/smoke_toy.yaml          # tiny random model, CPU, no downloads
+uv run directions pilot    --config configs/pilot_qwen3_0.6b.yaml --seed 1 --run-id r1   # seed override
+uv run directions aggregate results/r1 results/r2 results/r3 --out results/aggregate.json # multi-seed summary
 ```
 
 Every scientifically meaningful parameter lives in the YAML config. Each run
@@ -41,9 +43,12 @@ results/<run_id>/
       extraction.json      per-layer, per-seed PC1 statistics and cross-seed stability
       directions.npz       pooled and per-seed unit directions at the candidate layers
       calibration.json     the layer x strength grid with bootstrap tests and random screens
-      evaluation.json      held-out behavioural metrics per condition
-      layerwise.json       S_l, log G_l, C_l, A_l (median + CI), d_eff, d90, N_l, noise floor,
-                           the 16 random-control profiles and per-layer z / empirical p
+      evaluation.json      held-out behavioural metrics per condition, every control by kind,
+                           the gate comparison (isotropic + orthogonal) and per-kind comparisons
+      layerwise.json       S_l, log G_l, C_l, A_l (median + CI), d_eff, d90, N_l, noise floor;
+                           every control's metric curves; null summaries and per-layer z /
+                           empirical p for the primary null and for each structured null
+                           (covariance, other_task, demo_variation)
       layerwise_arrays.npz per-example arrays
   exploratory/tasks/<task>/
       strength_robustness.json   profiles at stronger reliable strengths + rank correlations

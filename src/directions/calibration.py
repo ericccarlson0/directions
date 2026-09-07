@@ -169,7 +169,7 @@ def calibrate(
                         rng_for(run_seed, "calibration_screen", task_name, layer),
                         v,
                         cfg.n_random_screen,
-                        tuple(eval_cfg.random_control_kinds),
+                        tuple(cfg.screen_kinds),
                     )
                 gp.screen = random_screen(backend, prompts, base, layer, alpha, v, t.mean_diff, controls, cfg, rng)
                 gp.passes_screen = bool(gp.screen["comparison"]["p_upper"] <= cfg.random_screen_max_p)

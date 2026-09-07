@@ -35,7 +35,7 @@ tasks:
   - name: past_tense
   - name: en_fr
   - name: arithmetic
-    params: {operation: add, operand: 3, min: 0, max: 300}
+    params: {operation: add, operand: 3, min: 0, max: 400}
   - name: present_participle
   - name: singular
   - name: uppercase
