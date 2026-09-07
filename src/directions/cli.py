@@ -11,11 +11,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
-from .config import config_to_dict, load_config
+# The layerwise statistics are thousands of small (n x n, n x d) linear-algebra
+# calls; with one BLAS thread per core they spend their time in thread
+# synchronisation (a 192 x 1024 profile: ~1 s with 4 threads, ~70 s with 32).
+# Cap the BLAS pool unless the user has set it explicitly. Must run before numpy
+# is imported anywhere in this process.
+for _var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+    os.environ.setdefault(_var, os.environ.get("DIRECTIONS_BLAS_THREADS", "4"))
+
+from .config import config_to_dict, load_config  # noqa: E402
 
 # top-level fields that legitimately differ between two otherwise identical runs
 _VOLATILE = {"run_id", "argv", "started_utc", "finished_utc", "timings_seconds", "config_path"}
