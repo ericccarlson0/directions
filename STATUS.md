@@ -131,10 +131,12 @@ changed; see `docs/DECISIONS.md` before changing any of it):
 uv run directions pilot --config configs/pilot_qwen3_1.7b.yaml --run-id pilot_qwen3_1.7b_run1
 ```
 
-Code commit `dcdaa45`; model revision `ea980cb0`; same environment. Wall time
-14.5 min. The config is identical to the 0.6B one except `model.name`
-(enforced by `tests/test_configs.py`); the pipeline needed no changes. Only
-one run so far (not yet re-run for the bit-identity check).
+Code commit `dcdaa45` (run1) / `8a6fcf2` (run2, docs-only change); model
+revision `ea980cb0`; same environment. Wall time 14.5 / 15.4 min. The config
+is identical to the 0.6B one except `model.name` (enforced by
+`tests/test_configs.py`); the pipeline needed no changes. Run2
+(`--run-id pilot_qwen3_1.7b_run2`) is bit-identical to run1 in every JSON
+output; `compare` reports only the differing `metadata.json/git/commit`.
 
 | task | few-shot acc | stability (min over candidates) | selected (layer, ρ) | held-out Δ log p/token, p | vs 16 random (z, p) | outcome |
 |---|---|---|---|---|---|---|
