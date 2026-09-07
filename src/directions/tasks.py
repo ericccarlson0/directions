@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
 import numpy as np
 
 from . import data
+from .data_extra import PARTICIPLE_DOUBLING, PARTICIPLE_EXCEPTIONS
 from .seeds import rng_for
 
 
@@ -25,35 +27,117 @@ class Task:
 
 
 # --------------------------------------------------------------------------- #
-# Task registry
+# Task builders
 # --------------------------------------------------------------------------- #
+
+
+def _check_params(name: str, params: dict[str, Any], allowed: dict[str, Any]) -> dict[str, Any]:
+    unknown = set(params) - set(allowed)
+    if unknown:
+        raise ValueError(f"unknown params for task {name!r}: {sorted(unknown)}; allowed {sorted(allowed)}")
+    out = dict(allowed)
+    out.update(params)
+    return out
 
 
 def _from_pairs(name: str, pairs: list[tuple[str, str]]) -> Callable[[dict[str, Any]], Task]:
     def build(params: dict[str, Any]) -> Task:
-        if params:
-            raise ValueError(f"task {name!r} takes no params, got {params}")
+        _check_params(name, params, {})
         return Task(name, [Item(i, o) for i, o in data.dedupe(pairs)])
 
     return build
 
 
 def _arithmetic(params: dict[str, Any]) -> Task:
-    p = {"operation": "add", "operand": 3, "min": 0, "max": 300}
-    unknown = set(params) - set(p)
-    if unknown:
-        raise ValueError(f"unknown arithmetic params: {sorted(unknown)}")
-    p.update(params)
+    p = _check_params("arithmetic", params, {"operation": "add", "operand": 3, "min": 0, "max": 300})
     op, k = p["operation"], int(p["operand"])
-    ops = {
-        "add": lambda n: n + k,
-        "subtract": lambda n: n - k,
-        "multiply": lambda n: n * k,
-    }
+    ops = {"add": lambda n: n + k, "subtract": lambda n: n - k, "multiply": lambda n: n * k}
     if op not in ops:
         raise ValueError(f"unknown arithmetic operation {op!r}; choose from {sorted(ops)}")
     items = [Item(str(n), str(ops[op](n))) for n in range(int(p["min"]), int(p["max"]) + 1)]
     return Task("arithmetic", items, params=p)
+
+
+def _add_two(params: dict[str, Any]) -> Task:
+    """Two-operand addition ``"a + b" -> a+b`` over every ordered pair in [min, max]."""
+    p = _check_params("add_two", params, {"min": 2, "max": 59})
+    lo, hi = int(p["min"]), int(p["max"])
+    items = [Item(f"{a} + {b}", str(a + b)) for a in range(lo, hi + 1) for b in range(lo, hi + 1)]
+    return Task("add_two", items, params=p)
+
+
+_ONES = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
+         "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"]
+_TENS = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
+
+
+def number_to_words(n: int) -> str:
+    """English words for 0 <= n <= 999 (American style, no 'and', hyphenated tens)."""
+    if not 0 <= n <= 999:
+        raise ValueError("number_to_words supports 0..999")
+    if n < 20:
+        return _ONES[n]
+    if n < 100:
+        t, o = divmod(n, 10)
+        return _TENS[t] + (f"-{_ONES[o]}" if o else "")
+    h, r = divmod(n, 100)
+    return f"{_ONES[h]} hundred" + (f" {number_to_words(r)}" if r else "")
+
+
+def _number_to_words(params: dict[str, Any]) -> Task:
+    p = _check_params("number_to_words", params, {"min": 0, "max": 999})
+    items = [Item(str(n), number_to_words(n)) for n in range(int(p["min"]), int(p["max"]) + 1)]
+    return Task("number_to_words", items, params=p)
+
+
+_VOWELS = "aeiou"
+
+
+def present_participle(verb: str) -> str:
+    """Rule-based ``-ing`` form with an explicit exception table (American spelling)."""
+    if verb in PARTICIPLE_EXCEPTIONS:
+        return PARTICIPLE_EXCEPTIONS[verb]
+    if verb.endswith("ie"):
+        return verb[:-2] + "ying"
+    if verb.endswith(("ee", "ye", "oe")):
+        return verb + "ing"
+    if verb.endswith("e"):
+        return verb[:-1] + "ing"
+    syllables = len(re.findall(r"[aeiouy]+", verb))
+    cvc = (
+        len(verb) >= 3
+        and verb[-1] not in "wxy"
+        and verb[-1] not in _VOWELS
+        and verb[-2] in _VOWELS
+        and verb[-3] not in _VOWELS
+    )
+    if cvc and (syllables == 1 or verb in PARTICIPLE_DOUBLING):
+        return verb + verb[-1] + "ing"
+    return verb + "ing"
+
+
+def _present_participle(params: dict[str, Any]) -> Task:
+    _check_params("present_participle", params, {})
+    verbs = [v for v, _ in data.dedupe(data.PAST_TENSE)]
+    return Task("present_participle", [Item(v, present_participle(v)) for v in verbs])
+
+
+def _singular(params: dict[str, Any]) -> Task:
+    """Plural noun -> singular, excluding nouns whose two forms coincide."""
+    _check_params("singular", params, {})
+    pairs = [(p, s) for s, p in data.dedupe(data.PLURAL) if s != p]
+    return Task("singular", [Item(i, o) for i, o in data.dedupe(pairs)])
+
+
+def _uppercase(params: dict[str, Any]) -> Task:
+    """Lower-case word -> UPPER-CASE word, over the union of the single-word lists."""
+    _check_params("uppercase", params, {})
+    words: set[str] = set()
+    for lst in (data.PLURAL, data.PAST_TENSE, data.ANTONYM):
+        for i, _ in lst:
+            if i.isalpha() and i.islower():
+                words.add(i)
+    return Task("uppercase", [Item(w, w.upper()) for w in sorted(words)])
 
 
 TASK_BUILDERS: dict[str, Callable[[dict[str, Any]], Task]] = {
@@ -62,6 +146,11 @@ TASK_BUILDERS: dict[str, Callable[[dict[str, Any]], Task]] = {
     "past_tense": _from_pairs("past_tense", data.PAST_TENSE),
     "en_fr": _from_pairs("en_fr", data.EN_FR),
     "arithmetic": _arithmetic,
+    "add_two": _add_two,
+    "number_to_words": _number_to_words,
+    "present_participle": _present_participle,
+    "singular": _singular,
+    "uppercase": _uppercase,
 }
 
 

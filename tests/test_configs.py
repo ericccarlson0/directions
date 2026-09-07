@@ -24,9 +24,11 @@ def test_qwen_configs_differ_only_in_model_name():
 
 def test_pilot_configs_match_preregistered_sizes():
     cfg = load_config(CONFIGS / "pilot_qwen3_0.6b.yaml")
-    assert (cfg.data.n_extraction, cfg.data.n_calibration, cfg.data.n_evaluation) == (64, 64, 64)
+    assert (cfg.data.n_extraction, cfg.data.n_calibration, cfg.data.n_evaluation) == (64, 64, 192)
+    assert len(cfg.tasks) == 10
     assert cfg.extraction.n_seeds == 3 and not cfg.extraction.center
-    assert cfg.evaluation.n_random_controls == 16 and cfg.calibration.n_random_screen >= 8
+    assert sum(cfg.evaluation.controls[k] for k in cfg.evaluation.gate_kinds) >= 64 and cfg.calibration.n_random_screen >= 8
+    assert set(cfg.evaluation.controls) == {"isotropic", "orthogonal", "covariance", "other_task", "demo_variation"}
     assert cfg.qualification.enforce
     assert cfg.model.dtype == "bfloat16"
 

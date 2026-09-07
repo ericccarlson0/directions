@@ -1,4 +1,6 @@
-# Measurement-validation pilot, model 1 (docs/EXPERIMENT.md).
+# Measurement-validation pilot, model 1 (docs/EXPERIMENT.md), strengthened
+# protocol (docs/DECISIONS.md D14-D16): 192 held-out examples, ten tasks, 64
+# preregistered random controls plus structured nulls.
 # The Qwen3-1.7B config differs from this file only in `model.name`
 # (enforced by tests/test_configs.py).
 name: pilot
@@ -23,7 +25,7 @@ prompt:
 data:
   n_extraction: 64
   n_calibration: 64
-  n_evaluation: 64
+  n_evaluation: 192        # 3x the initial pilot (D14)
   max_target_tokens: 4     # items whose formatted target exceeds this are dropped and logged
   allow_reduced_splits: false
 
@@ -34,6 +36,14 @@ tasks:
   - name: en_fr
   - name: arithmetic
     params: {operation: add, operand: 3, min: 0, max: 300}
+  - name: present_participle
+  - name: singular
+  - name: uppercase
+  - name: number_to_words
+    params: {min: 0, max: 999}
+    max_target_tokens: 6
+  - name: add_two
+    params: {min: 2, max: 59}
 
 qualification:
   enforce: true
@@ -41,7 +51,7 @@ qualification:
   min_fewshot_logprob_per_token: null
   min_stability: 0.8                 # min pairwise |cos| of seed PC1s at a candidate layer
   steering_alpha: 0.05               # one-sided paired bootstrap on the evaluation pool
-  random_control_max_p: 0.1          # with 16 controls the real direction must beat all of them
+  random_control_max_p: 0.05         # vs the 64 gate controls: beat at least 61 of 64
 
 extraction:
   n_seeds: 3
@@ -55,13 +65,21 @@ calibration:
   max_rho: 2.0
   bootstrap_alpha: 0.05
   min_improvement: 0.05              # nats per target token
-  n_random_screen: 8
-  random_screen_max_p: 0.2           # with 8 controls the real direction must beat all of them
+  n_random_screen: 16
+  screen_kinds: [isotropic, orthogonal]
+  random_screen_max_p: 0.1           # with 16 controls the real direction must beat all of them
   n_boot: 2000
 
 evaluation:
-  n_random_controls: 16
-  random_control_kinds: [isotropic, orthogonal]   # alternating
+  # matched controls on the evaluation pool, by kind (D15); every control is
+  # injected at the selected layer with the selected absolute norm
+  controls:
+    isotropic: 32                    # preregistered random null (gate), with orthogonal
+    orthogonal: 32
+    covariance: 32                   # random directions from the residual covariance at the layer
+    other_task: 9                    # the other tasks' control directions at the same layer
+    demo_variation: 8                # PC1 of correct-vs-correct demonstration differences
+  gate_kinds: [isotropic, orthogonal]
   n_boot: 1000
   ci_alpha: 0.05
   variance_fraction: 0.9

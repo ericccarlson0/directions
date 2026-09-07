@@ -29,7 +29,7 @@ def test_smoke_pilot_outputs(smoke_run):
     for key in ("git", "environment", "seed", "seeds", "model", "config", "candidate_layers", "timings_seconds"):
         assert key in meta, key
     assert meta["model"]["n_layers"] == 4
-    for task in ("antonym", "arithmetic"):
+    for task in ("antonym", "arithmetic", "number_to_words"):
         d = root / "core" / "tasks" / task
         for rel in ("splits.json", "qualification.json", "extraction.json", "directions.npz", "calibration.json",
                     "evaluation.json", "layerwise.json", "layerwise_arrays.npz"):
@@ -46,11 +46,15 @@ def test_smoke_pilot_outputs(smoke_run):
         assert real["new_subspace"][ls] is None and real["new_subspace_uncentered"][ls] is not None
         # alignment is 1 at the intervention layer by construction
         assert real["summaries"]["alignment"]["median"][ls] == pytest.approx(1.0, abs=1e-4)
-        assert len(lw["random_controls"]) == 3
-        assert set(lw["comparison"]["metrics"]) >= {"log_gain", "d_eff", "new_subspace", "alignment"}
+        assert sorted({c["kind"] for c in lw["controls"]}) == ["covariance", "demo_variation", "isotropic", "orthogonal", "other_task"]
+        assert len(lw["controls"]) == 7 and set(lw["null_summaries"]) >= {"primary", "isotropic"}
+        assert set(lw["comparison"]["primary"]["metrics"]) >= {"log_gain", "d_eff", "new_subspace", "alignment"}
+        assert set(lw["comparison"]["by_kind"]) == {"covariance", "demo_variation", "isotropic", "orthogonal", "other_task"}
+        assert lw["comparison"]["primary"]["n_random"] == 3
         assert isinstance(lw["signature"]["labels"], list)
         arrays = np.load(d / "layerwise_arrays.npz")
         assert arrays["log_gain"].shape == (4, 6)
+        assert (root / "figures" / f"{task}_structured_nulls.png").exists()
         cal = json.loads((d / "calibration.json").read_text())
         # only candidate layers passing the stability filter are calibrated
         assert set(cal["layer_norms"]) <= {"1", "2"} and len(cal["layer_norms"]) >= 1

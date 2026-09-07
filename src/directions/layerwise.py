@@ -72,6 +72,18 @@ class LayerwiseProfile:
         return np.asarray(getattr(self, name), dtype=np.float64)
 
 
+def _median_rows(X: np.ndarray) -> dict[str, list[float]]:
+    """Row medians without bootstrap CIs (used for the many control profiles)."""
+    out = {"median": [], "low": [], "high": [], "n": []}
+    for row in np.asarray(X, dtype=np.float64):
+        ok = row[~np.isnan(row)]
+        out["median"].append(float(np.median(ok)) if ok.size else float("nan"))
+        out["low"].append(float("nan"))
+        out["high"].append(float("nan"))
+        out["n"].append(int(ok.size))
+    return out
+
+
 def compute_profile(
     base: np.ndarray,
     steered: np.ndarray,
@@ -79,8 +91,12 @@ def compute_profile(
     intervention_layer: int,
     cfg: EvaluationConfig,
     rng: np.random.Generator,
+    with_ci: bool = True,
 ) -> LayerwiseProfile:
-    """Full layerwise profile from residuals shaped (L+1, n, d)."""
+    """Full layerwise profile from residuals shaped (L+1, n, d).
+
+    ``with_ci=False`` skips the bootstrap confidence intervals (medians only).
+    """
     base = np.asarray(base, dtype=np.float64)
     steered = np.asarray(steered, dtype=np.float64)
     L1, n, _ = base.shape
@@ -96,13 +112,22 @@ def compute_profile(
     for arr in (ex.gain, ex.log_gain, ex.conversion):
         arr[:ls] = np.nan
 
-    summaries = {
-        name: bootstrap_median_ci_rows(getattr(ex, name), rng, n_boot=cfg.n_boot, alpha=cfg.ci_alpha)
-        for name in PER_EXAMPLE_METRICS
-    }
+    if with_ci:
+        summaries = {
+            name: bootstrap_median_ci_rows(getattr(ex, name), rng, n_boot=cfg.n_boot, alpha=cfg.ci_alpha)
+            for name in PER_EXAMPLE_METRICS
+        }
+    else:
+        summaries = {name: _median_rows(getattr(ex, name)) for name in PER_EXAMPLE_METRICS}
     with np.errstate(divide="ignore", invalid="ignore"):
         cum = np.log(ex.delta_norm[L] / ex.delta_norm[ls])
-    cum_ci = bootstrap_median_ci(cum, rng, n_boot=cfg.n_boot, alpha=cfg.ci_alpha)
+    if with_ci:
+        cum_ci = bootstrap_median_ci(cum, rng, n_boot=cfg.n_boot, alpha=cfg.ci_alpha)
+    else:
+        from .stats import MedianCI
+
+        ok = cum[~np.isnan(cum)]
+        cum_ci = MedianCI(float(np.median(ok)) if ok.size else float("nan"), float("nan"), float("nan"), int(ok.size))
 
     d_eff = np.full(L1, np.nan)
     d90 = np.full(L1, np.nan)
@@ -218,4 +243,43 @@ def profile_arrays(profile: LayerwiseProfile) -> dict[str, np.ndarray]:
         "d_eff_uncentered": profile.d_eff_uncentered,
         "new_subspace": profile.new_subspace,
         "new_subspace_uncentered": profile.new_subspace_uncentered,
+    }
+
+
+def metric_curves(profile: LayerwiseProfile) -> dict[str, list[float | None]]:
+    """Compact per-layer curves of every compared metric (for storage and figures)."""
+    out: dict[str, list[float | None]] = {}
+    for name in COMPARED_METRICS:
+        out[name] = [None if np.isnan(x) else float(x) for x in profile.metric_curve(name)]
+    out["cumulative_log_gain"] = [profile.cumulative_log_gain["median"]]
+    return out
+
+
+def null_summary(profiles: list[LayerwiseProfile]) -> dict[str, Any]:
+    """Median and 5/95 % quantiles per metric and layer over a set of control profiles."""
+    out: dict[str, Any] = {"n": len(profiles)}
+    if not profiles:
+        return out
+    for name in COMPARED_METRICS:
+        M = np.stack([p.metric_curve(name) for p in profiles])
+        cols = M.shape[1]
+        med, lo, hi = np.full(cols, np.nan), np.full(cols, np.nan), np.full(cols, np.nan)
+        for j in range(cols):
+            c = M[:, j]
+            c = c[~np.isnan(c)]
+            if c.size:
+                med[j], lo[j], hi[j] = np.median(c), np.quantile(c, 0.05), np.quantile(c, 0.95)
+        out[name] = {k: [None if np.isnan(x) else float(x) for x in a] for k, a in (("median", med), ("q05", lo), ("q95", hi))}
+    return out
+
+
+def compare_by_kind(
+    real: LayerwiseProfile, by_kind: dict[str, list[LayerwiseProfile]], gate_kinds: list[str]
+) -> dict[str, Any]:
+    """Primary comparison against the pooled ``gate_kinds`` null plus one per control kind."""
+    pooled = [p for k in gate_kinds for p in by_kind.get(k, [])]
+    return {
+        "gate_kinds": list(gate_kinds),
+        "primary": compare_to_random(real, pooled),
+        "by_kind": {k: compare_to_random(real, ps) for k, ps in by_kind.items() if ps},
     }

@@ -4,6 +4,7 @@
     uv run directions pilot    --config configs/pilot_qwen3_0.6b.yaml
     uv run directions check    --config configs/pilot_qwen3_0.6b.yaml
     uv run directions compare  results/<run_a> results/<run_b>
+    uv run directions aggregate results/<run_1> results/<run_2> ... --out results/aggregate.json
 """
 
 from __future__ import annotations
@@ -26,6 +27,8 @@ def _cmd_run(args: argparse.Namespace, command: str) -> int:
     cfg = load_config(args.config)
     if args.output_dir:
         cfg.output_dir = args.output_dir
+    if args.seed is not None:
+        cfg.seed = int(args.seed)
     root = run_pipeline(cfg, command, config_path=str(args.config), run_id=args.run_id)
     print(root)
     return 0
@@ -89,6 +92,19 @@ def _cmd_compare(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_aggregate(args: argparse.Namespace) -> int:
+    """Summarise several runs of the same config (different seeds) per task."""
+    from .aggregate import aggregate_runs, format_table
+
+    result = aggregate_runs([Path(p) for p in args.runs])
+    print(format_table(result))
+    if args.out:
+        with open(args.out, "w") as f:
+            json.dump(result, f, indent=2, sort_keys=True)
+        print(f"wrote {args.out}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="directions", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -100,6 +116,7 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--config", required=True, help="YAML config file")
         p.add_argument("--output-dir", default=None, help="override output_dir from the config")
         p.add_argument("--run-id", default=None, help="explicit run directory name (default: timestamp + config hash)")
+        p.add_argument("--seed", type=int, default=None, help="override the run seed from the config (recorded in the resolved config)")
     p = sub.add_parser("check", help="parse and print the resolved config")
     p.add_argument("--config", required=True)
     p = sub.add_parser("compare", help="diff the JSON outputs of two runs (reproducibility check)")
@@ -107,6 +124,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("run_b")
     p.add_argument("--atol", type=float, default=0.0)
     p.add_argument("--max-lines", type=int, default=50)
+    p = sub.add_parser("aggregate", help="summarise several runs (e.g. different seeds) per task")
+    p.add_argument("runs", nargs="+")
+    p.add_argument("--out", default=None, help="write the aggregate as JSON")
     args = parser.parse_args(argv)
     if args.command in ("validate", "pilot"):
         return _cmd_run(args, args.command)
@@ -114,6 +134,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_check(args)
     if args.command == "compare":
         return _cmd_compare(args)
+    if args.command == "aggregate":
+        return _cmd_aggregate(args)
     parser.error("unknown command")
     return 2
 

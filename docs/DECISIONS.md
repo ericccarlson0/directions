@@ -132,3 +132,66 @@ in practice always includes the intervention block (its `C_l` is largest
 because `δ_{l*}` is the pure injected direction); `z` ranks by the per-block
 z-score against the matched random controls. The ablation is exploratory, so
 both are available and the choice is recorded in `block_ablation.json`.
+
+## 2026-09-07 — Strengthening the null and the power (second iteration)
+
+### D14. Evaluation pool tripled to 192; tasks with larger item lists; five more tasks
+
+The initial pilot's 64 held-out examples bound the centred `D_l` to rank
+≤ 63, so `d_eff`, `d90` and `N_l` were limited by `n` rather than by the
+model (`N_l` ≈ 0.95 was near saturation). `data.n_evaluation` is now 192,
+which needs ≥ 320 usable items per task. The four word lists were extended
+(antonym 435, plural 435, past tense 439, English→French 488 unique inputs;
+`src/directions/data_extra.py`) and five tasks were added: `present_participle`
+(rule-based `-ing` with an explicit exception table, 439 items), `singular`
+(inverse of plural, identical forms excluded, 428), `uppercase` (1209),
+`number_to_words` (0–999, per-task `max_target_tokens: 6` because the targets
+are longer), and `add_two` (two-operand addition over all ordered pairs in
+[2, 59], 3364). A per-task `max_target_tokens` override was added to
+`TaskConfig` for the same reason. The extraction and calibration pools stay
+at 64.
+
+### D15. Controls by kind: 64 preregistered random controls and three structured nulls
+
+`evaluation.controls` is a mapping kind → count; every control is injected at
+the selected layer and token with the selected absolute norm. The
+*preregistered* null (the qualification gate and the primary per-layer z / p)
+is `gate_kinds = [isotropic, orthogonal]` with 32 + 32 = 64 directions
+(minimum attainable empirical p = 1/65; the gate threshold
+`random_control_max_p` is 0.05, i.e. the real direction must beat at least
+61 of 64). The calibration screen uses 16 (must beat all 16 at p ≤ 0.1).
+
+Three structured nulls are reported alongside, each with its own per-layer z
+and empirical p, and are never used for the gate:
+
+* `covariance` (32): `u ∝ H_cᵀ g`, `g ~ N(0, I)`, with `H_c` the centred
+  baseline residuals of the evaluation pool at the intervention layer, so the
+  direction lies in the subspace the residual stream actually occupies;
+* `other_task` (up to 9): the pooled control direction of every other task
+  that reached extraction, at the same layer — a real, behaviourally
+  meaningful direction with the wrong content;
+* `demo_variation` (8): PC1 (same uncentred rule as the control) of
+  `h(p_i^{+,a}) − h(p_i^{+,b})`, the difference between two *correct*
+  demonstration samples for the same query. This keeps the prompt-difference
+  structure of the extraction without any task contrast. A "shuffled-pair"
+  null (re-pairing positive and permuted prompts across queries) was
+  considered and rejected: the uncentred PC1 depends only on the Gram matrix
+  `Σ dᵢdᵢᵀ`, which is invariant to re-pairing the mean and to row sign flips,
+  so it would recover the same direction.
+
+Because `other_task` needs every task's direction before any task is
+measured, the pipeline runs in two phases (extraction for all tasks, then
+calibration/evaluation/layerwise per task). Control profiles are computed
+without bootstrap CIs (medians only) and their residuals are discarded
+immediately; spectra use the `n × n` Gram matrix when `n < d`, which matches
+the full SVD to 1e-14 (`tests/test_controls.py`). A z-score against a null
+with zero spread is reported as null rather than ±∞.
+
+### D16. Multi-seed replication and aggregation
+
+`--seed N` overrides the run seed from the command line (recorded in the
+resolved config and in `metadata.json`), and `directions aggregate <runs...>`
+summarises several runs per task: qualification rate, gates failed,
+selections, label counts, and mean ± sd of the cross-task scalars and of the
+per-kind z-scores. Seeds change the pool partition, demonstrations,
+derangements, random controls and bootstraps together.

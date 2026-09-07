@@ -57,6 +57,7 @@ class DataConfig:
 class TaskConfig:
     name: str
     params: dict[str, Any] = field(default_factory=dict)
+    max_target_tokens: int | None = None  # per-task override of data.max_target_tokens
 
 
 @dataclass
@@ -84,15 +85,29 @@ class CalibrationConfig:
     max_rho: float = 2.0
     bootstrap_alpha: float = 0.05
     min_improvement: float = 0.05  # nats per target token over the unsteered baseline
-    n_random_screen: int = 8  # matched random directions screened at a candidate point
-    random_screen_max_p: float = 0.2  # empirical p (real vs random) required to pass the screen
+    n_random_screen: int = 16  # matched random directions screened at a candidate point
+    screen_kinds: list[str] = field(default_factory=lambda: ["isotropic", "orthogonal"])  # alternating
+    random_screen_max_p: float = 0.1  # empirical p (real vs random) required to pass the screen
     n_boot: int = 2000
+
+
+CONTROL_KINDS = ("isotropic", "orthogonal", "covariance", "other_task", "demo_variation")
 
 
 @dataclass
 class EvaluationConfig:
-    n_random_controls: int = 16
-    random_control_kinds: list[str] = field(default_factory=lambda: ["isotropic", "orthogonal"])
+    """Matched controls on the evaluation pool, by kind (see docs/DECISIONS.md D15).
+
+    isotropic       uniform random unit vector
+    orthogonal      uniform random unit vector orthogonal to the control direction
+    covariance      random direction drawn from the residual-stream covariance at the layer
+    other_task      the control direction of another task at the same layer (up to n)
+    demo_variation  PC1 of differences between two correct-demonstration prompts (no task contrast)
+    Every control is injected at the same layer, token and absolute norm as the real direction.
+    """
+
+    controls: dict[str, int] = field(default_factory=lambda: {"isotropic": 32, "orthogonal": 32})
+    gate_kinds: list[str] = field(default_factory=lambda: ["isotropic", "orthogonal"])  # the preregistered null
     n_boot: int = 1000
     ci_alpha: float = 0.05
     variance_fraction: float = 0.9  # for d90 and the top-subspace projector P_l
@@ -218,11 +233,21 @@ def validate_config(cfg: Config) -> None:
         raise ValueError("calibration.rho_grid must be ascending")
     if cfg.calibration.extension_factor <= 1.0:
         raise ValueError("calibration.extension_factor must be > 1")
-    if cfg.evaluation.n_random_controls < 1:
-        raise ValueError("evaluation.n_random_controls must be >= 1")
-    for k in cfg.evaluation.random_control_kinds:
+    for k, n in cfg.evaluation.controls.items():
+        if k not in CONTROL_KINDS:
+            raise ValueError(f"unknown control kind {k!r}; choose from {CONTROL_KINDS}")
+        if int(n) < 0:
+            raise ValueError(f"evaluation.controls[{k!r}] must be >= 0")
+    if not cfg.evaluation.gate_kinds:
+        raise ValueError("evaluation.gate_kinds must be non-empty")
+    for k in cfg.evaluation.gate_kinds:
+        if k not in ("isotropic", "orthogonal", "covariance"):
+            raise ValueError("evaluation.gate_kinds must be random-direction kinds (isotropic/orthogonal/covariance)")
+        if cfg.evaluation.controls.get(k, 0) < 1:
+            raise ValueError(f"gate kind {k!r} needs at least one control in evaluation.controls")
+    for k in cfg.calibration.screen_kinds:
         if k not in ("isotropic", "orthogonal"):
-            raise ValueError(f"unknown random control kind {k!r}")
+            raise ValueError("calibration.screen_kinds must be isotropic/orthogonal")
     if cfg.exploratory.block_ablation.criterion not in ("conversion", "new_subspace"):
         raise ValueError("exploratory.block_ablation.criterion must be 'conversion' or 'new_subspace'")
     if cfg.exploratory.block_ablation.rank_by not in ("value", "z"):

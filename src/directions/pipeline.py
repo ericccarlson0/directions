@@ -1,15 +1,17 @@
 """End-to-end pilot orchestration.
 
-Stages per task (``validate`` stops after stage 5; ``pilot`` runs all):
+Phase A, for every task: (1) items -> filter -> three disjoint pools;
+(2) few-shot qualification; (3) control-direction extraction at every candidate
+layer with cross-seed stability (plus demonstration-variation null directions).
 
-1. items -> filter -> three disjoint pools
-2. few-shot qualification (accuracy on the evaluation pool)
-3. control-direction extraction at every candidate layer, cross-seed stability
-4. intervention calibration (layer x strength) on the calibration pool
-5. held-out steering on the evaluation pool vs matched random controls
-6. layerwise measurement (real + random controls), cross-task analysis
-7. exploratory: strength robustness, causal block ablation
-8. figures
+Phase B, for every task that reached stage 3: (4) calibration on the
+calibration pool; (5) held-out steering on the evaluation pool against matched
+controls of every configured kind; (6) layerwise measurement (real and every
+control) and cross-task analysis; (7) exploratory strength robustness and block
+ablation; (8) figures. ``validate`` stops after stage 5.
+
+Phase A runs first for all tasks so that ``other_task`` controls (another
+task's direction at the same layer) exist when phase B needs them.
 """
 
 from __future__ import annotations
@@ -28,9 +30,16 @@ from .ablation import block_ablation, select_blocks
 from .analysis import cross_task_table, profile_signature
 from .calibration import CalibrationResult, Selection, calibrate
 from .config import Config, config_to_dict
-from .extraction import LayerDirection, candidate_layers, directions_from_differences, extract_differences
-from .geometry import matched_random_controls
-from .layerwise import LayerwiseProfile, compare_to_random, compute_profile, profile_arrays
+from .extraction import (
+    LayerDirection,
+    candidate_layers,
+    demo_variation_directions,
+    directions_from_differences,
+    extract_demo_variation,
+    extract_differences,
+)
+from .geometry import covariance_matched_unit_vector, random_orthogonal_unit_vector, random_unit_vector
+from .layerwise import LayerwiseProfile, compare_by_kind, compute_profile, metric_curves, null_summary, profile_arrays
 from .model import ForwardResult, Intervention, ModelBackend, environment_metadata, set_torch_determinism
 from .prompts import Prompt, few_shot_prompt, zero_shot_prompt
 from .runinfo import RejectionLog, git_info, make_run_dir, setup_logging, write_json, write_resolved_config
@@ -38,7 +47,15 @@ from .seeds import derive_seed, rng_for
 from .stats import compare_to_null, paired_bootstrap_test, spearman
 from .tasks import Splits, build_task, filter_items, make_splits
 
-STAGES = ("data", "fewshot", "extraction", "calibration", "steering", "layerwise", "exploratory", "figures")
+
+@dataclass
+class ControlResult:
+    kind: str
+    label: str
+    mean_diff: float
+    p_value: float
+    metrics: dict[str, float]
+    profile: LayerwiseProfile | None = None
 
 
 @dataclass
@@ -46,14 +63,16 @@ class TaskState:
     name: str
     splits: Splits
     directions: dict[int, LayerDirection] = field(default_factory=dict)
+    demo_variation: dict[int, list[np.ndarray]] = field(default_factory=dict)
     stable_layers: list[int] = field(default_factory=list)
+    ready: bool = False  # reached the end of phase A without a blocking rejection
     calibration: CalibrationResult | None = None
     selection: Selection | None = None
     fallback_selection: bool = False
     eval_prompts: list[Prompt] = field(default_factory=list)
     base: ForwardResult | None = None
     steered: ForwardResult | None = None
-    randoms: list[tuple[str, np.ndarray, ForwardResult]] = field(default_factory=list)
+    controls: list[ControlResult] = field(default_factory=list)
     qualified: bool = False
     qualification: dict[str, Any] = field(default_factory=dict)
     profile: LayerwiseProfile | None = None
@@ -106,12 +125,21 @@ class Pipeline:
         for tcfg in cfg.tasks:
             t1 = time.time()
             try:
-                st = self._run_task(tcfg.name, tcfg.params)
-                states[tcfg.name] = st
-            except Exception as e:  # keep going with other tasks, but record the failure
-                self.log.error("task %s failed: %s", tcfg.name, e)
+                states[tcfg.name] = self._prepare_task(tcfg.name, tcfg.params, tcfg.max_target_tokens)
+            except Exception as e:
+                self.log.error("task %s failed in phase A: %s", tcfg.name, e)
                 self.rejections.add("error", tcfg.name, f"{type(e).__name__}: {e}", {"traceback": traceback.format_exc()})
-            self.timings[f"task:{tcfg.name}"] = time.time() - t1
+            self.timings[f"prepare:{tcfg.name}"] = time.time() - t1
+        for name, st in states.items():
+            t1 = time.time()
+            if st.ready and self.stop_after not in ("fewshot", "extraction"):
+                try:
+                    self._measure_task(st, states)
+                except Exception as e:
+                    self.log.error("task %s failed in phase B: %s", name, e)
+                    self.rejections.add("error", name, f"{type(e).__name__}: {e}", {"traceback": traceback.format_exc()})
+            self._finish_task(st)
+            self.timings[f"measure:{name}"] = time.time() - t1
 
         summary = self._summarise(states)
         if self.stop_after == "figures" and cfg.figures.enabled:
@@ -135,15 +163,19 @@ class Pipeline:
     def _seed_table(self) -> dict[str, Any]:
         s = self.cfg.seed
         table: dict[str, Any] = {"run_seed": s, "torch": derive_seed(s, "torch")}
+        n_dv = int(self.cfg.evaluation.controls.get("demo_variation", 0))
         for t in self.cfg.tasks:
             table[t.name] = {
                 "split": derive_seed(s, "split", t.name),
                 "fewshot_eval": derive_seed(s, "fewshot_eval", t.name),
                 "extraction": [derive_seed(s, "extraction", t.name, i) for i in range(self.cfg.extraction.n_seeds)],
+                "demo_variation": [derive_seed(s, "demo_variation", t.name, k) for k in range(n_dv)],
                 "calibration": derive_seed(s, "calibration", t.name),
                 "calibration_screen": {str(l): derive_seed(s, "calibration_screen", t.name, l) for l in self.layers},
                 "random_controls": derive_seed(s, "random_controls", t.name),
+                "covariance_controls": derive_seed(s, "covariance_controls", t.name),
                 "bootstrap": derive_seed(s, "bootstrap", t.name),
+                "profile_bootstrap": derive_seed(s, "profile_bootstrap", t.name),
             }
         return table
 
@@ -154,7 +186,9 @@ class Pipeline:
         d.mkdir(parents=True, exist_ok=True)
         return d
 
-    def _run_task(self, name: str, params: dict[str, Any]) -> TaskState:
+    # ---- phase A ------------------------------------------------------ #
+
+    def _prepare_task(self, name: str, params: dict[str, Any], max_target_tokens: int | None) -> TaskState:
         cfg = self.cfg
         log = self.log
         out = self._task_dir(name)
@@ -162,7 +196,8 @@ class Pipeline:
 
         # 1. data --------------------------------------------------------
         task = build_task(name, params)
-        kept, rejected = filter_items(task, self.backend.target_token_count, cfg.prompt.target_template, cfg.data.max_target_tokens)
+        max_tok = max_target_tokens if max_target_tokens is not None else cfg.data.max_target_tokens
+        kept, rejected = filter_items(task, self.backend.target_token_count, cfg.prompt.target_template, max_tok)
         for r in rejected:
             self.rejections.add(r.stage, r.task, r.reason, r.details)
         splits = make_splits(kept, cfg.seed, name, cfg.data.n_extraction, cfg.data.n_calibration,
@@ -171,8 +206,10 @@ class Pipeline:
             self.rejections.add("data", name, "pools_reduced", {"n_items": len(kept), "sizes": {
                 "extraction": len(splits.extraction), "calibration": len(splits.calibration), "evaluation": len(splits.evaluation)}})
         st = TaskState(name=name, splits=splits)
+        st.qualification = q
         write_json(out / "splits.json", {"n_items_total": len(task.items), "n_items_kept": len(kept),
-                                         "n_items_rejected": len(rejected), "params": task.params, **splits.as_dict()})
+                                         "n_items_rejected": len(rejected), "max_target_tokens": max_tok,
+                                         "params": task.params, **splits.as_dict()})
         log.info("[%s] %d items kept (%d rejected); pools %d/%d/%d", name, len(kept), len(rejected),
                  len(splits.extraction), len(splits.calibration), len(splits.evaluation))
 
@@ -197,27 +234,35 @@ class Pipeline:
             self.rejections.add("fewshot", name, "fewshot_below_threshold",
                                 {"fewshot": q["fewshot"], "min_accuracy": cfg.qualification.min_fewshot_accuracy})
             if cfg.qualification.enforce:
-                return self._finish_task(st, q, out)
+                return st
         if self.stop_after == "fewshot":
-            return self._finish_task(st, q, out)
+            return st
 
         # 3. extraction --------------------------------------------------
         seeds = extract_differences(self.backend, cfg.prompt, splits.extraction, cfg.seed, name, cfg.extraction.n_seeds)
         st.directions = directions_from_differences(seeds, self.layers, cfg.extraction)
+        all_dirs = directions_from_differences(seeds, list(range(self.backend.n_layers + 1)), cfg.extraction)
         ext = {
             "seeds": [{"seed_index": s.seed_index, "seed": s.seed, "metrics": s.metrics} for s in seeds],
             "layers": {str(l): d.summary() for l, d in st.directions.items()},
-            "all_layer_stability": {},
+            "all_layer_stability": {str(l): d.stability for l, d in all_dirs.items()},
+            "all_layer_pooled_evr": {str(l): d.pooled_explained_variance_ratio for l, d in all_dirs.items()},
         }
-        # exploratory diagnostic: stability at every read point, not only candidates
-        all_dirs = directions_from_differences(seeds, list(range(self.backend.n_layers + 1)), cfg.extraction)
-        ext["all_layer_stability"] = {str(l): d.stability for l, d in all_dirs.items()}
-        ext["all_layer_pooled_evr"] = {str(l): d.pooled_explained_variance_ratio for l, d in all_dirs.items()}
+        n_dv = int(cfg.evaluation.controls.get("demo_variation", 0))
+        if n_dv > 0:
+            dv = extract_demo_variation(self.backend, cfg.prompt, splits.extraction, cfg.seed, name, n_dv)
+            st.demo_variation = demo_variation_directions(dv, self.layers, cfg.extraction)
+            ext["demo_variation"] = {
+                "n": n_dv,
+                "cos_with_control": {str(l): [float(abs(u @ st.directions[l].direction)) for u in us]
+                                     for l, us in st.demo_variation.items()},
+            }
         write_json(out / "extraction.json", ext)
         np.savez_compressed(out / "directions.npz",
                             layers=np.array(self.layers),
                             pooled=np.stack([st.directions[l].direction for l in self.layers]),
-                            per_seed=np.stack([st.directions[l].seed_directions for l in self.layers]))
+                            per_seed=np.stack([st.directions[l].seed_directions for l in self.layers]),
+                            all_layers=np.stack([all_dirs[l].direction for l in range(self.backend.n_layers + 1)]))
         st.stable_layers = [l for l in self.layers if st.directions[l].stability >= cfg.qualification.min_stability]
         q["stability"] = {str(l): st.directions[l].stability for l in self.layers}
         q["stable_layers"] = st.stable_layers
@@ -227,10 +272,48 @@ class Pipeline:
             self.rejections.add("stability", name, "no_stable_candidate_layer",
                                 {"stability": q["stability"], "min_stability": cfg.qualification.min_stability})
             if cfg.qualification.enforce:
-                return self._finish_task(st, q, out)
+                return st
             st.stable_layers = list(self.layers)
-        if self.stop_after == "extraction":
-            return self._finish_task(st, q, out)
+        st.ready = True
+        return st
+
+    # ---- phase B ------------------------------------------------------ #
+
+    def _build_controls(self, st: TaskState, states: dict[str, TaskState], layer: int, v: np.ndarray
+                        ) -> list[tuple[str, str, np.ndarray]]:
+        """Unit-norm control directions of every configured kind (see docs/DECISIONS.md D15)."""
+        cfg = self.cfg
+        counts = {k: int(n) for k, n in cfg.evaluation.controls.items()}
+        out: list[tuple[str, str, np.ndarray]] = []
+        rng = rng_for(cfg.seed, "random_controls", st.name)
+        for i in range(counts.get("isotropic", 0)):
+            out.append(("isotropic", f"isotropic_{i}", random_unit_vector(rng, v.shape[0])))
+        for i in range(counts.get("orthogonal", 0)):
+            out.append(("orthogonal", f"orthogonal_{i}", random_orthogonal_unit_vector(rng, v)))
+        if counts.get("covariance", 0):
+            assert st.base is not None and st.base.residuals is not None
+            crng = rng_for(cfg.seed, "covariance_controls", st.name)
+            H = st.base.residuals[layer]
+            for i in range(counts["covariance"]):
+                out.append(("covariance", f"covariance_{i}", covariance_matched_unit_vector(crng, H)))
+        if counts.get("other_task", 0):
+            others = sorted(n for n, s2 in states.items() if n != st.name and layer in s2.directions)
+            for n in others[: counts["other_task"]]:
+                out.append(("other_task", f"other_task:{n}", states[n].directions[layer].direction))
+        if counts.get("demo_variation", 0):
+            for i, u in enumerate(st.demo_variation.get(layer, [])[: counts["demo_variation"]]):
+                out.append(("demo_variation", f"demo_variation_{i}", u))
+        return out
+
+    def _measure_task(self, st: TaskState, states: dict[str, TaskState]) -> None:
+        cfg = self.cfg
+        log = self.log
+        name = st.name
+        out = self._task_dir(name)
+        q = st.qualification
+        splits = st.splits
+        zs_prompts = st.eval_prompts
+        assert st.base is not None and st.base.residuals is not None
 
         # 4. calibration -------------------------------------------------
         cal = calibrate(self.backend, cfg.prompt, cfg.calibration, cfg.evaluation,
@@ -241,7 +324,7 @@ class Pipeline:
         if cal.selected is None:
             self.rejections.add("calibration", name, "no_reliable_intervention", {"reason": cal.reason})
             if cfg.qualification.enforce:
-                return self._finish_task(st, q, out)
+                return
             best = max(cal.grid, key=lambda g: g.test.mean_diff)
             st.selection = Selection(best.layer, best.rho, best.alpha)
             st.fallback_selection = True
@@ -252,28 +335,39 @@ class Pipeline:
         log.info("[%s] selected layer %d, rho %.3g (alpha %.3g)%s", name, st.selection.layer, st.selection.rho,
                  st.selection.alpha, " [FALLBACK]" if st.fallback_selection else "")
 
-        # 5. held-out steering vs matched random controls ---------------
+        # 5. held-out steering vs matched controls of every kind ----------
         sel = st.selection
         v = st.directions[sel.layer].direction
+        do_layerwise = self.stop_after in ("layerwise", "exploratory", "figures")
         st.steered = self.backend.run(zs_prompts, interventions=[Intervention(sel.layer, v, sel.alpha)], capture=True)
         brng = rng_for(cfg.seed, "bootstrap", name)
+        prng = rng_for(cfg.seed, "profile_bootstrap", name)
         test = paired_bootstrap_test(st.steered.logprob_per_token, st.base.logprob_per_token, brng, n_boot=cfg.calibration.n_boot)
-        controls = matched_random_controls(rng_for(cfg.seed, "random_controls", name), v,
-                                           cfg.evaluation.n_random_controls, tuple(cfg.evaluation.random_control_kinds))
-        rand_rows = []
-        for kind, u in controls:
-            r = self.backend.run(zs_prompts, interventions=[Intervention(sel.layer, u, sel.alpha)], capture=True)
-            st.randoms.append((kind, u, r))
+        for kind, label, u in self._build_controls(st, states, sel.layer, v):
+            r = self.backend.run(zs_prompts, interventions=[Intervention(sel.layer, u, sel.alpha)], capture=do_layerwise)
             rt = paired_bootstrap_test(r.logprob_per_token, st.base.logprob_per_token, brng, n_boot=cfg.calibration.n_boot)
-            rand_rows.append({"kind": kind, "mean_diff": rt.mean_diff, "p_value": rt.p_value, "metrics": r.metrics_dict()})
-        null = compare_to_null(test.mean_diff, np.array([r["mean_diff"] for r in rand_rows]))
+            prof = None
+            if do_layerwise:
+                assert r.residuals is not None
+                prof = compute_profile(st.base.residuals, r.residuals, u, sel.layer, cfg.evaluation, prng, with_ci=False)
+            st.controls.append(ControlResult(kind, label, rt.mean_diff, rt.p_value, r.metrics_dict(), prof))
+        gate_kinds = list(cfg.evaluation.gate_kinds)
+        gate_null = np.array([c.mean_diff for c in st.controls if c.kind in gate_kinds])
+        null = compare_to_null(test.mean_diff, gate_null)
+        by_kind_behav = {}
+        for kind in sorted({c.kind for c in st.controls}):
+            vals = np.array([c.mean_diff for c in st.controls if c.kind == kind])
+            by_kind_behav[kind] = compare_to_null(test.mean_diff, vals).__dict__
         ev = {
             "selection": q["selection"],
             "baseline": st.base.metrics_dict(),
             "steered": st.steered.metrics_dict(),
             "steering_test": test.__dict__,
-            "random_controls": rand_rows,
+            "gate_kinds": gate_kinds,
+            "controls": [{"kind": c.kind, "label": c.label, "mean_diff": c.mean_diff, "p_value": c.p_value,
+                          "metrics": c.metrics} for c in st.controls],
             "random_comparison": null.__dict__,
+            "by_kind_comparison": by_kind_behav,
             "per_example": {
                 "baseline_logprob_per_token": st.base.logprob_per_token.tolist(),
                 "steered_logprob_per_token": st.steered.logprob_per_token.tolist(),
@@ -282,44 +376,50 @@ class Pipeline:
             },
         }
         write_json(out / "evaluation.json", ev)
-        q["steering"] = {"test": test.__dict__, "random_comparison": null.__dict__}
+        q["steering"] = {"test": test.__dict__, "random_comparison": null.__dict__, "by_kind": by_kind_behav}
         q["gates"]["steering"] = bool(test.p_value <= cfg.qualification.steering_alpha and test.mean_diff > 0)
         q["gates"]["random_controls"] = bool(null.p_upper <= cfg.qualification.random_control_max_p)
-        log.info("[%s] held-out steering: mean d(lp/tok)=%.4f p=%.4f; vs %d random: z=%.2f p=%.3f", name,
-                 test.mean_diff, test.p_value, len(rand_rows), null.z, null.p_upper)
+        log.info("[%s] held-out steering: mean d(lp/tok)=%.4f p=%.4f; vs %d gate controls: z=%.2f p=%.3f; by kind %s",
+                 name, test.mean_diff, test.p_value, null.n_null, null.z, null.p_upper,
+                 {k: (round(c["z"], 2), round(c["p_upper"], 3)) for k, c in by_kind_behav.items()})
         if not q["gates"]["steering"]:
             self.rejections.add("steering", name, "no_reliable_heldout_steering", {"test": test.__dict__})
         if not q["gates"]["random_controls"]:
             self.rejections.add("random_controls", name, "steering_not_above_random_controls", {"comparison": null.__dict__})
         st.qualified = all(q["gates"].values())
         if not st.qualified and cfg.qualification.enforce:
-            return self._finish_task(st, q, out)
-        if self.stop_after == "steering":
-            return self._finish_task(st, q, out)
+            return
+        if not do_layerwise:
+            return
 
         # 6. layerwise ---------------------------------------------------
-        prng = rng_for(cfg.seed, "profile_bootstrap", name)
-        assert st.base.residuals is not None and st.steered.residuals is not None
+        assert st.steered.residuals is not None
         st.profile = compute_profile(st.base.residuals, st.steered.residuals, v, sel.layer, cfg.evaluation, prng)
-        rand_profiles = []
-        for kind, u, r in st.randoms:
-            assert r.residuals is not None
-            rand_profiles.append(compute_profile(st.base.residuals, r.residuals, u, sel.layer, cfg.evaluation, prng))
-        st.comparison = compare_to_random(st.profile, rand_profiles)
-        st.signature = profile_signature(st.profile, st.comparison, cfg.analysis)
+        by_kind: dict[str, list[LayerwiseProfile]] = {}
+        for c in st.controls:
+            if c.profile is not None:
+                by_kind.setdefault(c.kind, []).append(c.profile)
+        st.comparison = compare_by_kind(st.profile, by_kind, gate_kinds)
+        st.signature = profile_signature(st.profile, st.comparison["primary"], cfg.analysis,
+                                         by_kind=st.comparison["by_kind"])
+        pooled = [p for k in gate_kinds for p in by_kind.get(k, [])]
         write_json(out / "layerwise.json", {
             "real": st.profile.as_dict(),
-            "random_controls": [{"kind": k, **p.as_dict()} for (k, _, _), p in zip(st.randoms, rand_profiles)],
+            "gate_kinds": gate_kinds,
+            "controls": [{"kind": c.kind, "label": c.label, "curves": metric_curves(c.profile)}
+                         for c in st.controls if c.profile is not None],
+            "null_summaries": {"primary": null_summary(pooled), **{k: null_summary(ps) for k, ps in by_kind.items()}},
             "comparison": st.comparison,
             "signature": st.signature,
         })
         np.savez_compressed(out / "layerwise_arrays.npz", **profile_arrays(st.profile))
-        log.info("[%s] profile: cum log G %.3f, final alignment %.3f, d_eff %.1f->%.1f, labels %s", name,
+        zk = {k: round(d.get("new_subspace_uncentered_z_mean") or float("nan"), 2) for k, d in st.signature["by_kind"].items()}
+        log.info("[%s] profile: cum log G %.3f, final alignment %.3f, d_eff %.1f->%.1f, labels %s; N_unc z by kind %s", name,
                  st.signature["cumulative_log_gain"], st.signature["alignment_final"] or float("nan"),
                  st.signature["d_eff_first"] or float("nan"), st.signature["d_eff_final"] or float("nan"),
-                 st.signature["labels"])
+                 st.signature["labels"], zk)
         if self.stop_after == "layerwise":
-            return self._finish_task(st, q, out)
+            return
 
         # 7. exploratory -------------------------------------------------
         try:
@@ -327,14 +427,12 @@ class Pipeline:
         except Exception as e:
             log.error("[%s] exploratory stage failed: %s", name, e)
             self.rejections.add("error", name, f"exploratory: {type(e).__name__}: {e}", {"traceback": traceback.format_exc()})
-        return self._finish_task(st, q, out)
 
-    def _finish_task(self, st: TaskState, q: dict[str, Any], out: Path) -> TaskState:
+    def _finish_task(self, st: TaskState) -> None:
+        q = st.qualification
         q["qualified"] = bool(st.qualified)
         q["enforce"] = self.cfg.qualification.enforce
-        st.qualification = q
-        write_json(out / "qualification.json", q)
-        return st
+        write_json(self._task_dir(st.name) / "qualification.json", q)
 
     # ------------------------------------------------------------------ #
 
@@ -342,6 +440,7 @@ class Pipeline:
         cfg = self.cfg
         assert st.calibration is not None and st.selection is not None and st.profile is not None
         assert st.base is not None and st.steered is not None and st.base.residuals is not None
+        assert st.steered.residuals is not None and st.comparison is not None
         out = self._task_dir(st.name, exploratory=True)
         sel = st.selection
 
@@ -362,7 +461,7 @@ class Pipeline:
             write_json(out / "strength_robustness.json", rob)
 
         if cfg.exploratory.block_ablation.enabled:
-            blocks = select_blocks(st.profile, cfg.exploratory.block_ablation, st.comparison)
+            blocks = select_blocks(st.profile, cfg.exploratory.block_ablation, st.comparison["primary"])
             delta = st.steered.residuals.astype(np.float64) - st.base.residuals.astype(np.float64)
             abl = block_ablation(self.backend, st.eval_prompts, st.base, st.steered, delta, sel.layer, v, sel.alpha,
                                  blocks, prng, n_boot=cfg.evaluation.n_boot)
@@ -381,6 +480,7 @@ class Pipeline:
         summary: dict[str, Any] = {
             "run_id": self.root.name,
             "command": self.command,
+            "seed": self.cfg.seed,
             "model": self.metadata.get("model", {}).get("name"),
             "tasks": {
                 n: {

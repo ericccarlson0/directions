@@ -214,6 +214,14 @@ EN_FR: list[tuple[str, str]] = [
 ]
 
 
+from .data_extra import ANTONYM_EXTRA, EN_FR_EXTRA, PAST_TENSE_EXTRA, PLURAL_EXTRA  # noqa: E402
+
+ANTONYM = ANTONYM + ANTONYM_EXTRA
+PLURAL = PLURAL + PLURAL_EXTRA
+PAST_TENSE = PAST_TENSE + PAST_TENSE_EXTRA
+EN_FR = EN_FR + EN_FR_EXTRA
+
+
 def dedupe(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
     """Keep the first occurrence of each input (stable order)."""
     seen: set[str] = set()

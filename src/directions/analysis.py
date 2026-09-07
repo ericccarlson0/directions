@@ -30,10 +30,34 @@ def _finite(a: np.ndarray) -> np.ndarray:
     return a[~np.isnan(a)]
 
 
+def _z_means(comparison: dict[str, Any]) -> dict[str, Any]:
+    """Mean per-layer z-score of the real direction against one null, per metric."""
+    out: dict[str, Any] = {"n": comparison.get("n_random", 0)}
+    for metric, key in (("log_gain", "log_gain_z_mean"), ("d_eff", "d_eff_z_mean"),
+                        ("new_subspace", "new_subspace_z_mean"), ("new_subspace_uncentered", "new_subspace_uncentered_z_mean"),
+                        ("alignment", "alignment_z_mean"), ("conversion", "conversion_z_mean")):
+        z = _finite(np.array([r["z"] for r in comparison["metrics"][metric]["per_layer"]], dtype=np.float64))
+        out[key] = float(np.mean(z)) if len(z) else None
+        p = _finite(np.array([r["p_upper"] for r in comparison["metrics"][metric]["per_layer"]], dtype=np.float64))
+        out[key.replace("_z_mean", "_frac_layers_p_upper_le_0.05")] = float(np.mean(p <= 0.05)) if len(p) else None
+    cg = comparison.get("cumulative_log_gain", {})
+    out["cumulative_log_gain_z"] = cg.get("z")
+    out["cumulative_log_gain_p_upper"] = cg.get("p_upper")
+    out["cumulative_log_gain_p_lower"] = cg.get("p_lower")
+    return out
+
+
 def profile_signature(
-    profile: LayerwiseProfile, comparison: dict[str, Any] | None, cfg: AnalysisConfig
+    profile: LayerwiseProfile,
+    comparison: dict[str, Any] | None,
+    cfg: AnalysisConfig,
+    by_kind: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Mode-discriminating scalar quantities for one task/control pair."""
+    """Mode-discriminating scalar quantities for one task/control pair.
+
+    ``comparison`` is the primary (gate-kind) random-control comparison;
+    ``by_kind`` holds one comparison per control kind (structured nulls).
+    """
     ls, L = profile.intervention_layer, profile.n_layers
     blocks = np.arange(ls, L)
     # conversion mass per block: median ||b_l(x)|| over examples, normalised over downstream blocks
@@ -77,20 +101,11 @@ def profile_signature(
         "noise_floor_variance_ratio": profile.noise_floor["variance_ratio_intervention_over_next"],
     }
     if comparison is not None:
-        z_unc = [r["z"] for r in comparison["metrics"]["new_subspace_uncentered"]["per_layer"]]
-        z_unc = _finite(np.array(z_unc, dtype=np.float64))
-        z_c = _finite(np.array([r["z"] for r in comparison["metrics"]["new_subspace"]["per_layer"]], dtype=np.float64))
-        z_deff = _finite(np.array([r["z"] for r in comparison["metrics"]["d_eff"]["per_layer"]], dtype=np.float64))
-        z_align = _finite(np.array([r["z"] for r in comparison["metrics"]["alignment"]["per_layer"]], dtype=np.float64))
-        sig.update(
-            {
-                "new_subspace_uncentered_z_mean": float(np.mean(z_unc)) if len(z_unc) else None,
-                "new_subspace_z_mean": float(np.mean(z_c)) if len(z_c) else None,
-                "d_eff_z_mean": float(np.mean(z_deff)) if len(z_deff) else None,
-                "alignment_z_mean": float(np.mean(z_align)) if len(z_align) else None,
-                "cumulative_log_gain_vs_random": comparison["cumulative_log_gain"],
-            }
-        )
+        zm = _z_means(comparison)
+        sig.update({k: v for k, v in zm.items() if k != "n"})
+        sig["n_primary_controls"] = zm["n"]
+        sig["cumulative_log_gain_vs_random"] = comparison["cumulative_log_gain"]
+    sig["by_kind"] = {k: _z_means(c) for k, c in (by_kind or {}).items()}
     sig["labels"] = assign_labels(sig, cfg)
     return sig
 
@@ -162,7 +177,21 @@ def cross_task_table(signatures: dict[str, dict[str, Any]]) -> dict[str, Any]:
         "new_subspace_uncentered_mean",
         "new_subspace_uncentered_z_mean",
         "new_subspace_z_mean",
+        "log_gain_z_mean",
+        "d_eff_z_mean",
+        "alignment_z_mean",
+        "cumulative_log_gain_z",
+        "n_primary_controls",
         "noise_floor_variance_ratio",
         "labels",
     ]
-    return {task: {k: sig.get(k) for k in keys} for task, sig in signatures.items()}
+    table: dict[str, Any] = {}
+    for task, sig in signatures.items():
+        row = {k: sig.get(k) for k in keys}
+        row["by_kind"] = {
+            kind: {k: d.get(k) for k in ("n", "log_gain_z_mean", "d_eff_z_mean", "new_subspace_uncentered_z_mean",
+                                          "alignment_z_mean", "cumulative_log_gain_z")}
+            for kind, d in sig.get("by_kind", {}).items()
+        }
+        table[task] = row
+    return table

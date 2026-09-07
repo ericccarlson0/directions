@@ -123,7 +123,7 @@ def compare_to_null(value: float, null_values: np.ndarray) -> NullComparison:
         return NullComparison(float(value), float("nan"), float("nan"), float("nan"), float("nan"), float("nan"), n)
     mu = float(null.mean())
     sd = float(null.std(ddof=1)) if n > 1 else 0.0
-    z = (value - mu) / sd if sd > 0 else (0.0 if value == mu else float(np.sign(value - mu)) * np.inf)
+    z = (value - mu) / sd if sd > 0 else float("nan")  # undefined for a degenerate null
     return NullComparison(
         value=float(value),
         null_mean=mu,

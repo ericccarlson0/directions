@@ -96,8 +96,9 @@ def task_figures(root: Path, st: "TaskState", cfg: Config) -> None:
     ls, L = p.intervention_layer, p.n_layers
     layers = np.arange(L + 1)
     blocks = np.arange(L)
-    comp = st.comparison["metrics"]
-    rand = {m: _random_curves(root, st.name, m) for m in comp}
+    comp = st.comparison["primary"]["metrics"]
+    gate = st.comparison["gate_kinds"]
+    rand = {m: _random_curves(root, st.name, m, gate) for m in comp}
 
     # 1. control magnitude
     fig, ax = plt.subplots(figsize=(5.5, 3.2))
@@ -179,24 +180,63 @@ def task_figures(root: Path, st: "TaskState", cfg: Config) -> None:
         _mark_intervention(ax, ls)
         ax.set_title(m, color=TEXT, fontsize=9)
         ax.set_ylabel("z vs random")
-    fig.suptitle(f"{st.name}: real control vs {st.comparison['n_random']} matched random controls", color=TEXT)
+    fig.suptitle(f"{st.name}: real control vs {st.comparison['primary']['n_random']} matched random controls "
+                 f"({'+'.join(gate)})", color=TEXT)
     _save(fig, figdir / f"{st.name}_vs_random.png", dpi)
 
+    _structured_nulls_figure(root, figdir, st, dpi)
     # diagnostics
     _calibration_figure(figdir, st, dpi)
     _stability_figure(figdir, st, dpi)
 
 
-def _random_curves(root: Path, task: str, metric: str) -> np.ndarray:
+KIND_COLORS = {"isotropic": RANDOM, "orthogonal": "#6d6c68", "covariance": SERIES[1], "other_task": SERIES[2],
+               "demo_variation": SERIES[6]}
+
+
+def _structured_nulls_figure(root: Path, figdir: Path, st: "TaskState", dpi: int) -> None:
+    """Real control vs the median (and 5-95 % band) of every control kind."""
+    p = st.profile
+    assert p is not None and st.comparison is not None
+    ls, L = p.intervention_layer, p.n_layers
+    kinds = [k for k in KIND_COLORS if k in st.comparison["by_kind"]]
+    if not kinds:
+        return
+    specs = [("log_gain", "median log G_l", np.arange(L)), ("alignment", "median A_l", np.arange(L + 1)),
+             ("d_eff", "d_eff(D_l)", np.arange(L + 1)), ("new_subspace_uncentered", "N_l^unc", np.arange(L))]
+    fig, axes = plt.subplots(2, 2, figsize=(11, 6.5))
+    for ax, (m, ylabel, x) in zip(axes.ravel(), specs):
+        for k in kinds:
+            curves = _random_curves(root, st.name, m, [k])
+            if curves.shape[0] == 0:
+                continue
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                med = np.nanmedian(curves, axis=0)
+                lo, hi = np.nanpercentile(curves, 5, axis=0), np.nanpercentile(curves, 95, axis=0)
+            n = st.comparison["by_kind"][k]["n_random"]
+            ax.fill_between(x, lo, hi, color=KIND_COLORS[k], alpha=0.12, linewidth=0)
+            ax.plot(x, med, color=KIND_COLORS[k], linestyle="--", linewidth=1.5, label=f"{k} (n={n})")
+        ax.plot(x, p.metric_curve(m), color=REAL, linewidth=2.2, label="control direction")
+        _mark_intervention(ax, ls)
+        ax.set_ylabel(ylabel)
+        ax.set_xlabel("block l" if len(x) == L else "residual read point l")
+    axes[0, 0].legend(fontsize=7)
+    fig.suptitle(f"{st.name}: control direction vs structured nulls (median, 5-95 % band)", color=TEXT)
+    _save(fig, figdir / f"{st.name}_structured_nulls.png", dpi)
+
+
+_CURVE_CACHE: dict[tuple[Path, str], list[dict]] = {}
+
+
+def _random_curves(root: Path, task: str, metric: str, kinds: list[str]) -> np.ndarray:
+    """Per-control metric curves of the given kinds, from the task's layerwise.json."""
     from .runinfo import read_json
 
-    data = read_json(root / "core" / "tasks" / task / "layerwise.json")
-    rows = []
-    for r in data["random_controls"]:
-        if metric in ("magnitude", "log_gain", "conversion", "alignment"):
-            rows.append([np.nan if x is None else x for x in r["summaries"][metric]["median"]])
-        else:
-            rows.append([np.nan if x is None else x for x in r[metric]])
+    key = (root, task)
+    if key not in _CURVE_CACHE:
+        _CURVE_CACHE[key] = read_json(root / "core" / "tasks" / task / "layerwise.json")["controls"]
+    rows = [[np.nan if x is None else x for x in r["curves"][metric]] for r in _CURVE_CACHE[key] if r["kind"] in kinds]
     return np.array(rows, dtype=np.float64) if rows else np.zeros((0, 0))
 
 

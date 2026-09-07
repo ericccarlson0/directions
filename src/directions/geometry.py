@@ -126,6 +126,23 @@ def random_orthogonal_unit_vector(rng: np.random.Generator, v: np.ndarray) -> np
             return g / n
 
 
+def covariance_matched_unit_vector(rng: np.random.Generator, H: np.ndarray) -> np.ndarray:
+    """Random unit vector drawn from the (centered) covariance of the rows of ``H`` (n, d).
+
+    ``u ∝ H_cᵀ g`` with ``g ~ N(0, I_n)`` has covariance proportional to
+    ``H_cᵀ H_c``, so it lies in the subspace the residual stream actually
+    occupies, unlike an isotropic direction.
+    """
+    Hc = np.asarray(H, dtype=np.float64)
+    Hc = Hc - Hc.mean(axis=0, keepdims=True)
+    while True:
+        g = rng.standard_normal(Hc.shape[0])
+        u = Hc.T @ g
+        n = np.linalg.norm(u)
+        if n > 0:
+            return u / n
+
+
 def matched_random_controls(
     rng: np.random.Generator, v: np.ndarray, n: int, kinds: tuple[str, ...] = ("isotropic", "orthogonal")
 ) -> list[tuple[str, np.ndarray]]:
@@ -151,6 +168,30 @@ def matched_random_controls(
 # --------------------------------------------------------------------------- #
 
 
+def _singular_values_sq(X: np.ndarray) -> np.ndarray:
+    """Squared singular values of ``X`` (n, d), descending; via the n x n Gram matrix when n < d."""
+    n, d = X.shape
+    if n < d:
+        w = np.linalg.eigvalsh(X @ X.T)[::-1]
+        return np.clip(w, 0.0, None)
+    return np.linalg.svd(X, compute_uv=False) ** 2
+
+
+def _top_right_singular_vectors(X: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
+    """(s^2 descending, top-k right singular vectors as rows) via the Gram trick when n < d."""
+    n, d = X.shape
+    if n < d:
+        w, U = np.linalg.eigh(X @ X.T)
+        order = np.argsort(w)[::-1]
+        w, U = np.clip(w[order], 0.0, None), U[:, order]
+        s = np.sqrt(w[:k])
+        keep = s > 0
+        V = (X.T @ U[:, :k])[:, keep] / s[keep]
+        return w, V.T
+    _, s, vt = np.linalg.svd(X, full_matrices=False)
+    return s**2, vt[:k]
+
+
 def effective_rank(X: np.ndarray, center: bool = True) -> float:
     """Participation-ratio effective rank ``(sum s^2)^2 / sum s^4`` of ``X`` (n, d).
 
@@ -159,7 +200,7 @@ def effective_rank(X: np.ndarray, center: bool = True) -> float:
     X = np.asarray(X, dtype=np.float64)
     if center:
         X = X - X.mean(axis=0, keepdims=True)
-    s2 = np.linalg.svd(X, compute_uv=False) ** 2
+    s2 = _singular_values_sq(X)
     denom = float(np.sum(s2**2))
     if denom == 0.0:
         return float("nan")
@@ -174,7 +215,7 @@ def d90(X: np.ndarray, frac: float = 0.9, center: bool = True) -> int | None:
     X = np.asarray(X, dtype=np.float64)
     if center:
         X = X - X.mean(axis=0, keepdims=True)
-    s2 = np.linalg.svd(X, compute_uv=False) ** 2
+    s2 = _singular_values_sq(X)
     total = float(np.sum(s2))
     if total == 0.0:
         return None
@@ -195,15 +236,15 @@ def spectrum(X: np.ndarray, frac: float = 0.9, center: bool = True) -> Spectrum:
     X = np.asarray(X, dtype=np.float64)
     if center:
         X = X - X.mean(axis=0, keepdims=True)
-    _, s, vt = np.linalg.svd(X, full_matrices=False)
-    s2 = s**2
+    s2 = _singular_values_sq(X)
     total = float(np.sum(s2))
     if total == 0.0:
         return Spectrum(float("nan"), None, 0.0, np.zeros((0, X.shape[1])))
     cum = np.cumsum(s2) / total
     k = int(np.searchsorted(cum, frac - 1e-12) + 1)
     eff = float(total**2 / np.sum(s2**2))
-    return Spectrum(eff, k, total, vt[:k])
+    _, top = _top_right_singular_vectors(X, k)
+    return Spectrum(eff, k, total, top)
 
 
 def new_subspace_fraction(B: np.ndarray, top_subspace: np.ndarray) -> float:

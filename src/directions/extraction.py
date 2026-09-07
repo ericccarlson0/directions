@@ -10,7 +10,7 @@ import numpy as np
 from .config import ExtractionConfig, PromptConfig
 from .geometry import pca_direction, stability
 from .model import ModelBackend
-from .prompts import paired_prompts
+from .prompts import few_shot_prompt, paired_prompts
 from .seeds import rng_for
 from .tasks import Item
 
@@ -111,3 +111,41 @@ def directions_from_differences(
             cos_pooled_vs_seeds=[float(abs(pooled.direction @ d)) for d in seed_dirs],
         )
     return out
+
+
+# --------------------------------------------------------------------------- #
+# Demonstration-variation null directions (docs/DECISIONS.md D15)
+# --------------------------------------------------------------------------- #
+
+
+def extract_demo_variation(
+    backend: ModelBackend,
+    prompt_cfg: PromptConfig,
+    pool: list[Item],
+    run_seed: int,
+    task_name: str,
+    n: int,
+) -> list[np.ndarray]:
+    """``n`` difference matrices ``h(p_i^{+,a}) - h(p_i^{+,b})`` between two *correct*
+    demonstration samples for the same query: the same kind of prompt-difference
+    at the query token as the extraction contrast, but without any task contrast.
+
+    Returns a list of arrays shaped (n_items, L+1, d).
+    """
+    out: list[np.ndarray] = []
+    for k in range(n):
+        rng = np.random.default_rng(rng_for(run_seed, "demo_variation", task_name, k).integers(0, 2**31 - 1))
+        a = [few_shot_prompt(prompt_cfg, pool, q, rng) for q in pool]
+        b = [few_shot_prompt(prompt_cfg, pool, q, rng) for q in pool]
+        ra = backend.run(a, capture=True)
+        rb = backend.run(b, capture=True)
+        assert ra.residuals is not None and rb.residuals is not None
+        out.append(np.transpose(ra.residuals - rb.residuals, (1, 0, 2)))
+    return out
+
+
+def demo_variation_directions(
+    diffs: list[np.ndarray], layers: list[int], cfg: ExtractionConfig
+) -> dict[int, list[np.ndarray]]:
+    """PC1 (same extraction rule as the control) of each demo-variation matrix, per layer."""
+    return {l: [pca_direction(d[:, l, :], center=cfg.center).direction for d in diffs] for l in layers}
