@@ -218,3 +218,28 @@ def test_strength_robustness_is_reported(pilot_run):
         assert set(sr["profile_agreement_with_selected"]) == {
             "log_G_spearman", "d_eff_spearman", "N_spearman"
         }
+
+
+def test_cross_task_summary_discriminates_the_propagation_modes(pilot_run):
+    summary, root = pilot_run
+    path = root / "core" / "cross_task_summary.json"
+    assert path.exists()
+    cross = json.loads(path.read_text())
+    assert set(cross["metric_guide"]) == {
+        "conserved_transmission", "delayed_activation",
+        "cascaded_activation", "dimensional_expansion",
+    }
+    for task in summary["tasks_qualified"]:
+        row = cross["tasks"][task]
+        for key in (
+            "control_alignment_final", "cumulative_log_gain", "mean_conversion",
+            "conversion_centroid_depth", "conversion_entropy_ratio",
+            "d_eff_first_measured", "d_eff_final", "d_eff_ratio_final_over_first",
+            "mean_new_subspace_uncentered", "S_first_measured", "S_final",
+            "heldout_improvement", "control_z",
+        ):
+            assert key in row, key
+        assert 0.0 <= row["conversion_centroid_depth"] <= 1.0
+        assert 0.0 <= row["conversion_entropy_ratio"] <= 1.0
+        assert row["intervention_layer"] < row["n_layers"]
+    assert summary["cross_task_summary"]["tasks"] == cross["tasks"]

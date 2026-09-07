@@ -590,6 +590,10 @@ def execute(cfg: Config, command: str, do_layerwise: bool) -> dict:
         rep.payload.pop("_objects", None)
         rundir.write_json(f"core/validation__{name}.json", rep.to_dict())
 
+    cross = cross_task_summary(cfg, measurements, reports) if measurements else None
+    if cross:
+        rundir.write_json("core/cross_task_summary.json", cross)
+
     if cfg.figures.enabled:
         figure_paths = _make_figures(cfg, rundir, reports, measurements, layerwise_results)
 
@@ -624,10 +628,95 @@ def execute(cfg: Config, command: str, do_layerwise: bool) -> dict:
         },
         "figures": figure_paths,
         "layerwise_completed": sorted(layerwise_results),
+        "cross_task_summary": cross,
     }
     rundir.write_json("summary.json", summary)
     rundir.log(f"done in {summary['elapsed_seconds']}s; summary written")
     return summary
+
+
+def cross_task_summary(cfg: Config, measurements: dict, reports: dict) -> dict:
+    """The layerwise quantities that discriminate the competing propagation modes.
+
+    Each row reduces one task's amplification profile to the handful of numbers
+    that separate conserved transmission, delayed activation, cascaded
+    activation and dimensional expansion, so the distinctions in
+    ``docs/PROJECT.md`` can be read off without opening the per-task files.
+    """
+    rows = {}
+    for task, m in sorted(measurements.items()):
+        l0, L = m.layer, m.n_layers
+        blocks = np.arange(l0, L)
+        resid = np.arange(l0, L + 1)
+        if blocks.size == 0:
+            continue
+        with layerwise.quiet_nan_reductions():
+            logG = np.nanmedian(np.log(m.G[blocks]), axis=1)
+            C = np.nanmedian(m.C[blocks], axis=1)
+            S = np.nanmedian(m.S[resid], axis=1)
+        deff = m.d_eff[resid]
+        align = m.control_alignment[resid]
+        mass = np.nan_to_num(C)
+        share = mass / mass.sum() if mass.sum() > 0 else mass
+        depth = (blocks - l0) / max(1, L - 1 - l0)
+        first = np.isfinite(deff)
+        rows[task] = {
+            "intervention_layer": l0,
+            "n_layers": L,
+            "relative_depth_of_intervention": round(l0 / L, 3),
+            "alpha": m.alpha,
+            # conserved transmission: alignment stays high, gain ~ 0, conversion ~ 0
+            "control_alignment_final": _num(align[-1]),
+            "control_alignment_halflife_blocks": _halflife(align),
+            "cumulative_log_gain": _num(np.nansum(logG)),
+            "mean_conversion": _num(np.nanmean(C)),
+            # delayed vs cascaded activation: where the conversion mass sits
+            "conversion_centroid_depth": _num(float(np.sum(share * depth))),
+            "conversion_entropy_ratio": _num(_entropy_ratio(share)),
+            "max_block_share_of_conversion": _num(float(np.max(share))),
+            "argmax_conversion_block": int(blocks[int(np.argmax(share))]),
+            # dimensional expansion
+            "d_eff_first_measured": _num(deff[first][0] if first.any() else np.nan),
+            "d_eff_final": _num(deff[-1]),
+            "d_eff_ratio_final_over_first": _num(
+                deff[-1] / deff[first][0] if first.any() and deff[first][0] > 0 else np.nan
+            ),
+            "d90_final": _num(m.d90[-1]),
+            "mean_new_subspace_uncentered": _num(np.nanmean(m.N_uncentered[blocks])),
+            # magnitude
+            "S_first_measured": _num(S[0]),
+            "S_final": _num(S[-1]),
+            "numerical_noise_to_signal": m.numerical_noise.get("noise_to_signal_ratio"),
+            "heldout_improvement": reports[task].stages["heldout_steering"]["improvement"],
+            "control_z": reports[task].stages["random_control_comparison"]["z"],
+        }
+    return {
+        "metric_guide": {
+            "conserved_transmission": "alignment stays high, cumulative_log_gain ~ 0, mean_conversion ~ 0, d_eff flat",
+            "delayed_activation": "conversion_centroid_depth well above 0.5 with low early conversion",
+            "cascaded_activation": "conversion_entropy_ratio near 1 with no dominant block",
+            "dimensional_expansion": "d_eff_ratio_final_over_first > 1 and rising d90",
+        },
+        "tasks": rows,
+    }
+
+
+def _num(x):
+    x = float(x)
+    return None if not np.isfinite(x) else x
+
+
+def _entropy_ratio(share: np.ndarray) -> float:
+    nz = share[share > 0]
+    if nz.size < 2:
+        return 0.0
+    return float(-np.sum(nz * np.log(nz)) / np.log(share.size))
+
+
+def _halflife(align: np.ndarray) -> int | None:
+    """Blocks after the intervention until |cos(delta_l, v)| first falls below 0.5."""
+    hit = np.where(np.nan_to_num(align, nan=1.0) < 0.5)[0]
+    return int(hit[0]) if hit.size else None
 
 
 def _make_figures(cfg, rundir, reports, measurements, layerwise_results) -> list[str]:
