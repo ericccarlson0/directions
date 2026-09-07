@@ -23,13 +23,24 @@ from .prompts import Prompt
 from .stats import paired_bootstrap_test
 
 
-def select_blocks(profile: LayerwiseProfile, cfg: BlockAblationConfig) -> list[int]:
-    """Blocks with the largest median conversion (or uncentred new-subspace fraction)."""
+def select_blocks(
+    profile: LayerwiseProfile, cfg: BlockAblationConfig, comparison: dict[str, Any] | None = None
+) -> list[int]:
+    """Blocks with the largest median conversion (or uncentred new-subspace fraction).
+
+    With ``rank_by="z"`` the ranking uses the per-block z-score against the
+    matched random controls instead of the raw value.
+    """
     ls = profile.intervention_layer
-    if cfg.criterion == "conversion":
-        curve = profile.metric_curve("conversion")
+    metric = "conversion" if cfg.criterion == "conversion" else "new_subspace_uncentered"
+    if cfg.rank_by == "z":
+        if comparison is None:
+            raise ValueError("rank_by='z' needs the random-control comparison")
+        curve = np.array(
+            [np.nan if r["z"] is None else r["z"] for r in comparison["metrics"][metric]["per_layer"]], dtype=np.float64
+        )
     else:
-        curve = profile.new_subspace_uncentered
+        curve = profile.metric_curve(metric)
     order = [int(i) for i in np.argsort(-np.nan_to_num(curve, nan=-np.inf)) if i >= ls and not np.isnan(curve[i])]
     return sorted(order[: cfg.n_blocks])
 

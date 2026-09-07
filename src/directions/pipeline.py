@@ -362,11 +362,12 @@ class Pipeline:
             write_json(out / "strength_robustness.json", rob)
 
         if cfg.exploratory.block_ablation.enabled:
-            blocks = select_blocks(st.profile, cfg.exploratory.block_ablation)
+            blocks = select_blocks(st.profile, cfg.exploratory.block_ablation, st.comparison)
             delta = st.steered.residuals.astype(np.float64) - st.base.residuals.astype(np.float64)
             abl = block_ablation(self.backend, st.eval_prompts, st.base, st.steered, delta, sel.layer, v, sel.alpha,
                                  blocks, prng, n_boot=cfg.evaluation.n_boot)
             abl["criterion"] = cfg.exploratory.block_ablation.criterion
+            abl["rank_by"] = cfg.exploratory.block_ablation.rank_by
             write_json(out / "block_ablation.json", abl)
             self.log.info("[%s] block ablation of %s: %s", st.name, blocks,
                           {b: (round(x["necessity"]["fraction_lost"] or float("nan"), 3),

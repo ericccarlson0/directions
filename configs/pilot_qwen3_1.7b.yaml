@@ -68,7 +68,7 @@ evaluation:
 
 exploratory:
   strength_robustness: true
-  block_ablation: {enabled: true, n_blocks: 2, criterion: conversion}
+  block_ablation: {enabled: true, n_blocks: 2, criterion: conversion, rank_by: value}
 
 analysis:
   conserved_alignment_min: 0.7

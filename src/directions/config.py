@@ -103,6 +103,7 @@ class BlockAblationConfig:
     enabled: bool = True
     n_blocks: int = 2
     criterion: str = "conversion"  # "conversion" | "new_subspace"
+    rank_by: str = "value"  # "value": largest median metric; "z": largest z vs matched random controls
 
 
 @dataclass
@@ -224,6 +225,8 @@ def validate_config(cfg: Config) -> None:
             raise ValueError(f"unknown random control kind {k!r}")
     if cfg.exploratory.block_ablation.criterion not in ("conversion", "new_subspace"):
         raise ValueError("exploratory.block_ablation.criterion must be 'conversion' or 'new_subspace'")
+    if cfg.exploratory.block_ablation.rank_by not in ("value", "z"):
+        raise ValueError("exploratory.block_ablation.rank_by must be 'value' or 'z'")
     if cfg.prompt.n_shots < 1:
         raise ValueError("prompt.n_shots must be >= 1")
     for tmpl, needed in (
