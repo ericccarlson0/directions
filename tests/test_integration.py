@@ -203,3 +203,18 @@ def test_unknown_task_is_recorded_as_an_error_not_a_crash(tmp_path):
     assert summary["tasks_qualified"] == []
     assert summary["task_status"]["not_a_task"]["failed_stage"] == "exception"
     assert "KeyError" in summary["task_status"]["not_a_task"]["error"]
+
+
+def test_strength_robustness_is_reported(pilot_run):
+    summary, root = pilot_run
+    task = summary["tasks_qualified"][0]
+    blob = json.loads((root / "exploratory" / f"{task}.json").read_text())
+    assert "strength_robustness" in blob
+    sr = blob["strength_robustness"]
+    assert "available" in sr
+    if sr["available"]:
+        assert (root / "exploratory" / f"layerwise_strongest__{task}.json").exists()
+        assert sr["strongest_rho"] >= sr["selected_rho"]
+        assert set(sr["profile_agreement_with_selected"]) == {
+            "log_G_spearman", "d_eff_spearman", "N_spearman"
+        }

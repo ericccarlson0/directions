@@ -79,3 +79,17 @@ def test_fingerprint_changes_with_content():
 def test_validation_rejects_bad_values(payload):
     with pytest.raises(ValueError):
         validate(build(Config, payload))
+
+
+def test_every_declared_metric_passes_validation():
+    from directions.model import BehaviorResult
+
+    for name in BehaviorResult.METRICS:
+        validate(build(Config, {"intervention": {"selection_metric": name}}))
+
+
+def test_selection_p_bounds():
+    with pytest.raises(ValueError, match="max_selection_p"):
+        validate(build(Config, {"intervention": {"max_selection_p": 0.0}}))
+    with pytest.raises(ValueError, match="max_selection_p"):
+        validate(build(Config, {"intervention": {"max_selection_p": 1.5}}))

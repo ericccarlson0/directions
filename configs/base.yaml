@@ -37,16 +37,27 @@ extraction:
   candidate_layer_fracs: [0.2, 0.3, 0.4, 0.5, 0.6]
 
 intervention:
-  strengths: [0.01, 0.02, 0.05, 0.1, 0.15, 0.2, 0.3]
+  # extended past the 0.3 upper bound sketched in docs/EXPERIMENT.md ("sweep as you
+  # see fit"): the 0.6B model needs rho ~0.3-0.8 before the control direction
+  # measurably changes behaviour. See docs/DECISIONS.md (D11).
+  strengths: [0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0]
   token: last_prompt
-  selection_metric: accuracy
-  min_improvement: 0.05
+  # Zero-shot exact-match accuracy is ~0 everywhere for the word-mapping tasks,
+  # so it cannot calibrate anything; docs/EXPERIMENT.md prefers teacher-forced
+  # target log-probability for multi-token outputs. See docs/DECISIONS.md (D10).
+  selection_metric: target_logprob_per_token
+  min_improvement: 0.10          # nats per target token
+  max_selection_p: 0.05          # paired one-sided bootstrap over calibration examples
+  # A candidate (layer, rho) must also beat matched random controls on the
+  # calibration split before it can be selected; see docs/DECISIONS.md (D12).
+  control_screen_n: 8
+  control_screen_max_p: 0.15
 
 qualification:
   min_fewshot_accuracy: 0.4
   min_target_logprob: -6.0
   min_direction_stability: 0.5
-  min_steering_improvement: 0.05
+  min_steering_improvement: 0.10   # nats per target token, on the held-out split
   max_control_p_value: 0.1
 
 controls:

@@ -94,8 +94,19 @@ class InterventionConfig:
         default_factory=lambda: [0.01, 0.02, 0.05, 0.1, 0.15, 0.2, 0.3]
     )
     token: str = "last_prompt"
-    selection_metric: str = "accuracy"  # accuracy | target_logprob | logit_margin
-    min_improvement: float = 0.05
+    # accuracy | target_logprob | target_logprob_per_token | logit_margin
+    selection_metric: str = "target_logprob_per_token"
+    min_improvement: float = 0.30
+    # "reliably improves" (docs/EXPERIMENT.md) is enforced as a paired one-sided
+    # bootstrap test over calibration examples, not by the threshold alone.
+    max_selection_p: float = 0.05
+    # docs/EXPERIMENT.md requires the steering effect to beat matched random
+    # controls. Screening candidate grid points against a small matched-control
+    # set on the *calibration* split keeps the "earliest layer, smallest rho"
+    # rule from locking onto a point that is real-looking but not separated from
+    # random directions. See docs/DECISIONS.md (D12).
+    control_screen_n: int = 8
+    control_screen_max_p: float = 0.15
 
 
 @dataclass
@@ -103,7 +114,7 @@ class QualificationConfig:
     min_fewshot_accuracy: float = 0.4
     min_target_logprob: float = -6.0
     min_direction_stability: float = 0.5
-    min_steering_improvement: float = 0.05
+    min_steering_improvement: float = 0.30
     max_control_p_value: float = 0.1
 
 
@@ -117,6 +128,11 @@ class ControlsConfig:
 class LayerwiseConfig:
     variance_fraction: float = 0.9
     measure_token: str = "intervened"  # intervened | last_prompt
+    # The preregistered operating point is the *smallest* reliable strength
+    # (docs/EXPERIMENT.md). Repeating the layerwise measurement at the strongest
+    # reliable strength at the same layer shows whether the amplification
+    # profile is an artefact of the injection magnitude. Exploratory.
+    also_measure_strongest: bool = True
 
 
 @dataclass
@@ -301,8 +317,18 @@ def validate(cfg: Config) -> None:
         raise ValueError("intervention.strengths must be non-empty")
     if any(s <= 0 for s in cfg.intervention.strengths):
         raise ValueError("intervention.strengths must be positive")
-    if cfg.intervention.selection_metric not in {"accuracy", "target_logprob", "logit_margin"}:
-        raise ValueError(f"unknown selection metric {cfg.intervention.selection_metric!r}")
+    valid_metrics = {"accuracy", "target_logprob", "target_logprob_per_token", "logit_margin"}
+    if cfg.intervention.selection_metric not in valid_metrics:
+        raise ValueError(
+            f"unknown selection metric {cfg.intervention.selection_metric!r}; "
+            f"expected one of {sorted(valid_metrics)}"
+        )
+    if not 0.0 < cfg.intervention.max_selection_p <= 1.0:
+        raise ValueError("intervention.max_selection_p must lie in (0, 1]")
+    if cfg.intervention.control_screen_n < 0:
+        raise ValueError("intervention.control_screen_n must be >= 0")
+    if not 0.0 < cfg.intervention.control_screen_max_p <= 1.0:
+        raise ValueError("intervention.control_screen_max_p must lie in (0, 1]")
     if not 0.0 < cfg.layerwise.variance_fraction < 1.0:
         raise ValueError("layerwise.variance_fraction must lie in (0, 1)")
     if cfg.layerwise.measure_token not in {"intervened", "last_prompt"}:

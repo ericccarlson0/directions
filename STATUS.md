@@ -9,7 +9,7 @@ Last updated: 2026-09-07 (see `git log` for the authoritative history).
 | Package, config system, CLI | yes | yes |
 | Offline integration path (`configs/smoke.yaml`) | yes | yes, passing |
 | Unit + integration test suite | yes | yes, 130 passing |
-| Qwen3-0.6B-Base pilot | yes | not yet |
+| Qwen3-0.6B-Base validation | yes | yes, 3/5 tasks qualified |
 | Qwen3-1.7B-Base pilot | yes (config only differs) | not yet |
 
 ## Implemented

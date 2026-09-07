@@ -312,3 +312,63 @@ def test_z_against_null():
     null = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
     z = mathx.z_against_null(2.0 + 2 * np.std(null, ddof=1), null)
     assert np.isclose(z, 2.0)
+
+
+# -- paired reliability test ----------------------------------------------
+
+
+def test_paired_bootstrap_p_detects_a_real_improvement():
+    rng = np.random.default_rng(20)
+    d = rng.normal(1.0, 0.5, size=64)  # clearly positive
+    assert mathx.paired_bootstrap_p(d, n_boot=2000, seed=0) < 0.01
+
+
+def test_paired_bootstrap_p_is_uninformative_for_noise():
+    rng = np.random.default_rng(21)
+    d = rng.normal(0.0, 1.0, size=48)
+    assert 0.05 < mathx.paired_bootstrap_p(d, n_boot=2000, seed=0) < 0.95
+
+
+def test_paired_bootstrap_p_rejects_a_negative_effect():
+    d = np.full(40, -0.5)
+    assert mathx.paired_bootstrap_p(d, n_boot=500, seed=0) > 0.99
+
+
+def test_paired_bootstrap_p_is_seed_reproducible():
+    d = np.random.default_rng(22).normal(0.2, 1.0, size=50)
+    assert mathx.paired_bootstrap_p(d, seed=3) == mathx.paired_bootstrap_p(d, seed=3)
+
+
+def test_paired_bootstrap_p_needs_two_observations():
+    assert np.isnan(mathx.paired_bootstrap_p([1.0]))
+
+
+def test_paired_bootstrap_p_is_never_exactly_zero():
+    assert mathx.paired_bootstrap_p(np.full(30, 5.0), n_boot=100, seed=0) > 0.0
+
+
+# -- seeding ---------------------------------------------------------------
+
+
+def test_stable_key_is_deterministic_and_discriminating():
+    assert mathx.stable_key("a", 1) == mathx.stable_key("a", 1)
+    assert mathx.stable_key("a", 1) != mathx.stable_key("a", 2)
+    assert mathx.stable_key("a", 1) != mathx.stable_key("b", 1)
+    assert 0 <= mathx.stable_key("antonym") < 2**31
+
+
+def test_stable_key_survives_a_different_interpreter_hash_seed():
+    """Python's str hash is salted per process; ours must not be."""
+    import subprocess
+    import sys
+
+    code = "from directions.mathx import stable_key; print(stable_key('antonym', 3))"
+    outs = set()
+    for salt in ("0", "1", "12345"):
+        env = {"PYTHONHASHSEED": salt, "PATH": "/usr/bin:/bin"}
+        outs.add(
+            subprocess.run(
+                [sys.executable, "-c", code], capture_output=True, text=True, env=env, check=True
+            ).stdout.strip()
+        )
+    assert len(outs) == 1

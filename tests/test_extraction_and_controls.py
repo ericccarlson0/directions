@@ -133,3 +133,28 @@ def test_controls_differ_across_layers_and_tasks(direction):
 def test_unknown_control_kind_is_rejected(direction):
     with pytest.raises(ValueError, match="unknown control kind"):
         build_random_controls(control_rng(0, "t", 2), direction, 1, ["adversarial"])
+
+
+def test_seed_derivation_is_process_independent():
+    """Regression: `hash()` on strings is salted per process, which silently
+    made extraction and control seeds differ between runs of the same config."""
+    import subprocess
+    import sys
+
+    code = (
+        "from directions.extraction import extraction_rng;"
+        "from directions.controls import control_rng;"
+        "from directions.pipeline import task_rng;"
+        "print(extraction_rng(0,'antonym',0).integers(0,10**9),"
+        "control_rng(0,'antonym',3).integers(0,10**9),"
+        "task_rng(0,'antonym','evaluation').integers(0,10**9))"
+    )
+    outs = set()
+    for salt in ("0", "7", "999"):
+        env = {"PYTHONHASHSEED": salt, "PATH": "/usr/bin:/bin"}
+        outs.add(
+            subprocess.run(
+                [sys.executable, "-c", code], capture_output=True, text=True, env=env, check=True
+            ).stdout.strip()
+        )
+    assert len(outs) == 1

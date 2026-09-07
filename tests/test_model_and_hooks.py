@@ -155,3 +155,25 @@ def test_layer_index_from_fraction(tiny_model):
 def test_encode_rejects_overlong_prompt(tiny_model, prompts):
     with pytest.raises(ValueError, match="max_seq_len"):
         tiny_model.encode(prompts[0], max_seq_len=4)
+
+
+def test_all_declared_metrics_are_available_per_example(tiny_model, prompts):
+    from directions.model import BehaviorResult
+
+    res = tiny_model.score(prompts, batch_size=3, max_seq_len=512)
+    for name in BehaviorResult.METRICS:
+        per = res.per_example(name)
+        assert per.shape == (len(prompts),)
+        assert np.isclose(res.metric(name), float(np.mean(per)))
+
+
+def test_per_token_logprob_is_the_length_normalized_sum(tiny_model, prompts):
+    res = tiny_model.score(prompts, batch_size=3, max_seq_len=512)
+    lengths = np.array([len(tiny_model.encode(p, 512).target_ids) for p in prompts])
+    assert np.allclose(res.target_logprob / lengths, res.target_logprob_mean, atol=1e-9)
+
+
+def test_unknown_metric_name_is_rejected(tiny_model, prompts):
+    res = tiny_model.score(prompts, batch_size=3, max_seq_len=512)
+    with pytest.raises(KeyError):
+        res.per_example("bleu")

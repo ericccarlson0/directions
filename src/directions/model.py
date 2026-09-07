@@ -89,12 +89,20 @@ class BehaviorResult:
             "logit_margin": float(np.mean(self.logit_margin)) if self.correct.size else float("nan"),
         }
 
-    def metric(self, name: str) -> float:
+    #: metrics that may be used for calibration / qualification decisions
+    METRICS = ("accuracy", "target_logprob", "target_logprob_per_token", "logit_margin")
+
+    def per_example(self, name: str) -> np.ndarray:
+        """The chosen metric as a per-example array, for paired comparisons."""
         return {
-            "accuracy": lambda: float(np.mean(self.correct)),
-            "target_logprob": lambda: float(np.mean(self.target_logprob)),
-            "logit_margin": lambda: float(np.mean(self.logit_margin)),
+            "accuracy": lambda: self.correct.astype(np.float64),
+            "target_logprob": lambda: self.target_logprob,
+            "target_logprob_per_token": lambda: self.target_logprob_mean,
+            "logit_margin": lambda: self.logit_margin,
         }[name]()
+
+    def metric(self, name: str) -> float:
+        return float(np.mean(self.per_example(name)))
 
 
 class LanguageModel:

@@ -298,6 +298,26 @@ def summarize(values, n_boot: int = 2000, seed: int = 0, alpha: float = 0.05) ->
     }
 
 
+def paired_bootstrap_p(
+    differences, n_boot: int = 2000, seed: int = 0
+) -> float:
+    """One-sided bootstrap p-value for ``mean(differences) > 0``, paired by example.
+
+    Used to decide whether a calibration grid point *reliably* improves the
+    behavioural metric rather than merely clearing a fixed threshold: with a few
+    dozen evaluation examples a threshold alone is comfortably inside sampling
+    noise. Add-one smoothed, so the value is never exactly zero.
+    """
+    d = as_f64(differences).ravel()
+    d = d[np.isfinite(d)]
+    if d.size < 2:
+        return float("nan")
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, d.size, size=(n_boot, d.size))
+    means = d[idx].mean(axis=1)
+    return float((np.sum(means <= 0.0) + 1) / (n_boot + 1))
+
+
 def empirical_p_value(observed: float, null_samples) -> float:
     """One-sided ``P(null >= observed)`` with add-one smoothing.
 
@@ -322,3 +342,16 @@ def z_against_null(observed: float, null_samples) -> float:
     if sd <= EPS:
         return float("nan")
     return float((observed - float(np.mean(null))) / sd)
+
+
+def stable_key(*parts) -> int:
+    """Process-independent integer key for seeding.
+
+    ``hash()`` on strings is salted per interpreter process (PYTHONHASHSEED), so
+    using it inside a seed would make runs irreproducible across invocations.
+    This derives the key from a BLAKE2b digest instead.
+    """
+    import hashlib
+
+    blob = "\x1f".join(str(p) for p in parts).encode("utf-8")
+    return int.from_bytes(hashlib.blake2b(blob, digest_size=4).digest(), "big") % (2**31)

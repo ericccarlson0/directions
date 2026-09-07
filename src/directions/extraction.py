@@ -80,7 +80,7 @@ class TaskExtraction:
 def extraction_rng(base_seed: int, task: str, seed_index: int) -> np.random.Generator:
     """Reproducible per-(run, task, extraction-seed) generator."""
     ss = np.random.SeedSequence(
-        entropy=base_seed, spawn_key=(abs(hash(task)) % (2**31), seed_index)
+        entropy=base_seed, spawn_key=(mathx.stable_key("extraction", task), seed_index)
     )
     return np.random.default_rng(ss)
 

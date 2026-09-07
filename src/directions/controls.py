@@ -24,7 +24,7 @@ from .extraction import DirectionSpec
 
 def control_rng(base_seed: int, task: str, layer: int) -> np.random.Generator:
     ss = np.random.SeedSequence(
-        entropy=base_seed, spawn_key=(abs(hash(("controls", task))) % (2**31), layer)
+        entropy=base_seed, spawn_key=(mathx.stable_key("controls", task), layer)
     )
     return np.random.default_rng(ss)
 

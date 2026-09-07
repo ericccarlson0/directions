@@ -73,7 +73,7 @@ def seed_everything(seed: int) -> None:
 
 def task_rng(base_seed: int, task: str, purpose: str) -> np.random.Generator:
     return np.random.default_rng(
-        np.random.SeedSequence(entropy=base_seed, spawn_key=(abs(hash((purpose, task))) % (2**31),))
+        np.random.SeedSequence(entropy=base_seed, spawn_key=(mathx.stable_key(purpose, task),))
     )
 
 
@@ -276,6 +276,7 @@ def validate_task(cfg: Config, rundir: RunDirectory, lm: LanguageModel, task_nam
     }
     # objects needed downstream by the layerwise stage (not serialized directly)
     rep.payload["_objects"] = {
+        "calibration": calib,
         "eval_prompts": eval_prompts,
         "control_specs": ctrl_specs,
         "baseline_behavior": base_eval,
@@ -327,6 +328,7 @@ def measure_task_layerwise(
         direction=direction.vector,
     )
     objs["measurement"] = m
+    objs["baseline_residuals"] = base_resid
     objs["deltas"] = steer_resid - base_resid
     return core
 
@@ -376,6 +378,9 @@ def exploratory_task(cfg: Config, rundir: RunDirectory, lm: LanguageModel, rep: 
     m: layerwise.LayerwiseMeasurement = objs["measurement"]
     out: dict = {"task": rep.task}
 
+    if cfg.layerwise.also_measure_strongest:
+        out["strength_robustness"] = _strength_robustness(cfg, rundir, lm, rep, objs, m)
+
     if cfg.exploratory.profile_labels:
         out["profile"] = profiles.classify(m)
         rundir.log(f"  [{rep.task}] exploratory profile label: {out['profile']['label']}")
@@ -386,6 +391,71 @@ def exploratory_task(cfg: Config, rundir: RunDirectory, lm: LanguageModel, rep: 
 
     rundir.write_json(f"exploratory/{rep.task}.json", out)
     return out
+
+
+def _strength_robustness(cfg, rundir, lm, rep, objs, m) -> dict:
+    """Repeat the layerwise measurement at the strongest reliable strength.
+
+    Same layer and same direction; only ``alpha`` changes. If the profile is a
+    property of the control direction rather than of the injection magnitude,
+    the two measurements should agree in shape.
+    """
+    calib = objs["calibration"]
+    same_layer = [p for p in calib.points if p.layer == rep.direction.layer and p.reliable]
+    if not same_layer:
+        return {"available": False, "reason": "no other reliable strength at the selected layer"}
+    strongest = max(same_layer, key=lambda p: p.improvement)
+    if abs(strongest.alpha - rep.direction.alpha) < 1e-9:
+        return {"available": False, "reason": "the selected point is already the strongest"}
+    spec = rep.direction.scaled(strongest.alpha)
+    compute = dict(batch_size=cfg.compute.layerwise_batch_size, max_seq_len=cfg.compute.max_seq_len)
+    resid = lm.capture(objs["eval_prompts"], intervention=spec, **compute)
+    m2 = layerwise.measure(
+        cfg, "control_strongest", spec.layer, spec.alpha, spec.vector,
+        objs["baseline_residuals"], resid,
+    )
+    behavior = lm.score(
+        objs["eval_prompts"], intervention=spec,
+        batch_size=cfg.compute.batch_size, max_seq_len=cfg.compute.max_seq_len,
+    )
+    metric = cfg.intervention.selection_metric
+    with layerwise.quiet_nan_reductions():
+        agreement = {
+            "log_G_spearman": _rank_corr(
+                np.nanmedian(np.log(m.G), axis=1), np.nanmedian(np.log(m2.G), axis=1)
+            ),
+            "d_eff_spearman": _rank_corr(m.d_eff, m2.d_eff),
+            "N_spearman": _rank_corr(m.N, m2.N),
+        }
+    rundir.write_json(
+        f"exploratory/layerwise_strongest__{rep.task}.json",
+        {"task": rep.task, "measurement": m2.to_dict()},
+    )
+    return {
+        "available": True,
+        "selected_rho": calib.selected.rho,
+        "strongest_rho": strongest.rho,
+        "strongest_alpha": strongest.alpha,
+        "heldout_metric": behavior.metric(metric),
+        "heldout_improvement": behavior.metric(metric)
+        - objs["baseline_behavior"].metric(metric),
+        "profile_agreement_with_selected": agreement,
+        "profile": profiles.classify(m2),
+    }
+
+
+def _rank_corr(a, b) -> float | None:
+    """Spearman correlation over the layers where both series are defined."""
+    a, b = np.asarray(a, float), np.asarray(b, float)
+    ok = np.isfinite(a) & np.isfinite(b)
+    if ok.sum() < 3:
+        return None
+    ra = np.argsort(np.argsort(a[ok])).astype(float)
+    rb = np.argsort(np.argsort(b[ok])).astype(float)
+    ra -= ra.mean()
+    rb -= rb.mean()
+    denom = float(np.linalg.norm(ra) * np.linalg.norm(rb))
+    return float(ra @ rb / denom) if denom > 0 else None
 
 
 def _block_ablation(cfg, lm, rep, m, objs, top_k: int) -> dict:

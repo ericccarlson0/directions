@@ -167,3 +167,103 @@ specification, float32 on CPU where bf16 is poorly supported). Every captured
 residual is immediately cast to float32, and all PCA/SVD/statistics run in
 float64. Full activation tensors are never persisted; only the derived
 per-layer metrics are saved.
+
+---
+
+## D10. The calibration/steering metric is teacher-forced log-probability per target token
+
+**Config:** `intervention.selection_metric` (default `target_logprob_per_token`)
+
+Measured on Qwen3-0.6B-Base: zero-shot exact-match accuracy on the four
+word-mapping tasks is **0.000 at every candidate layer and every strength in
+the swept range**. The model does not even adopt the answer format zero-shot
+(top continuations for `"Q: sincere\nA:"` are `" S"`, `" The"`, `" A"`), so
+accuracy carries no gradient with which to calibrate anything, and a threshold
+on it is a coin flip. The same runs show a large, orderly effect in
+log-probability (antonym at layer 14, rho 0.5: −7.64 → −5.52 nats/token).
+
+`docs/EXPERIMENT.md` already prefers "teacher-forced target sequence
+log-probability for multi-token outputs", so the default selection and
+steering-qualification metric is now the **per-token** version, which is
+comparable across tasks with different target lengths. Accuracy, summed
+log-probability and the logit margin are still computed and reported for every
+condition; only the *decision* metric changed. Thresholds are correspondingly
+in nats per token.
+
+Few-shot task qualification ("does this model do this task at all?") still uses
+accuracy, which is the right metric for that question and is well away from the
+floor there (0.67-1.00 across the five tasks).
+
+---
+
+## D11. The strength grid extends past rho = 0.3
+
+**Config:** `intervention.strengths`
+
+`docs/EXPERIMENT.md` sketches `rho in {0.01, ..., 0.3}` but also says to sweep
+"as you see fit". On Qwen3-0.6B-Base nothing measurable happens below
+rho ~ 0.3, the effect peaks around rho 0.5-0.8, and it collapses (log-prob far
+below baseline) by rho ~ 1.2 as the residual stream is driven off distribution.
+The grid is therefore `[0.02 ... 1.0]`, which brackets both the onset and the
+peak while stopping short of the collapse.
+
+---
+
+## D12. "Reliably improves" is enforced by two statistical tests, not a threshold
+
+**Config:** `intervention.min_improvement`, `intervention.max_selection_p`,
+`intervention.control_screen_n`, `intervention.control_screen_max_p`
+
+`docs/EXPERIMENT.md` says to select the earliest layer and smallest strength
+that *reliably* improves held-out performance. A bare effect-size threshold does
+not implement "reliably": with ~48 calibration examples the sampling noise on
+the metric is comparable to the threshold, so the earliest/smallest rule
+reproducibly locked onto whichever grid point happened to fluctuate upward
+first. On the first Qwen3-0.6B run this selected layer 6 / rho 0.3 for
+`arithmetic_add` (+0.10 accuracy, noise) while layer 11 / rho 0.3 gave +0.31;
+the selected point then failed the held-out random-control comparison and the
+task was discarded despite having a large real effect.
+
+A grid point is now selectable only if all three hold:
+
+1. its improvement clears `min_improvement`;
+2. a **paired one-sided bootstrap** over calibration examples gives
+   `p <= max_selection_p` (default 0.05);
+3. it beats a **matched random-control screen** of `control_screen_n` (default
+   8) directions at the same layer and norm, at
+   `p <= control_screen_max_p` (default 0.15).
+
+The earliest-layer / smallest-rho preference is then applied to the surviving
+points, unchanged. The screen runs on the *calibration* split with its own
+control seed, so the final held-out comparison against 16 fresh controls
+remains an independent test.
+
+---
+
+## D13. Seeds are derived from a stable digest, never from `hash()`
+
+**Bug found and fixed during the first real runs.** Sub-generators were keyed on
+`abs(hash(task_name))`. CPython salts string hashing per process
+(`PYTHONHASHSEED`), so two invocations of the *same config* drew different
+demonstrations and different random controls — visible as 10-shot accuracy
+drifting between 0.656 and 0.672 and layer-6 stability between 0.89 and 0.97
+across identical commands.
+
+All seed derivation now goes through `mathx.stable_key`, a BLAKE2b digest of
+the key parts. `tests/test_extraction_and_controls.py` runs the derivation
+under three different `PYTHONHASHSEED` values and asserts the results agree.
+
+---
+
+## D14. The layerwise profile is also measured at the strongest reliable strength
+
+**Config:** `layerwise.also_measure_strongest` (default `true`)
+
+The preregistered operating point is the *smallest* reliable strength, which is
+the right choice for measuring propagation with minimal off-distribution
+distortion but leaves open whether the measured amplification profile is a
+property of the control direction or of the injection magnitude. The full
+layerwise measurement is therefore repeated at the strongest reliable strength
+at the *same* layer, written to `exploratory/`, together with rank correlations
+between the two profiles for `log G_l`, `d_eff` and `N_l`. This is a robustness
+check, not a second preregistered measurement.
