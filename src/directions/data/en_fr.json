@@ -1,0 +1,1167 @@
+[
+ {
+  "id": "en_fr_house",
+  "input": "house",
+  "output": "maison"
+ },
+ {
+  "id": "en_fr_dog",
+  "input": "dog",
+  "output": "chien"
+ },
+ {
+  "id": "en_fr_cat",
+  "input": "cat",
+  "output": "chat"
+ },
+ {
+  "id": "en_fr_water",
+  "input": "water",
+  "output": "eau"
+ },
+ {
+  "id": "en_fr_bread",
+  "input": "bread",
+  "output": "pain"
+ },
+ {
+  "id": "en_fr_milk",
+  "input": "milk",
+  "output": "lait"
+ },
+ {
+  "id": "en_fr_cheese",
+  "input": "cheese",
+  "output": "fromage"
+ },
+ {
+  "id": "en_fr_wine",
+  "input": "wine",
+  "output": "vin"
+ },
+ {
+  "id": "en_fr_book",
+  "input": "book",
+  "output": "livre"
+ },
+ {
+  "id": "en_fr_table",
+  "input": "table",
+  "output": "table"
+ },
+ {
+  "id": "en_fr_chair",
+  "input": "chair",
+  "output": "chaise"
+ },
+ {
+  "id": "en_fr_door",
+  "input": "door",
+  "output": "porte"
+ },
+ {
+  "id": "en_fr_window",
+  "input": "window",
+  "output": "fenêtre"
+ },
+ {
+  "id": "en_fr_garden",
+  "input": "garden",
+  "output": "jardin"
+ },
+ {
+  "id": "en_fr_tree",
+  "input": "tree",
+  "output": "arbre"
+ },
+ {
+  "id": "en_fr_flower",
+  "input": "flower",
+  "output": "fleur"
+ },
+ {
+  "id": "en_fr_sun",
+  "input": "sun",
+  "output": "soleil"
+ },
+ {
+  "id": "en_fr_moon",
+  "input": "moon",
+  "output": "lune"
+ },
+ {
+  "id": "en_fr_star",
+  "input": "star",
+  "output": "étoile"
+ },
+ {
+  "id": "en_fr_sky",
+  "input": "sky",
+  "output": "ciel"
+ },
+ {
+  "id": "en_fr_sea",
+  "input": "sea",
+  "output": "mer"
+ },
+ {
+  "id": "en_fr_river",
+  "input": "river",
+  "output": "rivière"
+ },
+ {
+  "id": "en_fr_mountain",
+  "input": "mountain",
+  "output": "montagne"
+ },
+ {
+  "id": "en_fr_forest",
+  "input": "forest",
+  "output": "forêt"
+ },
+ {
+  "id": "en_fr_road",
+  "input": "road",
+  "output": "route"
+ },
+ {
+  "id": "en_fr_street",
+  "input": "street",
+  "output": "rue"
+ },
+ {
+  "id": "en_fr_city",
+  "input": "city",
+  "output": "ville"
+ },
+ {
+  "id": "en_fr_village",
+  "input": "village",
+  "output": "village"
+ },
+ {
+  "id": "en_fr_country",
+  "input": "country",
+  "output": "pays"
+ },
+ {
+  "id": "en_fr_world",
+  "input": "world",
+  "output": "monde"
+ },
+ {
+  "id": "en_fr_man",
+  "input": "man",
+  "output": "homme"
+ },
+ {
+  "id": "en_fr_woman",
+  "input": "woman",
+  "output": "femme"
+ },
+ {
+  "id": "en_fr_child",
+  "input": "child",
+  "output": "enfant"
+ },
+ {
+  "id": "en_fr_boy",
+  "input": "boy",
+  "output": "garçon"
+ },
+ {
+  "id": "en_fr_girl",
+  "input": "girl",
+  "output": "fille"
+ },
+ {
+  "id": "en_fr_friend",
+  "input": "friend",
+  "output": "ami"
+ },
+ {
+  "id": "en_fr_family",
+  "input": "family",
+  "output": "famille"
+ },
+ {
+  "id": "en_fr_mother",
+  "input": "mother",
+  "output": "mère"
+ },
+ {
+  "id": "en_fr_father",
+  "input": "father",
+  "output": "père"
+ },
+ {
+  "id": "en_fr_brother",
+  "input": "brother",
+  "output": "frère"
+ },
+ {
+  "id": "en_fr_sister",
+  "input": "sister",
+  "output": "sœur"
+ },
+ {
+  "id": "en_fr_son",
+  "input": "son",
+  "output": "fils"
+ },
+ {
+  "id": "en_fr_daughter",
+  "input": "daughter",
+  "output": "fille"
+ },
+ {
+  "id": "en_fr_teacher",
+  "input": "teacher",
+  "output": "professeur"
+ },
+ {
+  "id": "en_fr_student",
+  "input": "student",
+  "output": "étudiant"
+ },
+ {
+  "id": "en_fr_doctor",
+  "input": "doctor",
+  "output": "médecin"
+ },
+ {
+  "id": "en_fr_nurse",
+  "input": "nurse",
+  "output": "infirmière"
+ },
+ {
+  "id": "en_fr_farmer",
+  "input": "farmer",
+  "output": "fermier"
+ },
+ {
+  "id": "en_fr_baker",
+  "input": "baker",
+  "output": "boulanger"
+ },
+ {
+  "id": "en_fr_king",
+  "input": "king",
+  "output": "roi"
+ },
+ {
+  "id": "en_fr_queen",
+  "input": "queen",
+  "output": "reine"
+ },
+ {
+  "id": "en_fr_hand",
+  "input": "hand",
+  "output": "main"
+ },
+ {
+  "id": "en_fr_foot",
+  "input": "foot",
+  "output": "pied"
+ },
+ {
+  "id": "en_fr_head",
+  "input": "head",
+  "output": "tête"
+ },
+ {
+  "id": "en_fr_eye",
+  "input": "eye",
+  "output": "œil"
+ },
+ {
+  "id": "en_fr_ear",
+  "input": "ear",
+  "output": "oreille"
+ },
+ {
+  "id": "en_fr_mouth",
+  "input": "mouth",
+  "output": "bouche"
+ },
+ {
+  "id": "en_fr_nose",
+  "input": "nose",
+  "output": "nez"
+ },
+ {
+  "id": "en_fr_hair",
+  "input": "hair",
+  "output": "cheveux"
+ },
+ {
+  "id": "en_fr_heart",
+  "input": "heart",
+  "output": "cœur"
+ },
+ {
+  "id": "en_fr_blood",
+  "input": "blood",
+  "output": "sang"
+ },
+ {
+  "id": "en_fr_bone",
+  "input": "bone",
+  "output": "os"
+ },
+ {
+  "id": "en_fr_skin",
+  "input": "skin",
+  "output": "peau"
+ },
+ {
+  "id": "en_fr_arm",
+  "input": "arm",
+  "output": "bras"
+ },
+ {
+  "id": "en_fr_leg",
+  "input": "leg",
+  "output": "jambe"
+ },
+ {
+  "id": "en_fr_finger",
+  "input": "finger",
+  "output": "doigt"
+ },
+ {
+  "id": "en_fr_back",
+  "input": "back",
+  "output": "dos"
+ },
+ {
+  "id": "en_fr_neck",
+  "input": "neck",
+  "output": "cou"
+ },
+ {
+  "id": "en_fr_tooth",
+  "input": "tooth",
+  "output": "dent"
+ },
+ {
+  "id": "en_fr_tongue",
+  "input": "tongue",
+  "output": "langue"
+ },
+ {
+  "id": "en_fr_face",
+  "input": "face",
+  "output": "visage"
+ },
+ {
+  "id": "en_fr_red",
+  "input": "red",
+  "output": "rouge"
+ },
+ {
+  "id": "en_fr_blue",
+  "input": "blue",
+  "output": "bleu"
+ },
+ {
+  "id": "en_fr_green",
+  "input": "green",
+  "output": "vert"
+ },
+ {
+  "id": "en_fr_yellow",
+  "input": "yellow",
+  "output": "jaune"
+ },
+ {
+  "id": "en_fr_black",
+  "input": "black",
+  "output": "noir"
+ },
+ {
+  "id": "en_fr_white",
+  "input": "white",
+  "output": "blanc"
+ },
+ {
+  "id": "en_fr_grey",
+  "input": "grey",
+  "output": "gris"
+ },
+ {
+  "id": "en_fr_brown",
+  "input": "brown",
+  "output": "brun"
+ },
+ {
+  "id": "en_fr_pink",
+  "input": "pink",
+  "output": "rose"
+ },
+ {
+  "id": "en_fr_purple",
+  "input": "purple",
+  "output": "violet"
+ },
+ {
+  "id": "en_fr_one",
+  "input": "one",
+  "output": "un"
+ },
+ {
+  "id": "en_fr_two",
+  "input": "two",
+  "output": "deux"
+ },
+ {
+  "id": "en_fr_three",
+  "input": "three",
+  "output": "trois"
+ },
+ {
+  "id": "en_fr_four",
+  "input": "four",
+  "output": "quatre"
+ },
+ {
+  "id": "en_fr_five",
+  "input": "five",
+  "output": "cinq"
+ },
+ {
+  "id": "en_fr_six",
+  "input": "six",
+  "output": "six"
+ },
+ {
+  "id": "en_fr_seven",
+  "input": "seven",
+  "output": "sept"
+ },
+ {
+  "id": "en_fr_eight",
+  "input": "eight",
+  "output": "huit"
+ },
+ {
+  "id": "en_fr_nine",
+  "input": "nine",
+  "output": "neuf"
+ },
+ {
+  "id": "en_fr_ten",
+  "input": "ten",
+  "output": "dix"
+ },
+ {
+  "id": "en_fr_hundred",
+  "input": "hundred",
+  "output": "cent"
+ },
+ {
+  "id": "en_fr_thousand",
+  "input": "thousand",
+  "output": "mille"
+ },
+ {
+  "id": "en_fr_day",
+  "input": "day",
+  "output": "jour"
+ },
+ {
+  "id": "en_fr_night",
+  "input": "night",
+  "output": "nuit"
+ },
+ {
+  "id": "en_fr_morning",
+  "input": "morning",
+  "output": "matin"
+ },
+ {
+  "id": "en_fr_evening",
+  "input": "evening",
+  "output": "soir"
+ },
+ {
+  "id": "en_fr_week",
+  "input": "week",
+  "output": "semaine"
+ },
+ {
+  "id": "en_fr_month",
+  "input": "month",
+  "output": "mois"
+ },
+ {
+  "id": "en_fr_year",
+  "input": "year",
+  "output": "année"
+ },
+ {
+  "id": "en_fr_hour",
+  "input": "hour",
+  "output": "heure"
+ },
+ {
+  "id": "en_fr_minute",
+  "input": "minute",
+  "output": "minute"
+ },
+ {
+  "id": "en_fr_time",
+  "input": "time",
+  "output": "temps"
+ },
+ {
+  "id": "en_fr_summer",
+  "input": "summer",
+  "output": "été"
+ },
+ {
+  "id": "en_fr_winter",
+  "input": "winter",
+  "output": "hiver"
+ },
+ {
+  "id": "en_fr_spring",
+  "input": "spring",
+  "output": "printemps"
+ },
+ {
+  "id": "en_fr_autumn",
+  "input": "autumn",
+  "output": "automne"
+ },
+ {
+  "id": "en_fr_rain",
+  "input": "rain",
+  "output": "pluie"
+ },
+ {
+  "id": "en_fr_snow",
+  "input": "snow",
+  "output": "neige"
+ },
+ {
+  "id": "en_fr_wind",
+  "input": "wind",
+  "output": "vent"
+ },
+ {
+  "id": "en_fr_fire",
+  "input": "fire",
+  "output": "feu"
+ },
+ {
+  "id": "en_fr_earth",
+  "input": "earth",
+  "output": "terre"
+ },
+ {
+  "id": "en_fr_air",
+  "input": "air",
+  "output": "air"
+ },
+ {
+  "id": "en_fr_ice",
+  "input": "ice",
+  "output": "glace"
+ },
+ {
+  "id": "en_fr_cloud",
+  "input": "cloud",
+  "output": "nuage"
+ },
+ {
+  "id": "en_fr_storm",
+  "input": "storm",
+  "output": "tempête"
+ },
+ {
+  "id": "en_fr_horse",
+  "input": "horse",
+  "output": "cheval"
+ },
+ {
+  "id": "en_fr_cow",
+  "input": "cow",
+  "output": "vache"
+ },
+ {
+  "id": "en_fr_pig",
+  "input": "pig",
+  "output": "cochon"
+ },
+ {
+  "id": "en_fr_sheep",
+  "input": "sheep",
+  "output": "mouton"
+ },
+ {
+  "id": "en_fr_bird",
+  "input": "bird",
+  "output": "oiseau"
+ },
+ {
+  "id": "en_fr_fish",
+  "input": "fish",
+  "output": "poisson"
+ },
+ {
+  "id": "en_fr_mouse",
+  "input": "mouse",
+  "output": "souris"
+ },
+ {
+  "id": "en_fr_rabbit",
+  "input": "rabbit",
+  "output": "lapin"
+ },
+ {
+  "id": "en_fr_bear",
+  "input": "bear",
+  "output": "ours"
+ },
+ {
+  "id": "en_fr_wolf",
+  "input": "wolf",
+  "output": "loup"
+ },
+ {
+  "id": "en_fr_fox",
+  "input": "fox",
+  "output": "renard"
+ },
+ {
+  "id": "en_fr_lion",
+  "input": "lion",
+  "output": "lion"
+ },
+ {
+  "id": "en_fr_snake",
+  "input": "snake",
+  "output": "serpent"
+ },
+ {
+  "id": "en_fr_bee",
+  "input": "bee",
+  "output": "abeille"
+ },
+ {
+  "id": "en_fr_spider",
+  "input": "spider",
+  "output": "araignée"
+ },
+ {
+  "id": "en_fr_apple",
+  "input": "apple",
+  "output": "pomme"
+ },
+ {
+  "id": "en_fr_pear",
+  "input": "pear",
+  "output": "poire"
+ },
+ {
+  "id": "en_fr_orange",
+  "input": "orange",
+  "output": "orange"
+ },
+ {
+  "id": "en_fr_lemon",
+  "input": "lemon",
+  "output": "citron"
+ },
+ {
+  "id": "en_fr_grape",
+  "input": "grape",
+  "output": "raisin"
+ },
+ {
+  "id": "en_fr_strawberry",
+  "input": "strawberry",
+  "output": "fraise"
+ },
+ {
+  "id": "en_fr_cherry",
+  "input": "cherry",
+  "output": "cerise"
+ },
+ {
+  "id": "en_fr_peach",
+  "input": "peach",
+  "output": "pêche"
+ },
+ {
+  "id": "en_fr_banana",
+  "input": "banana",
+  "output": "banane"
+ },
+ {
+  "id": "en_fr_potato",
+  "input": "potato",
+  "output": "pomme de terre"
+ },
+ {
+  "id": "en_fr_carrot",
+  "input": "carrot",
+  "output": "carotte"
+ },
+ {
+  "id": "en_fr_onion",
+  "input": "onion",
+  "output": "oignon"
+ },
+ {
+  "id": "en_fr_salad",
+  "input": "salad",
+  "output": "salade"
+ },
+ {
+  "id": "en_fr_soup",
+  "input": "soup",
+  "output": "soupe"
+ },
+ {
+  "id": "en_fr_meat",
+  "input": "meat",
+  "output": "viande"
+ },
+ {
+  "id": "en_fr_egg",
+  "input": "egg",
+  "output": "œuf"
+ },
+ {
+  "id": "en_fr_butter",
+  "input": "butter",
+  "output": "beurre"
+ },
+ {
+  "id": "en_fr_sugar",
+  "input": "sugar",
+  "output": "sucre"
+ },
+ {
+  "id": "en_fr_salt",
+  "input": "salt",
+  "output": "sel"
+ },
+ {
+  "id": "en_fr_pepper",
+  "input": "pepper",
+  "output": "poivre"
+ },
+ {
+  "id": "en_fr_coffee",
+  "input": "coffee",
+  "output": "café"
+ },
+ {
+  "id": "en_fr_tea",
+  "input": "tea",
+  "output": "thé"
+ },
+ {
+  "id": "en_fr_juice",
+  "input": "juice",
+  "output": "jus"
+ },
+ {
+  "id": "en_fr_beer",
+  "input": "beer",
+  "output": "bière"
+ },
+ {
+  "id": "en_fr_car",
+  "input": "car",
+  "output": "voiture"
+ },
+ {
+  "id": "en_fr_train",
+  "input": "train",
+  "output": "train"
+ },
+ {
+  "id": "en_fr_plane",
+  "input": "plane",
+  "output": "avion"
+ },
+ {
+  "id": "en_fr_boat",
+  "input": "boat",
+  "output": "bateau"
+ },
+ {
+  "id": "en_fr_bicycle",
+  "input": "bicycle",
+  "output": "vélo"
+ },
+ {
+  "id": "en_fr_bus",
+  "input": "bus",
+  "output": "autobus"
+ },
+ {
+  "id": "en_fr_ship",
+  "input": "ship",
+  "output": "navire"
+ },
+ {
+  "id": "en_fr_truck",
+  "input": "truck",
+  "output": "camion"
+ },
+ {
+  "id": "en_fr_key",
+  "input": "key",
+  "output": "clé"
+ },
+ {
+  "id": "en_fr_bag",
+  "input": "bag",
+  "output": "sac"
+ },
+ {
+  "id": "en_fr_hat",
+  "input": "hat",
+  "output": "chapeau"
+ },
+ {
+  "id": "en_fr_shoe",
+  "input": "shoe",
+  "output": "chaussure"
+ },
+ {
+  "id": "en_fr_shirt",
+  "input": "shirt",
+  "output": "chemise"
+ },
+ {
+  "id": "en_fr_dress",
+  "input": "dress",
+  "output": "robe"
+ },
+ {
+  "id": "en_fr_coat",
+  "input": "coat",
+  "output": "manteau"
+ },
+ {
+  "id": "en_fr_glove",
+  "input": "glove",
+  "output": "gant"
+ },
+ {
+  "id": "en_fr_sock",
+  "input": "sock",
+  "output": "chaussette"
+ },
+ {
+  "id": "en_fr_trousers",
+  "input": "trousers",
+  "output": "pantalon"
+ },
+ {
+  "id": "en_fr_pen",
+  "input": "pen",
+  "output": "stylo"
+ },
+ {
+  "id": "en_fr_paper",
+  "input": "paper",
+  "output": "papier"
+ },
+ {
+  "id": "en_fr_letter",
+  "input": "letter",
+  "output": "lettre"
+ },
+ {
+  "id": "en_fr_word",
+  "input": "word",
+  "output": "mot"
+ },
+ {
+  "id": "en_fr_name",
+  "input": "name",
+  "output": "nom"
+ },
+ {
+  "id": "en_fr_number",
+  "input": "number",
+  "output": "nombre"
+ },
+ {
+  "id": "en_fr_language",
+  "input": "language",
+  "output": "langue"
+ },
+ {
+  "id": "en_fr_school",
+  "input": "school",
+  "output": "école"
+ },
+ {
+  "id": "en_fr_church",
+  "input": "church",
+  "output": "église"
+ },
+ {
+  "id": "en_fr_shop",
+  "input": "shop",
+  "output": "magasin"
+ },
+ {
+  "id": "en_fr_market",
+  "input": "market",
+  "output": "marché"
+ },
+ {
+  "id": "en_fr_hospital",
+  "input": "hospital",
+  "output": "hôpital"
+ },
+ {
+  "id": "en_fr_bank",
+  "input": "bank",
+  "output": "banque"
+ },
+ {
+  "id": "en_fr_office",
+  "input": "office",
+  "output": "bureau"
+ },
+ {
+  "id": "en_fr_kitchen",
+  "input": "kitchen",
+  "output": "cuisine"
+ },
+ {
+  "id": "en_fr_bedroom",
+  "input": "bedroom",
+  "output": "chambre"
+ },
+ {
+  "id": "en_fr_bathroom",
+  "input": "bathroom",
+  "output": "salle de bain"
+ },
+ {
+  "id": "en_fr_floor",
+  "input": "floor",
+  "output": "plancher"
+ },
+ {
+  "id": "en_fr_wall",
+  "input": "wall",
+  "output": "mur"
+ },
+ {
+  "id": "en_fr_roof",
+  "input": "roof",
+  "output": "toit"
+ },
+ {
+  "id": "en_fr_stairs",
+  "input": "stairs",
+  "output": "escalier"
+ },
+ {
+  "id": "en_fr_bed",
+  "input": "bed",
+  "output": "lit"
+ },
+ {
+  "id": "en_fr_lamp",
+  "input": "lamp",
+  "output": "lampe"
+ },
+ {
+  "id": "en_fr_mirror",
+  "input": "mirror",
+  "output": "miroir"
+ },
+ {
+  "id": "en_fr_clock",
+  "input": "clock",
+  "output": "horloge"
+ },
+ {
+  "id": "en_fr_knife",
+  "input": "knife",
+  "output": "couteau"
+ },
+ {
+  "id": "en_fr_fork",
+  "input": "fork",
+  "output": "fourchette"
+ },
+ {
+  "id": "en_fr_spoon",
+  "input": "spoon",
+  "output": "cuillère"
+ },
+ {
+  "id": "en_fr_plate",
+  "input": "plate",
+  "output": "assiette"
+ },
+ {
+  "id": "en_fr_glass",
+  "input": "glass",
+  "output": "verre"
+ },
+ {
+  "id": "en_fr_cup",
+  "input": "cup",
+  "output": "tasse"
+ },
+ {
+  "id": "en_fr_bottle",
+  "input": "bottle",
+  "output": "bouteille"
+ },
+ {
+  "id": "en_fr_box",
+  "input": "box",
+  "output": "boîte"
+ },
+ {
+  "id": "en_fr_money",
+  "input": "money",
+  "output": "argent"
+ },
+ {
+  "id": "en_fr_gold",
+  "input": "gold",
+  "output": "or"
+ },
+ {
+  "id": "en_fr_silver",
+  "input": "silver",
+  "output": "argent"
+ },
+ {
+  "id": "en_fr_iron",
+  "input": "iron",
+  "output": "fer"
+ },
+ {
+  "id": "en_fr_stone",
+  "input": "stone",
+  "output": "pierre"
+ },
+ {
+  "id": "en_fr_wood",
+  "input": "wood",
+  "output": "bois"
+ },
+ {
+  "id": "en_fr_music",
+  "input": "music",
+  "output": "musique"
+ },
+ {
+  "id": "en_fr_song",
+  "input": "song",
+  "output": "chanson"
+ },
+ {
+  "id": "en_fr_voice",
+  "input": "voice",
+  "output": "voix"
+ },
+ {
+  "id": "en_fr_noise",
+  "input": "noise",
+  "output": "bruit"
+ },
+ {
+  "id": "en_fr_silence",
+  "input": "silence",
+  "output": "silence"
+ },
+ {
+  "id": "en_fr_love",
+  "input": "love",
+  "output": "amour"
+ },
+ {
+  "id": "en_fr_fear",
+  "input": "fear",
+  "output": "peur"
+ },
+ {
+  "id": "en_fr_joy",
+  "input": "joy",
+  "output": "joie"
+ },
+ {
+  "id": "en_fr_anger",
+  "input": "anger",
+  "output": "colère"
+ },
+ {
+  "id": "en_fr_hope",
+  "input": "hope",
+  "output": "espoir"
+ },
+ {
+  "id": "en_fr_dream",
+  "input": "dream",
+  "output": "rêve"
+ },
+ {
+  "id": "en_fr_truth",
+  "input": "truth",
+  "output": "vérité"
+ },
+ {
+  "id": "en_fr_life",
+  "input": "life",
+  "output": "vie"
+ },
+ {
+  "id": "en_fr_death",
+  "input": "death",
+  "output": "mort"
+ },
+ {
+  "id": "en_fr_war",
+  "input": "war",
+  "output": "guerre"
+ },
+ {
+  "id": "en_fr_peace",
+  "input": "peace",
+  "output": "paix"
+ },
+ {
+  "id": "en_fr_work",
+  "input": "work",
+  "output": "travail"
+ },
+ {
+  "id": "en_fr_game",
+  "input": "game",
+  "output": "jeu"
+ },
+ {
+  "id": "en_fr_story",
+  "input": "story",
+  "output": "histoire"
+ },
+ {
+  "id": "en_fr_picture",
+  "input": "picture",
+  "output": "image"
+ },
+ {
+  "id": "en_fr_colour",
+  "input": "colour",
+  "output": "couleur"
+ }
+]

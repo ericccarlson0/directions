@@ -1,0 +1,1147 @@
+[
+ {
+  "id": "plural_cat",
+  "input": "cat",
+  "output": "cats"
+ },
+ {
+  "id": "plural_dog",
+  "input": "dog",
+  "output": "dogs"
+ },
+ {
+  "id": "plural_house",
+  "input": "house",
+  "output": "houses"
+ },
+ {
+  "id": "plural_car",
+  "input": "car",
+  "output": "cars"
+ },
+ {
+  "id": "plural_tree",
+  "input": "tree",
+  "output": "trees"
+ },
+ {
+  "id": "plural_book",
+  "input": "book",
+  "output": "books"
+ },
+ {
+  "id": "plural_chair",
+  "input": "chair",
+  "output": "chairs"
+ },
+ {
+  "id": "plural_table",
+  "input": "table",
+  "output": "tables"
+ },
+ {
+  "id": "plural_window",
+  "input": "window",
+  "output": "windows"
+ },
+ {
+  "id": "plural_door",
+  "input": "door",
+  "output": "doors"
+ },
+ {
+  "id": "plural_river",
+  "input": "river",
+  "output": "rivers"
+ },
+ {
+  "id": "plural_mountain",
+  "input": "mountain",
+  "output": "mountains"
+ },
+ {
+  "id": "plural_flower",
+  "input": "flower",
+  "output": "flowers"
+ },
+ {
+  "id": "plural_garden",
+  "input": "garden",
+  "output": "gardens"
+ },
+ {
+  "id": "plural_bottle",
+  "input": "bottle",
+  "output": "bottles"
+ },
+ {
+  "id": "plural_computer",
+  "input": "computer",
+  "output": "computers"
+ },
+ {
+  "id": "plural_phone",
+  "input": "phone",
+  "output": "phones"
+ },
+ {
+  "id": "plural_street",
+  "input": "street",
+  "output": "streets"
+ },
+ {
+  "id": "plural_bridge",
+  "input": "bridge",
+  "output": "bridges"
+ },
+ {
+  "id": "plural_church",
+  "input": "church",
+  "output": "churches"
+ },
+ {
+  "id": "plural_box",
+  "input": "box",
+  "output": "boxes"
+ },
+ {
+  "id": "plural_bus",
+  "input": "bus",
+  "output": "buses"
+ },
+ {
+  "id": "plural_glass",
+  "input": "glass",
+  "output": "glasses"
+ },
+ {
+  "id": "plural_dish",
+  "input": "dish",
+  "output": "dishes"
+ },
+ {
+  "id": "plural_brush",
+  "input": "brush",
+  "output": "brushes"
+ },
+ {
+  "id": "plural_watch",
+  "input": "watch",
+  "output": "watches"
+ },
+ {
+  "id": "plural_match",
+  "input": "match",
+  "output": "matches"
+ },
+ {
+  "id": "plural_beach",
+  "input": "beach",
+  "output": "beaches"
+ },
+ {
+  "id": "plural_class",
+  "input": "class",
+  "output": "classes"
+ },
+ {
+  "id": "plural_dress",
+  "input": "dress",
+  "output": "dresses"
+ },
+ {
+  "id": "plural_fox",
+  "input": "fox",
+  "output": "foxes"
+ },
+ {
+  "id": "plural_tax",
+  "input": "tax",
+  "output": "taxes"
+ },
+ {
+  "id": "plural_wish",
+  "input": "wish",
+  "output": "wishes"
+ },
+ {
+  "id": "plural_branch",
+  "input": "branch",
+  "output": "branches"
+ },
+ {
+  "id": "plural_lunch",
+  "input": "lunch",
+  "output": "lunches"
+ },
+ {
+  "id": "plural_bench",
+  "input": "bench",
+  "output": "benches"
+ },
+ {
+  "id": "plural_peach",
+  "input": "peach",
+  "output": "peaches"
+ },
+ {
+  "id": "plural_sandwich",
+  "input": "sandwich",
+  "output": "sandwiches"
+ },
+ {
+  "id": "plural_coach",
+  "input": "coach",
+  "output": "coaches"
+ },
+ {
+  "id": "plural_speech",
+  "input": "speech",
+  "output": "speeches"
+ },
+ {
+  "id": "plural_baby",
+  "input": "baby",
+  "output": "babies"
+ },
+ {
+  "id": "plural_city",
+  "input": "city",
+  "output": "cities"
+ },
+ {
+  "id": "plural_story",
+  "input": "story",
+  "output": "stories"
+ },
+ {
+  "id": "plural_party",
+  "input": "party",
+  "output": "parties"
+ },
+ {
+  "id": "plural_country",
+  "input": "country",
+  "output": "countries"
+ },
+ {
+  "id": "plural_family",
+  "input": "family",
+  "output": "families"
+ },
+ {
+  "id": "plural_lady",
+  "input": "lady",
+  "output": "ladies"
+ },
+ {
+  "id": "plural_army",
+  "input": "army",
+  "output": "armies"
+ },
+ {
+  "id": "plural_berry",
+  "input": "berry",
+  "output": "berries"
+ },
+ {
+  "id": "plural_copy",
+  "input": "copy",
+  "output": "copies"
+ },
+ {
+  "id": "plural_diary",
+  "input": "diary",
+  "output": "diaries"
+ },
+ {
+  "id": "plural_enemy",
+  "input": "enemy",
+  "output": "enemies"
+ },
+ {
+  "id": "plural_factory",
+  "input": "factory",
+  "output": "factories"
+ },
+ {
+  "id": "plural_hobby",
+  "input": "hobby",
+  "output": "hobbies"
+ },
+ {
+  "id": "plural_lorry",
+  "input": "lorry",
+  "output": "lorries"
+ },
+ {
+  "id": "plural_memory",
+  "input": "memory",
+  "output": "memories"
+ },
+ {
+  "id": "plural_penny",
+  "input": "penny",
+  "output": "pennies"
+ },
+ {
+  "id": "plural_pony",
+  "input": "pony",
+  "output": "ponies"
+ },
+ {
+  "id": "plural_puppy",
+  "input": "puppy",
+  "output": "puppies"
+ },
+ {
+  "id": "plural_spy",
+  "input": "spy",
+  "output": "spies"
+ },
+ {
+  "id": "plural_knife",
+  "input": "knife",
+  "output": "knives"
+ },
+ {
+  "id": "plural_leaf",
+  "input": "leaf",
+  "output": "leaves"
+ },
+ {
+  "id": "plural_wife",
+  "input": "wife",
+  "output": "wives"
+ },
+ {
+  "id": "plural_life",
+  "input": "life",
+  "output": "lives"
+ },
+ {
+  "id": "plural_wolf",
+  "input": "wolf",
+  "output": "wolves"
+ },
+ {
+  "id": "plural_shelf",
+  "input": "shelf",
+  "output": "shelves"
+ },
+ {
+  "id": "plural_thief",
+  "input": "thief",
+  "output": "thieves"
+ },
+ {
+  "id": "plural_loaf",
+  "input": "loaf",
+  "output": "loaves"
+ },
+ {
+  "id": "plural_calf",
+  "input": "calf",
+  "output": "calves"
+ },
+ {
+  "id": "plural_half",
+  "input": "half",
+  "output": "halves"
+ },
+ {
+  "id": "plural_scarf",
+  "input": "scarf",
+  "output": "scarves"
+ },
+ {
+  "id": "plural_man",
+  "input": "man",
+  "output": "men"
+ },
+ {
+  "id": "plural_woman",
+  "input": "woman",
+  "output": "women"
+ },
+ {
+  "id": "plural_child",
+  "input": "child",
+  "output": "children"
+ },
+ {
+  "id": "plural_foot",
+  "input": "foot",
+  "output": "feet"
+ },
+ {
+  "id": "plural_tooth",
+  "input": "tooth",
+  "output": "teeth"
+ },
+ {
+  "id": "plural_goose",
+  "input": "goose",
+  "output": "geese"
+ },
+ {
+  "id": "plural_mouse",
+  "input": "mouse",
+  "output": "mice"
+ },
+ {
+  "id": "plural_person",
+  "input": "person",
+  "output": "people"
+ },
+ {
+  "id": "plural_ox",
+  "input": "ox",
+  "output": "oxen"
+ },
+ {
+  "id": "plural_louse",
+  "input": "louse",
+  "output": "lice"
+ },
+ {
+  "id": "plural_sheep",
+  "input": "sheep",
+  "output": "sheep"
+ },
+ {
+  "id": "plural_deer",
+  "input": "deer",
+  "output": "deer"
+ },
+ {
+  "id": "plural_fish",
+  "input": "fish",
+  "output": "fish"
+ },
+ {
+  "id": "plural_series",
+  "input": "series",
+  "output": "series"
+ },
+ {
+  "id": "plural_species",
+  "input": "species",
+  "output": "species"
+ },
+ {
+  "id": "plural_aircraft",
+  "input": "aircraft",
+  "output": "aircraft"
+ },
+ {
+  "id": "plural_salmon",
+  "input": "salmon",
+  "output": "salmon"
+ },
+ {
+  "id": "plural_trout",
+  "input": "trout",
+  "output": "trout"
+ },
+ {
+  "id": "plural_moose",
+  "input": "moose",
+  "output": "moose"
+ },
+ {
+  "id": "plural_cactus",
+  "input": "cactus",
+  "output": "cacti"
+ },
+ {
+  "id": "plural_focus",
+  "input": "focus",
+  "output": "foci"
+ },
+ {
+  "id": "plural_fungus",
+  "input": "fungus",
+  "output": "fungi"
+ },
+ {
+  "id": "plural_nucleus",
+  "input": "nucleus",
+  "output": "nuclei"
+ },
+ {
+  "id": "plural_radius",
+  "input": "radius",
+  "output": "radii"
+ },
+ {
+  "id": "plural_stimulus",
+  "input": "stimulus",
+  "output": "stimuli"
+ },
+ {
+  "id": "plural_syllabus",
+  "input": "syllabus",
+  "output": "syllabi"
+ },
+ {
+  "id": "plural_analysis",
+  "input": "analysis",
+  "output": "analyses"
+ },
+ {
+  "id": "plural_basis",
+  "input": "basis",
+  "output": "bases"
+ },
+ {
+  "id": "plural_crisis",
+  "input": "crisis",
+  "output": "crises"
+ },
+ {
+  "id": "plural_diagnosis",
+  "input": "diagnosis",
+  "output": "diagnoses"
+ },
+ {
+  "id": "plural_hypothesis",
+  "input": "hypothesis",
+  "output": "hypotheses"
+ },
+ {
+  "id": "plural_oasis",
+  "input": "oasis",
+  "output": "oases"
+ },
+ {
+  "id": "plural_thesis",
+  "input": "thesis",
+  "output": "theses"
+ },
+ {
+  "id": "plural_criterion",
+  "input": "criterion",
+  "output": "criteria"
+ },
+ {
+  "id": "plural_phenomenon",
+  "input": "phenomenon",
+  "output": "phenomena"
+ },
+ {
+  "id": "plural_datum",
+  "input": "datum",
+  "output": "data"
+ },
+ {
+  "id": "plural_medium",
+  "input": "medium",
+  "output": "media"
+ },
+ {
+  "id": "plural_curriculum",
+  "input": "curriculum",
+  "output": "curricula"
+ },
+ {
+  "id": "plural_bacterium",
+  "input": "bacterium",
+  "output": "bacteria"
+ },
+ {
+  "id": "plural_memorandum",
+  "input": "memorandum",
+  "output": "memoranda"
+ },
+ {
+  "id": "plural_potato",
+  "input": "potato",
+  "output": "potatoes"
+ },
+ {
+  "id": "plural_tomato",
+  "input": "tomato",
+  "output": "tomatoes"
+ },
+ {
+  "id": "plural_hero",
+  "input": "hero",
+  "output": "heroes"
+ },
+ {
+  "id": "plural_echo",
+  "input": "echo",
+  "output": "echoes"
+ },
+ {
+  "id": "plural_volcano",
+  "input": "volcano",
+  "output": "volcanoes"
+ },
+ {
+  "id": "plural_piano",
+  "input": "piano",
+  "output": "pianos"
+ },
+ {
+  "id": "plural_photo",
+  "input": "photo",
+  "output": "photos"
+ },
+ {
+  "id": "plural_radio",
+  "input": "radio",
+  "output": "radios"
+ },
+ {
+  "id": "plural_studio",
+  "input": "studio",
+  "output": "studios"
+ },
+ {
+  "id": "plural_zoo",
+  "input": "zoo",
+  "output": "zoos"
+ },
+ {
+  "id": "plural_apple",
+  "input": "apple",
+  "output": "apples"
+ },
+ {
+  "id": "plural_orange",
+  "input": "orange",
+  "output": "oranges"
+ },
+ {
+  "id": "plural_banana",
+  "input": "banana",
+  "output": "bananas"
+ },
+ {
+  "id": "plural_grape",
+  "input": "grape",
+  "output": "grapes"
+ },
+ {
+  "id": "plural_lemon",
+  "input": "lemon",
+  "output": "lemons"
+ },
+ {
+  "id": "plural_melon",
+  "input": "melon",
+  "output": "melons"
+ },
+ {
+  "id": "plural_carrot",
+  "input": "carrot",
+  "output": "carrots"
+ },
+ {
+  "id": "plural_onion",
+  "input": "onion",
+  "output": "onions"
+ },
+ {
+  "id": "plural_pepper",
+  "input": "pepper",
+  "output": "peppers"
+ },
+ {
+  "id": "plural_bean",
+  "input": "bean",
+  "output": "beans"
+ },
+ {
+  "id": "plural_horse",
+  "input": "horse",
+  "output": "horses"
+ },
+ {
+  "id": "plural_cow",
+  "input": "cow",
+  "output": "cows"
+ },
+ {
+  "id": "plural_pig",
+  "input": "pig",
+  "output": "pigs"
+ },
+ {
+  "id": "plural_bird",
+  "input": "bird",
+  "output": "birds"
+ },
+ {
+  "id": "plural_snake",
+  "input": "snake",
+  "output": "snakes"
+ },
+ {
+  "id": "plural_frog",
+  "input": "frog",
+  "output": "frogs"
+ },
+ {
+  "id": "plural_rabbit",
+  "input": "rabbit",
+  "output": "rabbits"
+ },
+ {
+  "id": "plural_tiger",
+  "input": "tiger",
+  "output": "tigers"
+ },
+ {
+  "id": "plural_lion",
+  "input": "lion",
+  "output": "lions"
+ },
+ {
+  "id": "plural_bear",
+  "input": "bear",
+  "output": "bears"
+ },
+ {
+  "id": "plural_whale",
+  "input": "whale",
+  "output": "whales"
+ },
+ {
+  "id": "plural_shark",
+  "input": "shark",
+  "output": "sharks"
+ },
+ {
+  "id": "plural_eagle",
+  "input": "eagle",
+  "output": "eagles"
+ },
+ {
+  "id": "plural_owl",
+  "input": "owl",
+  "output": "owls"
+ },
+ {
+  "id": "plural_spider",
+  "input": "spider",
+  "output": "spiders"
+ },
+ {
+  "id": "plural_bee",
+  "input": "bee",
+  "output": "bees"
+ },
+ {
+  "id": "plural_ant",
+  "input": "ant",
+  "output": "ants"
+ },
+ {
+  "id": "plural_butterfly",
+  "input": "butterfly",
+  "output": "butterflies"
+ },
+ {
+  "id": "plural_teacher",
+  "input": "teacher",
+  "output": "teachers"
+ },
+ {
+  "id": "plural_student",
+  "input": "student",
+  "output": "students"
+ },
+ {
+  "id": "plural_doctor",
+  "input": "doctor",
+  "output": "doctors"
+ },
+ {
+  "id": "plural_nurse",
+  "input": "nurse",
+  "output": "nurses"
+ },
+ {
+  "id": "plural_farmer",
+  "input": "farmer",
+  "output": "farmers"
+ },
+ {
+  "id": "plural_driver",
+  "input": "driver",
+  "output": "drivers"
+ },
+ {
+  "id": "plural_singer",
+  "input": "singer",
+  "output": "singers"
+ },
+ {
+  "id": "plural_painter",
+  "input": "painter",
+  "output": "painters"
+ },
+ {
+  "id": "plural_writer",
+  "input": "writer",
+  "output": "writers"
+ },
+ {
+  "id": "plural_soldier",
+  "input": "soldier",
+  "output": "soldiers"
+ },
+ {
+  "id": "plural_sailor",
+  "input": "sailor",
+  "output": "sailors"
+ },
+ {
+  "id": "plural_pilot",
+  "input": "pilot",
+  "output": "pilots"
+ },
+ {
+  "id": "plural_banker",
+  "input": "banker",
+  "output": "bankers"
+ },
+ {
+  "id": "plural_lawyer",
+  "input": "lawyer",
+  "output": "lawyers"
+ },
+ {
+  "id": "plural_engineer",
+  "input": "engineer",
+  "output": "engineers"
+ },
+ {
+  "id": "plural_scientist",
+  "input": "scientist",
+  "output": "scientists"
+ },
+ {
+  "id": "plural_artist",
+  "input": "artist",
+  "output": "artists"
+ },
+ {
+  "id": "plural_dancer",
+  "input": "dancer",
+  "output": "dancers"
+ },
+ {
+  "id": "plural_actor",
+  "input": "actor",
+  "output": "actors"
+ },
+ {
+  "id": "plural_builder",
+  "input": "builder",
+  "output": "builders"
+ },
+ {
+  "id": "plural_island",
+  "input": "island",
+  "output": "islands"
+ },
+ {
+  "id": "plural_valley",
+  "input": "valley",
+  "output": "valleys"
+ },
+ {
+  "id": "plural_forest",
+  "input": "forest",
+  "output": "forests"
+ },
+ {
+  "id": "plural_desert",
+  "input": "desert",
+  "output": "deserts"
+ },
+ {
+  "id": "plural_ocean",
+  "input": "ocean",
+  "output": "oceans"
+ },
+ {
+  "id": "plural_lake",
+  "input": "lake",
+  "output": "lakes"
+ },
+ {
+  "id": "plural_field",
+  "input": "field",
+  "output": "fields"
+ },
+ {
+  "id": "plural_hill",
+  "input": "hill",
+  "output": "hills"
+ },
+ {
+  "id": "plural_cave",
+  "input": "cave",
+  "output": "caves"
+ },
+ {
+  "id": "plural_cliff",
+  "input": "cliff",
+  "output": "cliffs"
+ },
+ {
+  "id": "plural_village",
+  "input": "village",
+  "output": "villages"
+ },
+ {
+  "id": "plural_town",
+  "input": "town",
+  "output": "towns"
+ },
+ {
+  "id": "plural_castle",
+  "input": "castle",
+  "output": "castles"
+ },
+ {
+  "id": "plural_palace",
+  "input": "palace",
+  "output": "palaces"
+ },
+ {
+  "id": "plural_tower",
+  "input": "tower",
+  "output": "towers"
+ },
+ {
+  "id": "plural_temple",
+  "input": "temple",
+  "output": "temples"
+ },
+ {
+  "id": "plural_market",
+  "input": "market",
+  "output": "markets"
+ },
+ {
+  "id": "plural_station",
+  "input": "station",
+  "output": "stations"
+ },
+ {
+  "id": "plural_airport",
+  "input": "airport",
+  "output": "airports"
+ },
+ {
+  "id": "plural_harbour",
+  "input": "harbour",
+  "output": "harbours"
+ },
+ {
+  "id": "plural_letter",
+  "input": "letter",
+  "output": "letters"
+ },
+ {
+  "id": "plural_number",
+  "input": "number",
+  "output": "numbers"
+ },
+ {
+  "id": "plural_word",
+  "input": "word",
+  "output": "words"
+ },
+ {
+  "id": "plural_sentence",
+  "input": "sentence",
+  "output": "sentences"
+ },
+ {
+  "id": "plural_question",
+  "input": "question",
+  "output": "questions"
+ },
+ {
+  "id": "plural_answer",
+  "input": "answer",
+  "output": "answers"
+ },
+ {
+  "id": "plural_problem",
+  "input": "problem",
+  "output": "problems"
+ },
+ {
+  "id": "plural_idea",
+  "input": "idea",
+  "output": "ideas"
+ },
+ {
+  "id": "plural_reason",
+  "input": "reason",
+  "output": "reasons"
+ },
+ {
+  "id": "plural_result",
+  "input": "result",
+  "output": "results"
+ },
+ {
+  "id": "plural_picture",
+  "input": "picture",
+  "output": "pictures"
+ },
+ {
+  "id": "plural_colour",
+  "input": "colour",
+  "output": "colours"
+ },
+ {
+  "id": "plural_shape",
+  "input": "shape",
+  "output": "shapes"
+ },
+ {
+  "id": "plural_circle",
+  "input": "circle",
+  "output": "circles"
+ },
+ {
+  "id": "plural_square",
+  "input": "square",
+  "output": "squares"
+ },
+ {
+  "id": "plural_triangle",
+  "input": "triangle",
+  "output": "triangles"
+ },
+ {
+  "id": "plural_line",
+  "input": "line",
+  "output": "lines"
+ },
+ {
+  "id": "plural_point",
+  "input": "point",
+  "output": "points"
+ },
+ {
+  "id": "plural_angle",
+  "input": "angle",
+  "output": "angles"
+ },
+ {
+  "id": "plural_curve",
+  "input": "curve",
+  "output": "curves"
+ },
+ {
+  "id": "plural_minute",
+  "input": "minute",
+  "output": "minutes"
+ },
+ {
+  "id": "plural_hour",
+  "input": "hour",
+  "output": "hours"
+ },
+ {
+  "id": "plural_week",
+  "input": "week",
+  "output": "weeks"
+ },
+ {
+  "id": "plural_month",
+  "input": "month",
+  "output": "months"
+ },
+ {
+  "id": "plural_year",
+  "input": "year",
+  "output": "years"
+ },
+ {
+  "id": "plural_season",
+  "input": "season",
+  "output": "seasons"
+ },
+ {
+  "id": "plural_holiday",
+  "input": "holiday",
+  "output": "holidays"
+ },
+ {
+  "id": "plural_morning",
+  "input": "morning",
+  "output": "mornings"
+ },
+ {
+  "id": "plural_evening",
+  "input": "evening",
+  "output": "evenings"
+ },
+ {
+  "id": "plural_moment",
+  "input": "moment",
+  "output": "moments"
+ },
+ {
+  "id": "plural_shirt",
+  "input": "shirt",
+  "output": "shirts"
+ },
+ {
+  "id": "plural_jacket",
+  "input": "jacket",
+  "output": "jackets"
+ },
+ {
+  "id": "plural_shoe",
+  "input": "shoe",
+  "output": "shoes"
+ },
+ {
+  "id": "plural_sock",
+  "input": "sock",
+  "output": "socks"
+ },
+ {
+  "id": "plural_hat",
+  "input": "hat",
+  "output": "hats"
+ },
+ {
+  "id": "plural_glove",
+  "input": "glove",
+  "output": "gloves"
+ },
+ {
+  "id": "plural_button",
+  "input": "button",
+  "output": "buttons"
+ },
+ {
+  "id": "plural_pocket",
+  "input": "pocket",
+  "output": "pockets"
+ },
+ {
+  "id": "plural_belt",
+  "input": "belt",
+  "output": "belts"
+ },
+ {
+  "id": "plural_ribbon",
+  "input": "ribbon",
+  "output": "ribbons"
+ }
+]

@@ -1,0 +1,65 @@
+# Inexpensive integration path: a randomly-initialised tiny Qwen3 with a
+# byte-level tokenizer. No download, no GPU, no network. Every qualification
+# threshold is disabled so that the full machinery -- extraction, calibration,
+# steering, controls, layerwise measurement, figures -- executes end to end on
+# a model that cannot actually perform the tasks.
+
+extends: base.yaml
+
+run:
+  name: smoke
+  output_root: results
+  device: cpu
+  dtype: float32
+
+model:
+  backend: tiny_random
+  name_or_path: tiny_random_qwen3
+  tiny:
+    hidden_size: 64
+    intermediate_size: 128
+    num_hidden_layers: 6
+    num_attention_heads: 4
+    num_key_value_heads: 2
+    head_dim: 16
+    max_position_embeddings: 512
+    init_seed: 1234
+
+data:
+  tasks: [antonym, arithmetic_add]
+  n_extraction: 8
+  n_calibration: 6
+  n_eval: 8
+  n_shot_extraction: 3
+  n_shot_qualification: 3
+  n_shot_eval: 0
+
+extraction:
+  n_seeds: 2
+  candidate_layer_fracs: [0.3, 0.5]
+
+intervention:
+  strengths: [0.05, 0.2]
+  min_improvement: -1.0        # accept any calibration point
+
+qualification:
+  min_fewshot_accuracy: -1.0
+  min_target_logprob: -1000000000.0
+  min_direction_stability: -1.0
+  min_steering_improvement: -1.0
+  max_control_p_value: 1.0
+
+controls:
+  n_random: 4
+
+bootstrap:
+  n_boot: 200
+
+exploratory:
+  block_ablation:
+    top_k_layers: 2
+
+compute:
+  batch_size: 4
+  max_seq_len: 512
+  layerwise_batch_size: 4

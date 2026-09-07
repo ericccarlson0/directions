@@ -1,0 +1,1152 @@
+[
+ {
+  "id": "antonym_hot",
+  "input": "hot",
+  "output": "cold"
+ },
+ {
+  "id": "antonym_big",
+  "input": "big",
+  "output": "small"
+ },
+ {
+  "id": "antonym_fast",
+  "input": "fast",
+  "output": "slow"
+ },
+ {
+  "id": "antonym_happy",
+  "input": "happy",
+  "output": "sad"
+ },
+ {
+  "id": "antonym_up",
+  "input": "up",
+  "output": "down"
+ },
+ {
+  "id": "antonym_left",
+  "input": "left",
+  "output": "right"
+ },
+ {
+  "id": "antonym_young",
+  "input": "young",
+  "output": "old"
+ },
+ {
+  "id": "antonym_rich",
+  "input": "rich",
+  "output": "poor"
+ },
+ {
+  "id": "antonym_strong",
+  "input": "strong",
+  "output": "weak"
+ },
+ {
+  "id": "antonym_light",
+  "input": "light",
+  "output": "dark"
+ },
+ {
+  "id": "antonym_open",
+  "input": "open",
+  "output": "closed"
+ },
+ {
+  "id": "antonym_full",
+  "input": "full",
+  "output": "empty"
+ },
+ {
+  "id": "antonym_wet",
+  "input": "wet",
+  "output": "dry"
+ },
+ {
+  "id": "antonym_hard",
+  "input": "hard",
+  "output": "soft"
+ },
+ {
+  "id": "antonym_clean",
+  "input": "clean",
+  "output": "dirty"
+ },
+ {
+  "id": "antonym_loud",
+  "input": "loud",
+  "output": "quiet"
+ },
+ {
+  "id": "antonym_early",
+  "input": "early",
+  "output": "late"
+ },
+ {
+  "id": "antonym_near",
+  "input": "near",
+  "output": "far"
+ },
+ {
+  "id": "antonym_high",
+  "input": "high",
+  "output": "low"
+ },
+ {
+  "id": "antonym_long",
+  "input": "long",
+  "output": "short"
+ },
+ {
+  "id": "antonym_wide",
+  "input": "wide",
+  "output": "narrow"
+ },
+ {
+  "id": "antonym_thick",
+  "input": "thick",
+  "output": "thin"
+ },
+ {
+  "id": "antonym_heavy",
+  "input": "heavy",
+  "output": "light"
+ },
+ {
+  "id": "antonym_sharp",
+  "input": "sharp",
+  "output": "dull"
+ },
+ {
+  "id": "antonym_sweet",
+  "input": "sweet",
+  "output": "bitter"
+ },
+ {
+  "id": "antonym_smooth",
+  "input": "smooth",
+  "output": "rough"
+ },
+ {
+  "id": "antonym_deep",
+  "input": "deep",
+  "output": "shallow"
+ },
+ {
+  "id": "antonym_tight",
+  "input": "tight",
+  "output": "loose"
+ },
+ {
+  "id": "antonym_brave",
+  "input": "brave",
+  "output": "cowardly"
+ },
+ {
+  "id": "antonym_kind",
+  "input": "kind",
+  "output": "cruel"
+ },
+ {
+  "id": "antonym_polite",
+  "input": "polite",
+  "output": "rude"
+ },
+ {
+  "id": "antonym_generous",
+  "input": "generous",
+  "output": "stingy"
+ },
+ {
+  "id": "antonym_honest",
+  "input": "honest",
+  "output": "dishonest"
+ },
+ {
+  "id": "antonym_humble",
+  "input": "humble",
+  "output": "arrogant"
+ },
+ {
+  "id": "antonym_calm",
+  "input": "calm",
+  "output": "anxious"
+ },
+ {
+  "id": "antonym_patient",
+  "input": "patient",
+  "output": "impatient"
+ },
+ {
+  "id": "antonym_careful",
+  "input": "careful",
+  "output": "careless"
+ },
+ {
+  "id": "antonym_cheerful",
+  "input": "cheerful",
+  "output": "gloomy"
+ },
+ {
+  "id": "antonym_friendly",
+  "input": "friendly",
+  "output": "hostile"
+ },
+ {
+  "id": "antonym_gentle",
+  "input": "gentle",
+  "output": "harsh"
+ },
+ {
+  "id": "antonym_lazy",
+  "input": "lazy",
+  "output": "diligent"
+ },
+ {
+  "id": "antonym_modest",
+  "input": "modest",
+  "output": "boastful"
+ },
+ {
+  "id": "antonym_optimistic",
+  "input": "optimistic",
+  "output": "pessimistic"
+ },
+ {
+  "id": "antonym_serious",
+  "input": "serious",
+  "output": "playful"
+ },
+ {
+  "id": "antonym_sincere",
+  "input": "sincere",
+  "output": "insincere"
+ },
+ {
+  "id": "antonym_timid",
+  "input": "timid",
+  "output": "bold"
+ },
+ {
+  "id": "antonym_wise",
+  "input": "wise",
+  "output": "foolish"
+ },
+ {
+  "id": "antonym_alive",
+  "input": "alive",
+  "output": "dead"
+ },
+ {
+  "id": "antonym_ancient",
+  "input": "ancient",
+  "output": "modern"
+ },
+ {
+  "id": "antonym_artificial",
+  "input": "artificial",
+  "output": "natural"
+ },
+ {
+  "id": "antonym_beautiful",
+  "input": "beautiful",
+  "output": "ugly"
+ },
+ {
+  "id": "antonym_best",
+  "input": "best",
+  "output": "worst"
+ },
+ {
+  "id": "antonym_better",
+  "input": "better",
+  "output": "worse"
+ },
+ {
+  "id": "antonym_bright",
+  "input": "bright",
+  "output": "dim"
+ },
+ {
+  "id": "antonym_broad",
+  "input": "broad",
+  "output": "narrow"
+ },
+ {
+  "id": "antonym_busy",
+  "input": "busy",
+  "output": "idle"
+ },
+ {
+  "id": "antonym_cheap",
+  "input": "cheap",
+  "output": "expensive"
+ },
+ {
+  "id": "antonym_clear",
+  "input": "clear",
+  "output": "cloudy"
+ },
+ {
+  "id": "antonym_common",
+  "input": "common",
+  "output": "rare"
+ },
+ {
+  "id": "antonym_complex",
+  "input": "complex",
+  "output": "simple"
+ },
+ {
+  "id": "antonym_correct",
+  "input": "correct",
+  "output": "incorrect"
+ },
+ {
+  "id": "antonym_crooked",
+  "input": "crooked",
+  "output": "straight"
+ },
+ {
+  "id": "antonym_cruel",
+  "input": "cruel",
+  "output": "merciful"
+ },
+ {
+  "id": "antonym_dangerous",
+  "input": "dangerous",
+  "output": "safe"
+ },
+ {
+  "id": "antonym_dark",
+  "input": "dark",
+  "output": "bright"
+ },
+ {
+  "id": "antonym_difficult",
+  "input": "difficult",
+  "output": "easy"
+ },
+ {
+  "id": "antonym_dirty",
+  "input": "dirty",
+  "output": "clean"
+ },
+ {
+  "id": "antonym_dry",
+  "input": "dry",
+  "output": "wet"
+ },
+ {
+  "id": "antonym_dull",
+  "input": "dull",
+  "output": "interesting"
+ },
+ {
+  "id": "antonym_easy",
+  "input": "easy",
+  "output": "hard"
+ },
+ {
+  "id": "antonym_empty",
+  "input": "empty",
+  "output": "full"
+ },
+ {
+  "id": "antonym_even",
+  "input": "even",
+  "output": "odd"
+ },
+ {
+  "id": "antonym_expensive",
+  "input": "expensive",
+  "output": "cheap"
+ },
+ {
+  "id": "antonym_external",
+  "input": "external",
+  "output": "internal"
+ },
+ {
+  "id": "antonym_false",
+  "input": "false",
+  "output": "true"
+ },
+ {
+  "id": "antonym_familiar",
+  "input": "familiar",
+  "output": "strange"
+ },
+ {
+  "id": "antonym_famous",
+  "input": "famous",
+  "output": "unknown"
+ },
+ {
+  "id": "antonym_fat",
+  "input": "fat",
+  "output": "thin"
+ },
+ {
+  "id": "antonym_fertile",
+  "input": "fertile",
+  "output": "barren"
+ },
+ {
+  "id": "antonym_few",
+  "input": "few",
+  "output": "many"
+ },
+ {
+  "id": "antonym_final",
+  "input": "final",
+  "output": "initial"
+ },
+ {
+  "id": "antonym_firm",
+  "input": "firm",
+  "output": "flabby"
+ },
+ {
+  "id": "antonym_first",
+  "input": "first",
+  "output": "last"
+ },
+ {
+  "id": "antonym_flat",
+  "input": "flat",
+  "output": "bumpy"
+ },
+ {
+  "id": "antonym_foolish",
+  "input": "foolish",
+  "output": "sensible"
+ },
+ {
+  "id": "antonym_forward",
+  "input": "forward",
+  "output": "backward"
+ },
+ {
+  "id": "antonym_fresh",
+  "input": "fresh",
+  "output": "stale"
+ },
+ {
+  "id": "antonym_frequent",
+  "input": "frequent",
+  "output": "rare"
+ },
+ {
+  "id": "antonym_front",
+  "input": "front",
+  "output": "back"
+ },
+ {
+  "id": "antonym_guilty",
+  "input": "guilty",
+  "output": "innocent"
+ },
+ {
+  "id": "antonym_healthy",
+  "input": "healthy",
+  "output": "sick"
+ },
+ {
+  "id": "antonym_horizontal",
+  "input": "horizontal",
+  "output": "vertical"
+ },
+ {
+  "id": "antonym_huge",
+  "input": "huge",
+  "output": "tiny"
+ },
+ {
+  "id": "antonym_important",
+  "input": "important",
+  "output": "trivial"
+ },
+ {
+  "id": "antonym_increase",
+  "input": "increase",
+  "output": "decrease"
+ },
+ {
+  "id": "antonym_inside",
+  "input": "inside",
+  "output": "outside"
+ },
+ {
+  "id": "antonym_junior",
+  "input": "junior",
+  "output": "senior"
+ },
+ {
+  "id": "antonym_large",
+  "input": "large",
+  "output": "small"
+ },
+ {
+  "id": "antonym_legal",
+  "input": "legal",
+  "output": "illegal"
+ },
+ {
+  "id": "antonym_liquid",
+  "input": "liquid",
+  "output": "solid"
+ },
+ {
+  "id": "antonym_major",
+  "input": "major",
+  "output": "minor"
+ },
+ {
+  "id": "antonym_male",
+  "input": "male",
+  "output": "female"
+ },
+ {
+  "id": "antonym_maximum",
+  "input": "maximum",
+  "output": "minimum"
+ },
+ {
+  "id": "antonym_mild",
+  "input": "mild",
+  "output": "severe"
+ },
+ {
+  "id": "antonym_minority",
+  "input": "minority",
+  "output": "majority"
+ },
+ {
+  "id": "antonym_moist",
+  "input": "moist",
+  "output": "arid"
+ },
+ {
+  "id": "antonym_narrow",
+  "input": "narrow",
+  "output": "wide"
+ },
+ {
+  "id": "antonym_neat",
+  "input": "neat",
+  "output": "messy"
+ },
+ {
+  "id": "antonym_new",
+  "input": "new",
+  "output": "old"
+ },
+ {
+  "id": "antonym_noisy",
+  "input": "noisy",
+  "output": "silent"
+ },
+ {
+  "id": "antonym_normal",
+  "input": "normal",
+  "output": "abnormal"
+ },
+ {
+  "id": "antonym_north",
+  "input": "north",
+  "output": "south"
+ },
+ {
+  "id": "antonym_obvious",
+  "input": "obvious",
+  "output": "obscure"
+ },
+ {
+  "id": "antonym_occupied",
+  "input": "occupied",
+  "output": "vacant"
+ },
+ {
+  "id": "antonym_odd",
+  "input": "odd",
+  "output": "even"
+ },
+ {
+  "id": "antonym_often",
+  "input": "often",
+  "output": "seldom"
+ },
+ {
+  "id": "antonym_opaque",
+  "input": "opaque",
+  "output": "transparent"
+ },
+ {
+  "id": "antonym_ordinary",
+  "input": "ordinary",
+  "output": "unusual"
+ },
+ {
+  "id": "antonym_past",
+  "input": "past",
+  "output": "future"
+ },
+ {
+  "id": "antonym_peace",
+  "input": "peace",
+  "output": "war"
+ },
+ {
+  "id": "antonym_permanent",
+  "input": "permanent",
+  "output": "temporary"
+ },
+ {
+  "id": "antonym_plentiful",
+  "input": "plentiful",
+  "output": "scarce"
+ },
+ {
+  "id": "antonym_positive",
+  "input": "positive",
+  "output": "negative"
+ },
+ {
+  "id": "antonym_possible",
+  "input": "possible",
+  "output": "impossible"
+ },
+ {
+  "id": "antonym_powerful",
+  "input": "powerful",
+  "output": "powerless"
+ },
+ {
+  "id": "antonym_present",
+  "input": "present",
+  "output": "absent"
+ },
+ {
+  "id": "antonym_private",
+  "input": "private",
+  "output": "public"
+ },
+ {
+  "id": "antonym_professional",
+  "input": "professional",
+  "output": "amateur"
+ },
+ {
+  "id": "antonym_profit",
+  "input": "profit",
+  "output": "loss"
+ },
+ {
+  "id": "antonym_public",
+  "input": "public",
+  "output": "private"
+ },
+ {
+  "id": "antonym_punish",
+  "input": "punish",
+  "output": "reward"
+ },
+ {
+  "id": "antonym_pure",
+  "input": "pure",
+  "output": "impure"
+ },
+ {
+  "id": "antonym_quick",
+  "input": "quick",
+  "output": "sluggish"
+ },
+ {
+  "id": "antonym_quiet",
+  "input": "quiet",
+  "output": "noisy"
+ },
+ {
+  "id": "antonym_random",
+  "input": "random",
+  "output": "ordered"
+ },
+ {
+  "id": "antonym_raw",
+  "input": "raw",
+  "output": "cooked"
+ },
+ {
+  "id": "antonym_ready",
+  "input": "ready",
+  "output": "unprepared"
+ },
+ {
+  "id": "antonym_real",
+  "input": "real",
+  "output": "fake"
+ },
+ {
+  "id": "antonym_rear",
+  "input": "rear",
+  "output": "front"
+ },
+ {
+  "id": "antonym_regular",
+  "input": "regular",
+  "output": "irregular"
+ },
+ {
+  "id": "antonym_relevant",
+  "input": "relevant",
+  "output": "irrelevant"
+ },
+ {
+  "id": "antonym_reliable",
+  "input": "reliable",
+  "output": "unreliable"
+ },
+ {
+  "id": "antonym_remember",
+  "input": "remember",
+  "output": "forget"
+ },
+ {
+  "id": "antonym_remote",
+  "input": "remote",
+  "output": "nearby"
+ },
+ {
+  "id": "antonym_rigid",
+  "input": "rigid",
+  "output": "flexible"
+ },
+ {
+  "id": "antonym_ripe",
+  "input": "ripe",
+  "output": "unripe"
+ },
+ {
+  "id": "antonym_rise",
+  "input": "rise",
+  "output": "fall"
+ },
+ {
+  "id": "antonym_rough",
+  "input": "rough",
+  "output": "smooth"
+ },
+ {
+  "id": "antonym_rural",
+  "input": "rural",
+  "output": "urban"
+ },
+ {
+  "id": "antonym_sad",
+  "input": "sad",
+  "output": "joyful"
+ },
+ {
+  "id": "antonym_same",
+  "input": "same",
+  "output": "different"
+ },
+ {
+  "id": "antonym_satisfied",
+  "input": "satisfied",
+  "output": "dissatisfied"
+ },
+ {
+  "id": "antonym_scarce",
+  "input": "scarce",
+  "output": "abundant"
+ },
+ {
+  "id": "antonym_secret",
+  "input": "secret",
+  "output": "public"
+ },
+ {
+  "id": "antonym_secure",
+  "input": "secure",
+  "output": "vulnerable"
+ },
+ {
+  "id": "antonym_selfish",
+  "input": "selfish",
+  "output": "selfless"
+ },
+ {
+  "id": "antonym_separate",
+  "input": "separate",
+  "output": "together"
+ },
+ {
+  "id": "antonym_shallow",
+  "input": "shallow",
+  "output": "deep"
+ },
+ {
+  "id": "antonym_shame",
+  "input": "shame",
+  "output": "pride"
+ },
+ {
+  "id": "antonym_shiny",
+  "input": "shiny",
+  "output": "matte"
+ },
+ {
+  "id": "antonym_short",
+  "input": "short",
+  "output": "tall"
+ },
+ {
+  "id": "antonym_shrink",
+  "input": "shrink",
+  "output": "grow"
+ },
+ {
+  "id": "antonym_shut",
+  "input": "shut",
+  "output": "open"
+ },
+ {
+  "id": "antonym_simple",
+  "input": "simple",
+  "output": "complicated"
+ },
+ {
+  "id": "antonym_single",
+  "input": "single",
+  "output": "married"
+ },
+ {
+  "id": "antonym_sink",
+  "input": "sink",
+  "output": "float"
+ },
+ {
+  "id": "antonym_slack",
+  "input": "slack",
+  "output": "taut"
+ },
+ {
+  "id": "antonym_slim",
+  "input": "slim",
+  "output": "chubby"
+ },
+ {
+  "id": "antonym_slow",
+  "input": "slow",
+  "output": "rapid"
+ },
+ {
+  "id": "antonym_smart",
+  "input": "smart",
+  "output": "stupid"
+ },
+ {
+  "id": "antonym_soft",
+  "input": "soft",
+  "output": "firm"
+ },
+ {
+  "id": "antonym_solid",
+  "input": "solid",
+  "output": "hollow"
+ },
+ {
+  "id": "antonym_sour",
+  "input": "sour",
+  "output": "sugary"
+ },
+ {
+  "id": "antonym_sparse",
+  "input": "sparse",
+  "output": "dense"
+ },
+ {
+  "id": "antonym_spend",
+  "input": "spend",
+  "output": "save"
+ },
+ {
+  "id": "antonym_stable",
+  "input": "stable",
+  "output": "unstable"
+ },
+ {
+  "id": "antonym_start",
+  "input": "start",
+  "output": "finish"
+ },
+ {
+  "id": "antonym_stationary",
+  "input": "stationary",
+  "output": "moving"
+ },
+ {
+  "id": "antonym_steep",
+  "input": "steep",
+  "output": "gradual"
+ },
+ {
+  "id": "antonym_stiff",
+  "input": "stiff",
+  "output": "limp"
+ },
+ {
+  "id": "antonym_still",
+  "input": "still",
+  "output": "moving"
+ },
+ {
+  "id": "antonym_stop",
+  "input": "stop",
+  "output": "go"
+ },
+ {
+  "id": "antonym_straight",
+  "input": "straight",
+  "output": "curved"
+ },
+ {
+  "id": "antonym_stranger",
+  "input": "stranger",
+  "output": "acquaintance"
+ },
+ {
+  "id": "antonym_strict",
+  "input": "strict",
+  "output": "lenient"
+ },
+ {
+  "id": "antonym_success",
+  "input": "success",
+  "output": "failure"
+ },
+ {
+  "id": "antonym_sunny",
+  "input": "sunny",
+  "output": "overcast"
+ },
+ {
+  "id": "antonym_superior",
+  "input": "superior",
+  "output": "inferior"
+ },
+ {
+  "id": "antonym_sure",
+  "input": "sure",
+  "output": "doubtful"
+ },
+ {
+  "id": "antonym_synthetic",
+  "input": "synthetic",
+  "output": "organic"
+ },
+ {
+  "id": "antonym_tall",
+  "input": "tall",
+  "output": "short"
+ },
+ {
+  "id": "antonym_tame",
+  "input": "tame",
+  "output": "wild"
+ },
+ {
+  "id": "antonym_tasty",
+  "input": "tasty",
+  "output": "bland"
+ },
+ {
+  "id": "antonym_teach",
+  "input": "teach",
+  "output": "learn"
+ },
+ {
+  "id": "antonym_tense",
+  "input": "tense",
+  "output": "relaxed"
+ },
+ {
+  "id": "antonym_thin",
+  "input": "thin",
+  "output": "fat"
+ },
+ {
+  "id": "antonym_tidy",
+  "input": "tidy",
+  "output": "untidy"
+ },
+ {
+  "id": "antonym_tiny",
+  "input": "tiny",
+  "output": "enormous"
+ },
+ {
+  "id": "antonym_top",
+  "input": "top",
+  "output": "bottom"
+ },
+ {
+  "id": "antonym_tough",
+  "input": "tough",
+  "output": "tender"
+ },
+ {
+  "id": "antonym_transparent",
+  "input": "transparent",
+  "output": "opaque"
+ },
+ {
+  "id": "antonym_true",
+  "input": "true",
+  "output": "false"
+ },
+ {
+  "id": "antonym_ugly",
+  "input": "ugly",
+  "output": "pretty"
+ },
+ {
+  "id": "antonym_unique",
+  "input": "unique",
+  "output": "common"
+ },
+ {
+  "id": "antonym_united",
+  "input": "united",
+  "output": "divided"
+ },
+ {
+  "id": "antonym_useful",
+  "input": "useful",
+  "output": "useless"
+ },
+ {
+  "id": "antonym_usual",
+  "input": "usual",
+  "output": "rare"
+ },
+ {
+  "id": "antonym_valid",
+  "input": "valid",
+  "output": "invalid"
+ },
+ {
+  "id": "antonym_victory",
+  "input": "victory",
+  "output": "defeat"
+ },
+ {
+  "id": "antonym_visible",
+  "input": "visible",
+  "output": "invisible"
+ },
+ {
+  "id": "antonym_voluntary",
+  "input": "voluntary",
+  "output": "compulsory"
+ },
+ {
+  "id": "antonym_warm",
+  "input": "warm",
+  "output": "cool"
+ },
+ {
+  "id": "antonym_waste",
+  "input": "waste",
+  "output": "conserve"
+ },
+ {
+  "id": "antonym_weak",
+  "input": "weak",
+  "output": "mighty"
+ },
+ {
+  "id": "antonym_wealth",
+  "input": "wealth",
+  "output": "poverty"
+ },
+ {
+  "id": "antonym_whole",
+  "input": "whole",
+  "output": "partial"
+ },
+ {
+  "id": "antonym_wild",
+  "input": "wild",
+  "output": "domestic"
+ },
+ {
+  "id": "antonym_win",
+  "input": "win",
+  "output": "lose"
+ },
+ {
+  "id": "antonym_winter",
+  "input": "winter",
+  "output": "summer"
+ },
+ {
+  "id": "antonym_wrong",
+  "input": "wrong",
+  "output": "right"
+ },
+ {
+  "id": "antonym_day",
+  "input": "day",
+  "output": "night"
+ },
+ {
+  "id": "antonym_begin",
+  "input": "begin",
+  "output": "end"
+ },
+ {
+  "id": "antonym_buy",
+  "input": "buy",
+  "output": "sell"
+ },
+ {
+  "id": "antonym_give",
+  "input": "give",
+  "output": "take"
+ },
+ {
+  "id": "antonym_push",
+  "input": "push",
+  "output": "pull"
+ },
+ {
+  "id": "antonym_love",
+  "input": "love",
+  "output": "hate"
+ },
+ {
+  "id": "antonym_arrive",
+  "input": "arrive",
+  "output": "depart"
+ },
+ {
+  "id": "antonym_ascend",
+  "input": "ascend",
+  "output": "descend"
+ },
+ {
+  "id": "antonym_attack",
+  "input": "attack",
+  "output": "defend"
+ },
+ {
+  "id": "antonym_awake",
+  "input": "awake",
+  "output": "asleep"
+ }
+]

@@ -1,0 +1,78 @@
+# Shared defaults for every pilot run. Model-specific configs `extends:` this
+# file and override only what genuinely differs.
+
+run:
+  name: base
+  output_root: results
+  seed: 0
+  device: auto
+  dtype: bfloat16
+  notes: "Measurement-validation pilot (docs/EXPERIMENT.md)."
+
+model:
+  backend: hf
+  attn_implementation: eager   # deterministic and hook-friendly
+
+data:
+  tasks: [antonym, plural, past_tense, en_fr, arithmetic_add]
+  n_extraction: 64
+  n_calibration: 48
+  n_eval: 64
+  # Extraction and qualification prompts are few-shot; the steering evaluation
+  # is zero-shot so that there is behavioural headroom for the intervention.
+  # See docs/DECISIONS.md (D2).
+  n_shot_extraction: 10
+  n_shot_qualification: 10
+  n_shot_eval: 0
+  max_target_tokens: 6
+  template:
+    demo: "Q: {input}\nA: {output}"
+    query: "Q: {input}\nA:"
+    separator: "\n\n"
+    target_prefix: " "
+
+extraction:
+  n_seeds: 3
+  center_pca: false            # see docs/DECISIONS.md (D1)
+  candidate_layer_fracs: [0.2, 0.3, 0.4, 0.5, 0.6]
+
+intervention:
+  strengths: [0.01, 0.02, 0.05, 0.1, 0.15, 0.2, 0.3]
+  token: last_prompt
+  selection_metric: accuracy
+  min_improvement: 0.05
+
+qualification:
+  min_fewshot_accuracy: 0.4
+  min_target_logprob: -6.0
+  min_direction_stability: 0.5
+  min_steering_improvement: 0.05
+  max_control_p_value: 0.1
+
+controls:
+  n_random: 16
+  kinds: [isotropic, orthogonal]
+
+layerwise:
+  variance_fraction: 0.9
+  measure_token: intervened
+
+bootstrap:
+  n_boot: 2000
+  alpha: 0.05
+
+exploratory:
+  profile_labels: true
+  block_ablation:
+    enabled: true
+    top_k_layers: 3
+
+figures:
+  enabled: true
+  dpi: 150
+  format: png
+
+compute:
+  batch_size: 16
+  max_seq_len: 1024
+  layerwise_batch_size: 16

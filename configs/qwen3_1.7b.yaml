@@ -1,0 +1,13 @@
+# The identical pipeline on the larger model: only the checkpoint and the
+# batch sizes change.
+extends: qwen3_0.6b.yaml
+
+run:
+  name: qwen3_1.7b_base
+
+model:
+  name_or_path: Qwen/Qwen3-1.7B-Base
+
+compute:
+  batch_size: 8
+  layerwise_batch_size: 8

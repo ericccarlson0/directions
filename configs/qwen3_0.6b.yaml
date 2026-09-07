@@ -1,0 +1,8 @@
+extends: base.yaml
+
+run:
+  name: qwen3_0.6b_base
+
+model:
+  backend: hf
+  name_or_path: Qwen/Qwen3-0.6B-Base

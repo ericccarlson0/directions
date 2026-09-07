@@ -1,0 +1,1182 @@
+[
+ {
+  "id": "past_walk",
+  "input": "walk",
+  "output": "walked"
+ },
+ {
+  "id": "past_talk",
+  "input": "talk",
+  "output": "talked"
+ },
+ {
+  "id": "past_play",
+  "input": "play",
+  "output": "played"
+ },
+ {
+  "id": "past_work",
+  "input": "work",
+  "output": "worked"
+ },
+ {
+  "id": "past_open",
+  "input": "open",
+  "output": "opened"
+ },
+ {
+  "id": "past_close",
+  "input": "close",
+  "output": "closed"
+ },
+ {
+  "id": "past_start",
+  "input": "start",
+  "output": "started"
+ },
+ {
+  "id": "past_finish",
+  "input": "finish",
+  "output": "finished"
+ },
+ {
+  "id": "past_answer",
+  "input": "answer",
+  "output": "answered"
+ },
+ {
+  "id": "past_ask",
+  "input": "ask",
+  "output": "asked"
+ },
+ {
+  "id": "past_call",
+  "input": "call",
+  "output": "called"
+ },
+ {
+  "id": "past_change",
+  "input": "change",
+  "output": "changed"
+ },
+ {
+  "id": "past_clean",
+  "input": "clean",
+  "output": "cleaned"
+ },
+ {
+  "id": "past_climb",
+  "input": "climb",
+  "output": "climbed"
+ },
+ {
+  "id": "past_cook",
+  "input": "cook",
+  "output": "cooked"
+ },
+ {
+  "id": "past_count",
+  "input": "count",
+  "output": "counted"
+ },
+ {
+  "id": "past_cover",
+  "input": "cover",
+  "output": "covered"
+ },
+ {
+  "id": "past_create",
+  "input": "create",
+  "output": "created"
+ },
+ {
+  "id": "past_cross",
+  "input": "cross",
+  "output": "crossed"
+ },
+ {
+  "id": "past_dance",
+  "input": "dance",
+  "output": "danced"
+ },
+ {
+  "id": "past_decide",
+  "input": "decide",
+  "output": "decided"
+ },
+ {
+  "id": "past_deliver",
+  "input": "deliver",
+  "output": "delivered"
+ },
+ {
+  "id": "past_describe",
+  "input": "describe",
+  "output": "described"
+ },
+ {
+  "id": "past_discover",
+  "input": "discover",
+  "output": "discovered"
+ },
+ {
+  "id": "past_enjoy",
+  "input": "enjoy",
+  "output": "enjoyed"
+ },
+ {
+  "id": "past_enter",
+  "input": "enter",
+  "output": "entered"
+ },
+ {
+  "id": "past_explain",
+  "input": "explain",
+  "output": "explained"
+ },
+ {
+  "id": "past_fix",
+  "input": "fix",
+  "output": "fixed"
+ },
+ {
+  "id": "past_follow",
+  "input": "follow",
+  "output": "followed"
+ },
+ {
+  "id": "past_happen",
+  "input": "happen",
+  "output": "happened"
+ },
+ {
+  "id": "past_help",
+  "input": "help",
+  "output": "helped"
+ },
+ {
+  "id": "past_invite",
+  "input": "invite",
+  "output": "invited"
+ },
+ {
+  "id": "past_join",
+  "input": "join",
+  "output": "joined"
+ },
+ {
+  "id": "past_jump",
+  "input": "jump",
+  "output": "jumped"
+ },
+ {
+  "id": "past_kick",
+  "input": "kick",
+  "output": "kicked"
+ },
+ {
+  "id": "past_kiss",
+  "input": "kiss",
+  "output": "kissed"
+ },
+ {
+  "id": "past_knock",
+  "input": "knock",
+  "output": "knocked"
+ },
+ {
+  "id": "past_land",
+  "input": "land",
+  "output": "landed"
+ },
+ {
+  "id": "past_laugh",
+  "input": "laugh",
+  "output": "laughed"
+ },
+ {
+  "id": "past_learn",
+  "input": "learn",
+  "output": "learned"
+ },
+ {
+  "id": "past_like",
+  "input": "like",
+  "output": "liked"
+ },
+ {
+  "id": "past_listen",
+  "input": "listen",
+  "output": "listened"
+ },
+ {
+  "id": "past_live",
+  "input": "live",
+  "output": "lived"
+ },
+ {
+  "id": "past_lock",
+  "input": "lock",
+  "output": "locked"
+ },
+ {
+  "id": "past_look",
+  "input": "look",
+  "output": "looked"
+ },
+ {
+  "id": "past_love",
+  "input": "love",
+  "output": "loved"
+ },
+ {
+  "id": "past_move",
+  "input": "move",
+  "output": "moved"
+ },
+ {
+  "id": "past_need",
+  "input": "need",
+  "output": "needed"
+ },
+ {
+  "id": "past_notice",
+  "input": "notice",
+  "output": "noticed"
+ },
+ {
+  "id": "past_offer",
+  "input": "offer",
+  "output": "offered"
+ },
+ {
+  "id": "past_paint",
+  "input": "paint",
+  "output": "painted"
+ },
+ {
+  "id": "past_pass",
+  "input": "pass",
+  "output": "passed"
+ },
+ {
+  "id": "past_pick",
+  "input": "pick",
+  "output": "picked"
+ },
+ {
+  "id": "past_plan",
+  "input": "plan",
+  "output": "planned"
+ },
+ {
+  "id": "past_point",
+  "input": "point",
+  "output": "pointed"
+ },
+ {
+  "id": "past_practise",
+  "input": "practise",
+  "output": "practised"
+ },
+ {
+  "id": "past_prefer",
+  "input": "prefer",
+  "output": "preferred"
+ },
+ {
+  "id": "past_prepare",
+  "input": "prepare",
+  "output": "prepared"
+ },
+ {
+  "id": "past_promise",
+  "input": "promise",
+  "output": "promised"
+ },
+ {
+  "id": "past_pull",
+  "input": "pull",
+  "output": "pulled"
+ },
+ {
+  "id": "past_push",
+  "input": "push",
+  "output": "pushed"
+ },
+ {
+  "id": "past_rain",
+  "input": "rain",
+  "output": "rained"
+ },
+ {
+  "id": "past_reach",
+  "input": "reach",
+  "output": "reached"
+ },
+ {
+  "id": "past_receive",
+  "input": "receive",
+  "output": "received"
+ },
+ {
+  "id": "past_remember",
+  "input": "remember",
+  "output": "remembered"
+ },
+ {
+  "id": "past_repair",
+  "input": "repair",
+  "output": "repaired"
+ },
+ {
+  "id": "past_repeat",
+  "input": "repeat",
+  "output": "repeated"
+ },
+ {
+  "id": "past_reply",
+  "input": "reply",
+  "output": "replied"
+ },
+ {
+  "id": "past_rescue",
+  "input": "rescue",
+  "output": "rescued"
+ },
+ {
+  "id": "past_return",
+  "input": "return",
+  "output": "returned"
+ },
+ {
+  "id": "past_save",
+  "input": "save",
+  "output": "saved"
+ },
+ {
+  "id": "past_seem",
+  "input": "seem",
+  "output": "seemed"
+ },
+ {
+  "id": "past_share",
+  "input": "share",
+  "output": "shared"
+ },
+ {
+  "id": "past_shout",
+  "input": "shout",
+  "output": "shouted"
+ },
+ {
+  "id": "past_smile",
+  "input": "smile",
+  "output": "smiled"
+ },
+ {
+  "id": "past_stay",
+  "input": "stay",
+  "output": "stayed"
+ },
+ {
+  "id": "past_stop",
+  "input": "stop",
+  "output": "stopped"
+ },
+ {
+  "id": "past_study",
+  "input": "study",
+  "output": "studied"
+ },
+ {
+  "id": "past_suggest",
+  "input": "suggest",
+  "output": "suggested"
+ },
+ {
+  "id": "past_thank",
+  "input": "thank",
+  "output": "thanked"
+ },
+ {
+  "id": "past_touch",
+  "input": "touch",
+  "output": "touched"
+ },
+ {
+  "id": "past_travel",
+  "input": "travel",
+  "output": "travelled"
+ },
+ {
+  "id": "past_try",
+  "input": "try",
+  "output": "tried"
+ },
+ {
+  "id": "past_turn",
+  "input": "turn",
+  "output": "turned"
+ },
+ {
+  "id": "past_use",
+  "input": "use",
+  "output": "used"
+ },
+ {
+  "id": "past_visit",
+  "input": "visit",
+  "output": "visited"
+ },
+ {
+  "id": "past_wait",
+  "input": "wait",
+  "output": "waited"
+ },
+ {
+  "id": "past_want",
+  "input": "want",
+  "output": "wanted"
+ },
+ {
+  "id": "past_wash",
+  "input": "wash",
+  "output": "washed"
+ },
+ {
+  "id": "past_watch",
+  "input": "watch",
+  "output": "watched"
+ },
+ {
+  "id": "past_water",
+  "input": "water",
+  "output": "watered"
+ },
+ {
+  "id": "past_wonder",
+  "input": "wonder",
+  "output": "wondered"
+ },
+ {
+  "id": "past_worry",
+  "input": "worry",
+  "output": "worried"
+ },
+ {
+  "id": "past_carry",
+  "input": "carry",
+  "output": "carried"
+ },
+ {
+  "id": "past_hurry",
+  "input": "hurry",
+  "output": "hurried"
+ },
+ {
+  "id": "past_marry",
+  "input": "marry",
+  "output": "married"
+ },
+ {
+  "id": "past_copy",
+  "input": "copy",
+  "output": "copied"
+ },
+ {
+  "id": "past_cry",
+  "input": "cry",
+  "output": "cried"
+ },
+ {
+  "id": "past_dry",
+  "input": "dry",
+  "output": "dried"
+ },
+ {
+  "id": "past_fry",
+  "input": "fry",
+  "output": "fried"
+ },
+ {
+  "id": "past_tidy",
+  "input": "tidy",
+  "output": "tidied"
+ },
+ {
+  "id": "past_be",
+  "input": "be",
+  "output": "was"
+ },
+ {
+  "id": "past_become",
+  "input": "become",
+  "output": "became"
+ },
+ {
+  "id": "past_begin",
+  "input": "begin",
+  "output": "began"
+ },
+ {
+  "id": "past_bend",
+  "input": "bend",
+  "output": "bent"
+ },
+ {
+  "id": "past_bite",
+  "input": "bite",
+  "output": "bit"
+ },
+ {
+  "id": "past_blow",
+  "input": "blow",
+  "output": "blew"
+ },
+ {
+  "id": "past_break",
+  "input": "break",
+  "output": "broke"
+ },
+ {
+  "id": "past_bring",
+  "input": "bring",
+  "output": "brought"
+ },
+ {
+  "id": "past_build",
+  "input": "build",
+  "output": "built"
+ },
+ {
+  "id": "past_burn",
+  "input": "burn",
+  "output": "burnt"
+ },
+ {
+  "id": "past_buy",
+  "input": "buy",
+  "output": "bought"
+ },
+ {
+  "id": "past_catch",
+  "input": "catch",
+  "output": "caught"
+ },
+ {
+  "id": "past_choose",
+  "input": "choose",
+  "output": "chose"
+ },
+ {
+  "id": "past_come",
+  "input": "come",
+  "output": "came"
+ },
+ {
+  "id": "past_cost",
+  "input": "cost",
+  "output": "cost"
+ },
+ {
+  "id": "past_cut",
+  "input": "cut",
+  "output": "cut"
+ },
+ {
+  "id": "past_dig",
+  "input": "dig",
+  "output": "dug"
+ },
+ {
+  "id": "past_do",
+  "input": "do",
+  "output": "did"
+ },
+ {
+  "id": "past_draw",
+  "input": "draw",
+  "output": "drew"
+ },
+ {
+  "id": "past_dream",
+  "input": "dream",
+  "output": "dreamt"
+ },
+ {
+  "id": "past_drink",
+  "input": "drink",
+  "output": "drank"
+ },
+ {
+  "id": "past_drive",
+  "input": "drive",
+  "output": "drove"
+ },
+ {
+  "id": "past_eat",
+  "input": "eat",
+  "output": "ate"
+ },
+ {
+  "id": "past_fall",
+  "input": "fall",
+  "output": "fell"
+ },
+ {
+  "id": "past_feed",
+  "input": "feed",
+  "output": "fed"
+ },
+ {
+  "id": "past_feel",
+  "input": "feel",
+  "output": "felt"
+ },
+ {
+  "id": "past_fight",
+  "input": "fight",
+  "output": "fought"
+ },
+ {
+  "id": "past_find",
+  "input": "find",
+  "output": "found"
+ },
+ {
+  "id": "past_fly",
+  "input": "fly",
+  "output": "flew"
+ },
+ {
+  "id": "past_forget",
+  "input": "forget",
+  "output": "forgot"
+ },
+ {
+  "id": "past_forgive",
+  "input": "forgive",
+  "output": "forgave"
+ },
+ {
+  "id": "past_freeze",
+  "input": "freeze",
+  "output": "froze"
+ },
+ {
+  "id": "past_get",
+  "input": "get",
+  "output": "got"
+ },
+ {
+  "id": "past_give",
+  "input": "give",
+  "output": "gave"
+ },
+ {
+  "id": "past_go",
+  "input": "go",
+  "output": "went"
+ },
+ {
+  "id": "past_grow",
+  "input": "grow",
+  "output": "grew"
+ },
+ {
+  "id": "past_hang",
+  "input": "hang",
+  "output": "hung"
+ },
+ {
+  "id": "past_have",
+  "input": "have",
+  "output": "had"
+ },
+ {
+  "id": "past_hear",
+  "input": "hear",
+  "output": "heard"
+ },
+ {
+  "id": "past_hide",
+  "input": "hide",
+  "output": "hid"
+ },
+ {
+  "id": "past_hit",
+  "input": "hit",
+  "output": "hit"
+ },
+ {
+  "id": "past_hold",
+  "input": "hold",
+  "output": "held"
+ },
+ {
+  "id": "past_hurt",
+  "input": "hurt",
+  "output": "hurt"
+ },
+ {
+  "id": "past_keep",
+  "input": "keep",
+  "output": "kept"
+ },
+ {
+  "id": "past_kneel",
+  "input": "kneel",
+  "output": "knelt"
+ },
+ {
+  "id": "past_know",
+  "input": "know",
+  "output": "knew"
+ },
+ {
+  "id": "past_lay",
+  "input": "lay",
+  "output": "laid"
+ },
+ {
+  "id": "past_lead",
+  "input": "lead",
+  "output": "led"
+ },
+ {
+  "id": "past_leave",
+  "input": "leave",
+  "output": "left"
+ },
+ {
+  "id": "past_lend",
+  "input": "lend",
+  "output": "lent"
+ },
+ {
+  "id": "past_let",
+  "input": "let",
+  "output": "let"
+ },
+ {
+  "id": "past_lie",
+  "input": "lie",
+  "output": "lay"
+ },
+ {
+  "id": "past_lose",
+  "input": "lose",
+  "output": "lost"
+ },
+ {
+  "id": "past_make",
+  "input": "make",
+  "output": "made"
+ },
+ {
+  "id": "past_mean",
+  "input": "mean",
+  "output": "meant"
+ },
+ {
+  "id": "past_meet",
+  "input": "meet",
+  "output": "met"
+ },
+ {
+  "id": "past_pay",
+  "input": "pay",
+  "output": "paid"
+ },
+ {
+  "id": "past_put",
+  "input": "put",
+  "output": "put"
+ },
+ {
+  "id": "past_read",
+  "input": "read",
+  "output": "read"
+ },
+ {
+  "id": "past_ride",
+  "input": "ride",
+  "output": "rode"
+ },
+ {
+  "id": "past_ring",
+  "input": "ring",
+  "output": "rang"
+ },
+ {
+  "id": "past_rise",
+  "input": "rise",
+  "output": "rose"
+ },
+ {
+  "id": "past_run",
+  "input": "run",
+  "output": "ran"
+ },
+ {
+  "id": "past_say",
+  "input": "say",
+  "output": "said"
+ },
+ {
+  "id": "past_see",
+  "input": "see",
+  "output": "saw"
+ },
+ {
+  "id": "past_sell",
+  "input": "sell",
+  "output": "sold"
+ },
+ {
+  "id": "past_send",
+  "input": "send",
+  "output": "sent"
+ },
+ {
+  "id": "past_set",
+  "input": "set",
+  "output": "set"
+ },
+ {
+  "id": "past_shake",
+  "input": "shake",
+  "output": "shook"
+ },
+ {
+  "id": "past_shine",
+  "input": "shine",
+  "output": "shone"
+ },
+ {
+  "id": "past_shoot",
+  "input": "shoot",
+  "output": "shot"
+ },
+ {
+  "id": "past_show",
+  "input": "show",
+  "output": "showed"
+ },
+ {
+  "id": "past_shut",
+  "input": "shut",
+  "output": "shut"
+ },
+ {
+  "id": "past_sing",
+  "input": "sing",
+  "output": "sang"
+ },
+ {
+  "id": "past_sink",
+  "input": "sink",
+  "output": "sank"
+ },
+ {
+  "id": "past_sit",
+  "input": "sit",
+  "output": "sat"
+ },
+ {
+  "id": "past_sleep",
+  "input": "sleep",
+  "output": "slept"
+ },
+ {
+  "id": "past_slide",
+  "input": "slide",
+  "output": "slid"
+ },
+ {
+  "id": "past_speak",
+  "input": "speak",
+  "output": "spoke"
+ },
+ {
+  "id": "past_spend",
+  "input": "spend",
+  "output": "spent"
+ },
+ {
+  "id": "past_spin",
+  "input": "spin",
+  "output": "spun"
+ },
+ {
+  "id": "past_stand",
+  "input": "stand",
+  "output": "stood"
+ },
+ {
+  "id": "past_steal",
+  "input": "steal",
+  "output": "stole"
+ },
+ {
+  "id": "past_stick",
+  "input": "stick",
+  "output": "stuck"
+ },
+ {
+  "id": "past_sting",
+  "input": "sting",
+  "output": "stung"
+ },
+ {
+  "id": "past_strike",
+  "input": "strike",
+  "output": "struck"
+ },
+ {
+  "id": "past_swear",
+  "input": "swear",
+  "output": "swore"
+ },
+ {
+  "id": "past_sweep",
+  "input": "sweep",
+  "output": "swept"
+ },
+ {
+  "id": "past_swim",
+  "input": "swim",
+  "output": "swam"
+ },
+ {
+  "id": "past_swing",
+  "input": "swing",
+  "output": "swung"
+ },
+ {
+  "id": "past_take",
+  "input": "take",
+  "output": "took"
+ },
+ {
+  "id": "past_teach",
+  "input": "teach",
+  "output": "taught"
+ },
+ {
+  "id": "past_tear",
+  "input": "tear",
+  "output": "tore"
+ },
+ {
+  "id": "past_tell",
+  "input": "tell",
+  "output": "told"
+ },
+ {
+  "id": "past_think",
+  "input": "think",
+  "output": "thought"
+ },
+ {
+  "id": "past_throw",
+  "input": "throw",
+  "output": "threw"
+ },
+ {
+  "id": "past_understand",
+  "input": "understand",
+  "output": "understood"
+ },
+ {
+  "id": "past_wake",
+  "input": "wake",
+  "output": "woke"
+ },
+ {
+  "id": "past_wear",
+  "input": "wear",
+  "output": "wore"
+ },
+ {
+  "id": "past_weep",
+  "input": "weep",
+  "output": "wept"
+ },
+ {
+  "id": "past_win",
+  "input": "win",
+  "output": "won"
+ },
+ {
+  "id": "past_write",
+  "input": "write",
+  "output": "wrote"
+ },
+ {
+  "id": "past_arise",
+  "input": "arise",
+  "output": "arose"
+ },
+ {
+  "id": "past_awake",
+  "input": "awake",
+  "output": "awoke"
+ },
+ {
+  "id": "past_beat",
+  "input": "beat",
+  "output": "beat"
+ },
+ {
+  "id": "past_bind",
+  "input": "bind",
+  "output": "bound"
+ },
+ {
+  "id": "past_breed",
+  "input": "breed",
+  "output": "bred"
+ },
+ {
+  "id": "past_cling",
+  "input": "cling",
+  "output": "clung"
+ },
+ {
+  "id": "past_creep",
+  "input": "creep",
+  "output": "crept"
+ },
+ {
+  "id": "past_deal",
+  "input": "deal",
+  "output": "dealt"
+ },
+ {
+  "id": "past_flee",
+  "input": "flee",
+  "output": "fled"
+ },
+ {
+  "id": "past_fling",
+  "input": "fling",
+  "output": "flung"
+ },
+ {
+  "id": "past_forbid",
+  "input": "forbid",
+  "output": "forbade"
+ },
+ {
+  "id": "past_grind",
+  "input": "grind",
+  "output": "ground"
+ },
+ {
+  "id": "past_lean",
+  "input": "lean",
+  "output": "leant"
+ },
+ {
+  "id": "past_leap",
+  "input": "leap",
+  "output": "leapt"
+ },
+ {
+  "id": "past_light",
+  "input": "light",
+  "output": "lit"
+ },
+ {
+  "id": "past_mislead",
+  "input": "mislead",
+  "output": "misled"
+ },
+ {
+  "id": "past_overcome",
+  "input": "overcome",
+  "output": "overcame"
+ },
+ {
+  "id": "past_seek",
+  "input": "seek",
+  "output": "sought"
+ },
+ {
+  "id": "past_sew",
+  "input": "sew",
+  "output": "sewed"
+ },
+ {
+  "id": "past_shed",
+  "input": "shed",
+  "output": "shed"
+ },
+ {
+  "id": "past_shrink",
+  "input": "shrink",
+  "output": "shrank"
+ },
+ {
+  "id": "past_smell",
+  "input": "smell",
+  "output": "smelt"
+ },
+ {
+  "id": "past_sow",
+  "input": "sow",
+  "output": "sowed"
+ },
+ {
+  "id": "past_spell",
+  "input": "spell",
+  "output": "spelt"
+ },
+ {
+  "id": "past_spill",
+  "input": "spill",
+  "output": "spilt"
+ },
+ {
+  "id": "past_split",
+  "input": "split",
+  "output": "split"
+ },
+ {
+  "id": "past_spread",
+  "input": "spread",
+  "output": "spread"
+ },
+ {
+  "id": "past_spring",
+  "input": "spring",
+  "output": "sprang"
+ },
+ {
+  "id": "past_stink",
+  "input": "stink",
+  "output": "stank"
+ },
+ {
+  "id": "past_swell",
+  "input": "swell",
+  "output": "swelled"
+ },
+ {
+  "id": "past_weave",
+  "input": "weave",
+  "output": "wove"
+ },
+ {
+  "id": "past_withdraw",
+  "input": "withdraw",
+  "output": "withdrew"
+ },
+ {
+  "id": "past_wring",
+  "input": "wring",
+  "output": "wrung"
+ }
+]
