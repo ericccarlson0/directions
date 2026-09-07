@@ -33,6 +33,8 @@ data:
   n_shot_extraction: 3
   n_shot_qualification: 3
   n_shot_eval: 0
+  # the offline backend is a byte-level tokenizer, so word targets are long
+  max_target_tokens: 24
 
 extraction:
   n_seeds: 2

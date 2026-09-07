@@ -93,3 +93,13 @@ def test_selection_p_bounds():
         validate(build(Config, {"intervention": {"max_selection_p": 0.0}}))
     with pytest.raises(ValueError, match="max_selection_p"):
         validate(build(Config, {"intervention": {"max_selection_p": 1.5}}))
+
+
+def test_unimplemented_intervention_token_is_rejected():
+    with pytest.raises(ValueError, match="not implemented"):
+        validate(build(Config, {"intervention": {"token": "first_prompt"}}))
+
+
+def test_max_target_tokens_must_be_positive():
+    with pytest.raises(ValueError, match="max_target_tokens"):
+        validate(build(Config, {"data": {"max_target_tokens": 0}}))

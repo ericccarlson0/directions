@@ -93,6 +93,8 @@ class InterventionConfig:
     strengths: list[float] = field(
         default_factory=lambda: [0.01, 0.02, 0.05, 0.1, 0.15, 0.2, 0.3]
     )
+    # Only "last_prompt" is implemented: docs/EXPERIMENT.md specifies intervening
+    # at the final query token, and every layerwise metric is measured there too.
     token: str = "last_prompt"
     # accuracy | target_logprob | target_logprob_per_token | logit_margin
     selection_metric: str = "target_logprob_per_token"
@@ -130,7 +132,6 @@ class ControlsConfig:
 @dataclass
 class LayerwiseConfig:
     variance_fraction: float = 0.9
-    measure_token: str = "intervened"  # intervened | last_prompt
     # The preregistered operating point is the *smallest* reliable strength
     # (docs/EXPERIMENT.md). Repeating the layerwise measurement at the strongest
     # reliable strength at the same layer shows whether the amplification
@@ -334,8 +335,13 @@ def validate(cfg: Config) -> None:
         raise ValueError("intervention.control_screen_max_p must lie in (0, 1]")
     if not 0.0 < cfg.layerwise.variance_fraction < 1.0:
         raise ValueError("layerwise.variance_fraction must lie in (0, 1)")
-    if cfg.layerwise.measure_token not in {"intervened", "last_prompt"}:
-        raise ValueError(f"unknown layerwise.measure_token {cfg.layerwise.measure_token!r}")
+    if cfg.intervention.token != "last_prompt":
+        raise ValueError(
+            f"intervention.token={cfg.intervention.token!r} is not implemented; only "
+            "'last_prompt' (the final query token, per docs/EXPERIMENT.md) is supported"
+        )
+    if cfg.data.max_target_tokens < 1:
+        raise ValueError("data.max_target_tokens must be >= 1")
     unknown_kinds = set(cfg.controls.kinds) - {"isotropic", "orthogonal"}
     if unknown_kinds:
         raise ValueError(f"unknown control kind(s) {sorted(unknown_kinds)}")

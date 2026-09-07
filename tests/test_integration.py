@@ -189,8 +189,9 @@ def test_rejections_are_recorded_when_a_task_fails(tmp_path):
     assert summary["tasks_qualified"] == []
     assert summary["task_status"]["antonym"]["failed_stage"] == "fewshot_qualification"
     lines = [json.loads(l) for l in (root / "rejections.jsonl").read_text().splitlines()]
-    assert lines and lines[0]["stage"] == "fewshot_qualification"
-    assert "detail" in lines[0]
+    qual = [l for l in lines if l["stage"] == "fewshot_qualification"]
+    assert qual and "detail" in qual[0]
+    assert qual[0]["subject"] == "antonym"
 
 
 def test_unknown_task_is_recorded_as_an_error_not_a_crash(tmp_path):
@@ -243,3 +244,12 @@ def test_cross_task_summary_discriminates_the_propagation_modes(pilot_run):
         assert 0.0 <= row["conversion_entropy_ratio"] <= 1.0
         assert row["intervention_layer"] < row["n_layers"]
     assert summary["cross_task_summary"]["tasks"] == cross["tasks"]
+
+
+def test_item_filter_is_recorded(pilot_run):
+    summary, root = pilot_run
+    task = summary["tasks_qualified"][0]
+    blob = json.loads((root / "core" / f"validation__{task}.json").read_text())
+    f = blob["item_filter"]
+    assert f["n_items_kept"] + f["n_dropped_long_target"] == f["n_items_before"]
+    assert f["max_target_tokens"] >= 1

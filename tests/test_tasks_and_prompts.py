@@ -96,3 +96,17 @@ def test_pairs_require_at_least_two_shots():
     with pytest.raises(ValueError, match="n_shot >= 2"):
         build_pairs(np.random.default_rng(0), PromptTemplate(), list(task.items[:5]),
                     list(task.items[:1]), 1)
+
+
+def test_target_length_filter_drops_long_targets_and_reports_them():
+    from directions.model import ByteTokenizer
+    from directions.tasks import filter_by_target_length
+
+    task = load_task("en_fr")
+    kept, dropped = filter_by_target_length(task, ByteTokenizer(), " ", max_target_tokens=6)
+    assert len(kept) + len(dropped) == len(task)
+    assert all(d["n_target_tokens"] > 6 for d in dropped)
+    assert {"id", "output", "n_target_tokens"} == set(dropped[0]) if dropped else True
+    # a generous limit keeps everything
+    kept_all, dropped_all = filter_by_target_length(task, ByteTokenizer(), " ", 1000)
+    assert len(kept_all) == len(task) and dropped_all == []

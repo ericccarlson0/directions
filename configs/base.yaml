@@ -69,7 +69,6 @@ controls:
 
 layerwise:
   variance_fraction: 0.9
-  measure_token: intervened
 
 bootstrap:
   n_boot: 2000

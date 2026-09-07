@@ -121,6 +121,25 @@ def load_task(name: str) -> Task:
     return TASK_REGISTRY[name]()
 
 
+def filter_by_target_length(
+    task: Task, tokenizer, prefix: str, max_target_tokens: int
+) -> tuple[Task, list[dict]]:
+    """Drop items whose target does not tokenize within ``max_target_tokens``.
+
+    Long targets make teacher-forced exact match near-impossible and dilute the
+    per-token log-probability, so they are filtered automatically and every
+    dropped item is reported for the run's rejection log.
+    """
+    kept, dropped = [], []
+    for item in task.items:
+        n = len(tokenizer.encode(prefix + item.output, add_special_tokens=False))
+        if n <= max_target_tokens:
+            kept.append(item)
+        else:
+            dropped.append({"id": item.id, "output": item.output, "n_target_tokens": n})
+    return Task(task.name, task.description, tuple(kept)), dropped
+
+
 def split_task(
     task: Task,
     n_extraction: int,

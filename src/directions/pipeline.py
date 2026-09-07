@@ -32,7 +32,7 @@ from .metadata import run_metadata
 from .model import BlockPatch, LanguageModel
 from .prompts import build_eval_prompts
 from .serialization import RunDirectory
-from .tasks import load_task, split_task
+from .tasks import filter_by_target_length, load_task, split_task
 
 STAGES = (
     "fewshot_qualification",
@@ -85,6 +85,24 @@ def task_rng(base_seed: int, task: str, purpose: str) -> np.random.Generator:
 def validate_task(cfg: Config, rundir: RunDirectory, lm: LanguageModel, task_name: str) -> TaskReport:
     rep = TaskReport(task=task_name)
     task = load_task(task_name)
+    n_before = len(task)
+    task, dropped = filter_by_target_length(
+        task, lm.tokenizer, cfg.data.template.target_prefix, cfg.data.max_target_tokens
+    )
+    if dropped:
+        rundir.reject(
+            "target_length_filter", task_name,
+            f"dropped {len(dropped)}/{n_before} items whose target exceeds "
+            f"data.max_target_tokens={cfg.data.max_target_tokens}",
+            {"dropped": dropped[:50], "n_dropped": len(dropped), "n_kept": len(task)},
+        )
+    rep.payload["item_filter"] = {
+        "n_items_before": n_before,
+        "n_items_kept": len(task),
+        "n_dropped_long_target": len(dropped),
+        "max_target_tokens": cfg.data.max_target_tokens,
+        "dropped_ids": [d["id"] for d in dropped],
+    }
     splits = split_task(
         task,
         cfg.data.n_extraction,
