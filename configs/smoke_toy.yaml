@@ -1,0 +1,78 @@
+# Inexpensive integration path: a tiny randomly initialised Qwen3-architecture
+# model with a character tokenizer, on CPU, no downloads. It exercises every
+# stage of the pipeline; because the model does no task, qualification gates
+# are computed and logged but NOT enforced (qualification.enforce: false).
+# Nothing in this file is a scientific result.
+name: smoke_toy
+seed: 1234
+output_dir: results
+
+model:
+  backend: toy
+  dtype: float32
+  device: cpu
+  batch_size: 8
+  toy:
+    hidden_size: 32
+    num_layers: 4
+    num_heads: 4
+    num_kv_heads: 2
+    intermediate_size: 64
+
+prompt:
+  instruction: ""
+  demo_template: "Q: {input}\nA: {output}"
+  query_template: "Q: {input}\nA:"
+  target_template: " {output}"
+  separator: "\n\n"
+  n_shots: 3
+
+data:
+  n_extraction: 6
+  n_calibration: 6
+  n_evaluation: 6
+  max_target_tokens: 16
+  allow_reduced_splits: false
+
+tasks:
+  - name: antonym
+  - name: arithmetic
+    params: {operation: add, operand: 3, min: 0, max: 60}
+
+qualification:
+  enforce: false
+  min_fewshot_accuracy: 0.5
+  min_stability: 0.8
+  steering_alpha: 0.05
+  random_control_max_p: 0.1
+
+extraction:
+  n_seeds: 2
+  center: false
+  candidate_depth_fractions: [0.25, 0.5]
+
+calibration:
+  rho_grid: [0.1, 0.5, 1.0]
+  extend_grid: true
+  extension_factor: 1.5
+  max_rho: 2.0
+  bootstrap_alpha: 0.05
+  min_improvement: 0.05
+  n_random_screen: 2
+  random_screen_max_p: 0.5
+  n_boot: 200
+
+evaluation:
+  n_random_controls: 3
+  random_control_kinds: [isotropic, orthogonal]
+  n_boot: 200
+  ci_alpha: 0.05
+  variance_fraction: 0.9
+
+exploratory:
+  strength_robustness: true
+  block_ablation: {enabled: true, n_blocks: 1, criterion: conversion}
+
+figures:
+  enabled: true
+  dpi: 60
