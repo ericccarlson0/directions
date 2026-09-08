@@ -33,7 +33,6 @@ tasks:
   - name: antonym
   - name: plural
   - name: past_tense
-  - name: en_fr
   - name: arithmetic
     params: {operation: add, operand: 3, min: 0, max: 400}
   - name: present_participle
@@ -42,8 +41,12 @@ tasks:
   - name: number_to_words
     params: {min: 0, max: 999}
     max_target_tokens: 6
-  - name: add_two
-    params: {min: 2, max: 59}
+  # composite tasks (D19): selection + lexical mapping, and numeric + lexical mapping
+  - name: last_antonym
+    params: {n_words: 3, items_seed: 20260908}
+  - name: arithmetic_words
+    params: {operation: add, operand: 3, min: 0, max: 996}
+    max_target_tokens: 6
 
 qualification:
   enforce: true

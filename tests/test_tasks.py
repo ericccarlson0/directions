@@ -79,3 +79,36 @@ def test_prompts_and_pairs():
     assert all(p.output != n.output for p, n in zip(pos.demos, neg.demos))
     assert sorted(d.output for d in pos.demos) == sorted(d.output for d in neg.demos)
     assert pos.target == neg.target
+
+
+def test_composite_and_extractive_tasks():
+    from directions import data
+    from directions.tasks import LIST_SEPARATOR
+
+    antonym = dict(data.dedupe(data.ANTONYM))
+    la = build_task("last_antonym")
+    assert len(la.items) == len(antonym) >= 320
+    for it in la.items:
+        words = it.input.split(LIST_SEPARATOR)
+        assert len(words) == 3 and len(set(words)) == 3 and antonym[words[-1]] == it.output
+        assert it.output not in words[:-1]
+    assert build_task("last_antonym").items == la.items  # deterministic, independent of the run seed
+    assert build_task("last_antonym", {"n_words": 4}).items[0].input.count(LIST_SEPARATOR) == 3
+    assert build_task("last_antonym", {"items_seed": 1}).items != la.items
+
+    af = build_task("alphabetically_first")
+    assert len(af.items) == 500 and len({i.input for i in af.items}) == 500
+    for it in af.items:
+        words = it.input.split(LIST_SEPARATOR)
+        assert len(words) == 3 and len(set(words)) == 3 and it.output == sorted(words)[0]
+    assert build_task("alphabetically_first").items == af.items
+    assert len(build_task("alphabetically_first", {"n_items": 40, "n_words": 5}).items) == 40
+    aw = build_task("arithmetic_words")
+    assert len(aw.items) == 997 and aw.items[0].input == "0" and aw.items[0].output == "three"
+    assert aw.items[-1].input == "996" and aw.items[-1].output == "nine hundred ninety-nine"
+    assert len(build_task("arithmetic_words", {"max": 999}).items) == 997  # outputs above 999 are dropped
+    for name, bad in (("last_antonym", {"n_words": 1}), ("alphabetically_first", {"n_words": 1}),
+                      ("alphabetically_first", {"foo": 1})):
+        with pytest.raises(ValueError):
+            build_task(name, bad)
+

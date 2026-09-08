@@ -291,3 +291,52 @@ pairs will qualify and qualification should become stable across seeds; the
 screen is also more permissive, so calibration will tend to select earlier
 layers and smaller strengths (the selection rule is unchanged: first reliable
 point). Both effects are intended.
+
+
+### D19. Task set: drop `add_two` and `en_fr`, add two composite tasks
+
+Dropped: `add_two` (two-operand addition) is solved zero-shot by every model
+from 1.7B up (zero-shot log p/token −0.30 on 1.7B, −0.51 on 4B, −0.79 on
+8B, few-shot −0.003), so calibration has no headroom and the task never
+found a reliable intervention on 8B; `en_fr` never produced a reliable
+calibration point on 0.6B and qualified inconsistently elsewhere. Their
+builders remain in `tasks.py` (old configs still load) but the pilot configs
+no longer use them.
+
+Added, keeping ten tasks per model, two *composite* tasks in the spirit of
+the function-vector composition experiments of Todd et al. (2024,
+"Function Vectors in Large Language Models", ICLR; sec. 4.3 composes a
+list-selection step with a lexical mapping, e.g. "Last-Antonym") and the
+algorithmic list tasks of Hendel et al. (2023, "In-Context Learning Creates
+Task Vectors"):
+
+* `last_antonym`: a comma-separated list of three words → the antonym of the
+  *last* one (selection + lexical mapping). The last word runs over the 435
+  antonym inputs, so inputs are unique; the two distractors are drawn without
+  replacement from the other antonym inputs with a fixed generator seed
+  (`items_seed`, default 20260908, recorded in `params`), so the item list is
+  deterministic and independent of the run seed.
+* `arithmetic_words`: `n → number_to_words(n + 3)` for `n` in 0..996
+  (numeric mapping followed by a lexical rendering; per-task
+  `max_target_tokens: 6` as for `number_to_words`).
+
+Both are underspecified zero-shot (zero-shot accuracy 0.000 on every model)
+and harder than the single-step tasks. A feasibility screen (few-shot
+accuracy on the 192-example evaluation pool of seed 20260907, one forward
+pass per model, no steering) gave
+
+| task | 0.6B | 1.7B | 4B | 8B |
+|---|---|---|---|---|
+| last_antonym | 0.28 | 0.59 | 0.70 | 0.80 |
+| arithmetic_words | 0.02 | 0.26 | 0.80 | 0.71 |
+| alphabetically_first (rejected) | 0.35 | – | – | 0.33 |
+
+so both new tasks fail the preregistered few-shot gate (accuracy ≥ 0.5) on
+0.6B, `arithmetic_words` also on 1.7B, and pass on the larger models. This is
+the intended behaviour of the gate for harder tasks; the rejections are
+logged. The extractive `alphabetically_first` (Todd et al.'s
+"alphabetically_first") was implemented and screened but is at chance (1/3)
+even on 8B, so it is not in any config (its builder is kept, tested, for
+possible use with longer prompts). The screen looked only at few-shot
+accuracy, never at steering or geometry, so it does not select on the
+outcome variables.

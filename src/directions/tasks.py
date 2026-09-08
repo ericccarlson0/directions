@@ -10,7 +10,7 @@ import numpy as np
 
 from . import data
 from .data_extra import PARTICIPLE_DOUBLING, PARTICIPLE_EXCEPTIONS
-from .seeds import rng_for
+from .seeds import derive_seed, rng_for
 
 
 @dataclass(frozen=True)
@@ -132,12 +132,74 @@ def _singular(params: dict[str, Any]) -> Task:
 def _uppercase(params: dict[str, Any]) -> Task:
     """Lower-case word -> UPPER-CASE word, over the union of the single-word lists."""
     _check_params("uppercase", params, {})
+    return Task("uppercase", [Item(w, w.upper()) for w in _single_words()])
+
+
+def _single_words() -> list[str]:
+    """Union of the lower-case alphabetic inputs of the single-word lists (sorted, unique)."""
     words: set[str] = set()
     for lst in (data.PLURAL, data.PAST_TENSE, data.ANTONYM):
         for i, _ in lst:
             if i.isalpha() and i.islower():
                 words.add(i)
-    return Task("uppercase", [Item(w, w.upper()) for w in sorted(words)])
+    return sorted(words)
+
+
+LIST_SEPARATOR = ", "
+
+
+def _last_antonym(params: dict[str, Any]) -> Task:
+    """Composite task after Todd et al. (2024, "Last-Antonym"): a list of ``n_words``
+    words -> the antonym of the *last* one. The last word runs over the antonym
+    list (so inputs are unique); the preceding words are distractors drawn without
+    replacement from the other antonym inputs with a fixed generator seed, so the
+    item list is deterministic and independent of the run seed."""
+    p = _check_params("last_antonym", params, {"n_words": 3, "items_seed": 20260908})
+    n_words = int(p["n_words"])
+    if n_words < 2:
+        raise ValueError("last_antonym needs n_words >= 2")
+    pairs = data.dedupe(data.ANTONYM)
+    inputs = [w for w, _ in pairs]
+    rng = np.random.default_rng(derive_seed(int(p["items_seed"]), "task_items", "last_antonym"))
+    items: list[Item] = []
+    for w, a in pairs:
+        pool = [x for x in inputs if x != w and x != a]
+        distractors = [pool[i] for i in rng.choice(len(pool), size=n_words - 1, replace=False)]
+        items.append(Item(LIST_SEPARATOR.join(distractors + [w]), a))
+    return Task("last_antonym", items, params=p)
+
+
+def _alphabetically_first(params: dict[str, Any]) -> Task:
+    """Extractive task after Todd et al. (2024, "alphabetically_first"): a list of
+    ``n_words`` distinct words -> the alphabetically first one. Word lists are
+    sampled from the union of the single-word lists with a fixed generator seed;
+    inputs are unique by construction."""
+    p = _check_params("alphabetically_first", params, {"n_words": 3, "n_items": 500, "items_seed": 20260908})
+    n_words, n_items = int(p["n_words"]), int(p["n_items"])
+    if n_words < 2 or n_items < 1:
+        raise ValueError("alphabetically_first needs n_words >= 2 and n_items >= 1")
+    words = _single_words()
+    rng = np.random.default_rng(derive_seed(int(p["items_seed"]), "task_items", "alphabetically_first"))
+    seen: set[str] = set()
+    items: list[Item] = []
+    while len(items) < n_items:
+        chosen = [words[i] for i in rng.choice(len(words), size=n_words, replace=False)]
+        key = LIST_SEPARATOR.join(chosen)
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append(Item(key, min(chosen)))
+    return Task("alphabetically_first", items, params=p)
+
+
+def _arithmetic_words(params: dict[str, Any]) -> Task:
+    """Composite numeric->lexical task: ``n -> number_to_words(op(n))``, i.e. the
+    ``arithmetic`` mapping followed by ``number_to_words`` (two of the single-step
+    tasks composed, in the spirit of Todd et al. 2024, sec. 4.3)."""
+    p = _check_params("arithmetic_words", params, {"operation": "add", "operand": 3, "min": 0, "max": 996})
+    inner = _arithmetic({"operation": p["operation"], "operand": p["operand"], "min": p["min"], "max": p["max"]})
+    items = [Item(it.input, number_to_words(int(it.output))) for it in inner.items if 0 <= int(it.output) <= 999]
+    return Task("arithmetic_words", items, params=p)
 
 
 TASK_BUILDERS: dict[str, Callable[[dict[str, Any]], Task]] = {
@@ -151,6 +213,9 @@ TASK_BUILDERS: dict[str, Callable[[dict[str, Any]], Task]] = {
     "present_participle": _present_participle,
     "singular": _singular,
     "uppercase": _uppercase,
+    "last_antonym": _last_antonym,
+    "alphabetically_first": _alphabetically_first,
+    "arithmetic_words": _arithmetic_words,
 }
 
 

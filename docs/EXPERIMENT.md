@@ -32,10 +32,12 @@ Start with ~5 deterministic mappings.
 Tasks must admit automatic scoring.
 
 * antonym
-* singular → plural
-* present → past
-* English → French
-* simple arithmetic mappings
+* singular → plural (and its inverse)
+* present → past, present participle
+* upper-casing, number → words, simple arithmetic mappings
+* composite tasks (third iteration): antonym of the last word of a list; arithmetic followed by number → words
+
+Tasks the models solve zero-shot (two-operand addition) or whose direction never calibrates (English → French on the smallest model) were dropped in the third iteration (docs/DECISIONS.md D19).
 
 Each task needs enough unique items for three disjoint query pools (see *Data Splits*). An item whose target does not tokenize within a configured maximum number of tokens should be dropped automatically, and every dropped item should be written to the run's rejection log.
 

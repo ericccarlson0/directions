@@ -34,6 +34,8 @@ def test_pilot_configs_match_preregistered_sizes():
     cfg = load_config(CONFIGS / "pilot_qwen3_0.6b.yaml")
     assert (cfg.data.n_extraction, cfg.data.n_calibration, cfg.data.n_evaluation) == (64, 64, 192)
     assert len(cfg.tasks) == 10
+    names = {t.name for t in cfg.tasks}
+    assert {"last_antonym", "arithmetic_words"} <= names and not ({"add_two", "en_fr"} & names)  # D19
     assert cfg.extraction.n_seeds == 3 and not cfg.extraction.center
     assert sum(cfg.evaluation.controls[k] for k in cfg.evaluation.gate_kinds) >= 64 and cfg.calibration.n_random_screen >= 8
     assert set(cfg.evaluation.controls) == {"isotropic", "orthogonal", "covariance", "other_task", "demo_variation"}
