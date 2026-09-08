@@ -82,7 +82,7 @@ For each model/task:
 3. Extract control directions at each candidate layer using ≥ 3 seeds.
 4. Require cross-seed direction stability at the candidate layer.
 5. Require a held-out causal steering effect (statistically supported).
-6. Require steering to outperform matched random controls.
+6. Require steering to outperform matched random controls: the real direction's mean held-out improvement must exceed the *mean* improvement of the matched random directions (isotropic, orthogonal and covariance-matched, same layer and norm), by a paired hierarchical bootstrap over examples and controls (one-sided \(p \le 0.05\); docs/DECISIONS.md D18). The rank of the real direction among the individual controls is reported but does not gate.
 
 Only qualified task/control pairs proceed to the layerwise experiment. Every rejection is written to a rejection log together with the numbers that produced it.
 
@@ -135,7 +135,7 @@ $$
 
 ### Selection Rule
 
-Select the earliest layer and, within it, the smallest strength that reliably improves the decision metric on the calibration pool, where "reliably" is operationalised statistically. For instance, we could use a paired one-sided bootstrap over calibration examples with e.g. \(p \le 0.05\) and a matched random-control screen (≥ 8 random directions at the same layer and same norm) on the calibration pool, as well as requiring its improvement over the unsteered baseline exceeds a minimum.
+Select the earliest layer and, within it, the smallest strength that reliably improves the decision metric on the calibration pool, where "reliably" is operationalised statistically: a paired one-sided bootstrap over calibration examples (\(p \le 0.05\)), a minimum improvement over the unsteered baseline, and a matched random-control screen (16 random directions at the same layer and norm) using the same paired excess test as the qualification gate (D18).
 
 Intervene at the final query token.
 

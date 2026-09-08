@@ -67,7 +67,13 @@ class QualificationConfig:
     min_fewshot_logprob_per_token: float | None = None
     min_stability: float = 0.8  # min pairwise |cos| across extraction seeds at the candidate layer
     steering_alpha: float = 0.05  # one-sided paired bootstrap p threshold on the evaluation pool
-    random_control_max_p: float = 0.1  # empirical p of real improvement vs matched random controls
+    # Gate against the matched random controls (docs/DECISIONS.md D18):
+    #   "paired_excess": hierarchical paired bootstrap that the real direction's mean improvement
+    #                    exceeds the mean improvement of the gate controls (p <= random_control_max_p)
+    #   "rank":          iteration-2 rule, empirical p of the real mean among the control means
+    gate_test: str = "paired_excess"
+    gate_control_kinds: list[str] = field(default_factory=lambda: ["isotropic", "orthogonal", "covariance"])
+    random_control_max_p: float = 0.05  # threshold on the gate test's p-value
 
 
 @dataclass
@@ -87,7 +93,8 @@ class CalibrationConfig:
     min_improvement: float = 0.05  # nats per target token over the unsteered baseline
     n_random_screen: int = 16  # matched random directions screened at a candidate point
     screen_kinds: list[str] = field(default_factory=lambda: ["isotropic", "orthogonal"])  # alternating
-    random_screen_max_p: float = 0.1  # empirical p (real vs random) required to pass the screen
+    screen_test: str = "paired_excess"  # "paired_excess" (D18) or "rank" (iteration-2 rule)
+    random_screen_max_p: float = 0.05  # threshold on the screen test's p-value
     n_boot: int = 2000
 
 
@@ -106,7 +113,7 @@ class EvaluationConfig:
     Every control is injected at the same layer, token and absolute norm as the real direction.
     """
 
-    controls: dict[str, int] = field(default_factory=lambda: {"isotropic": 32, "orthogonal": 32})
+    controls: dict[str, int] = field(default_factory=lambda: {"isotropic": 32, "orthogonal": 32, "covariance": 32})
     gate_kinds: list[str] = field(default_factory=lambda: ["isotropic", "orthogonal"])  # the preregistered null
     n_boot: int = 1000
     ci_alpha: float = 0.05
@@ -248,6 +255,17 @@ def validate_config(cfg: Config) -> None:
     for k in cfg.calibration.screen_kinds:
         if k not in ("isotropic", "orthogonal"):
             raise ValueError("calibration.screen_kinds must be isotropic/orthogonal")
+    if cfg.qualification.gate_test not in ("paired_excess", "rank"):
+        raise ValueError("qualification.gate_test must be 'paired_excess' or 'rank'")
+    if cfg.calibration.screen_test not in ("paired_excess", "rank"):
+        raise ValueError("calibration.screen_test must be 'paired_excess' or 'rank'")
+    if not cfg.qualification.gate_control_kinds:
+        raise ValueError("qualification.gate_control_kinds must be non-empty")
+    for k in cfg.qualification.gate_control_kinds:
+        if k not in ("isotropic", "orthogonal", "covariance"):
+            raise ValueError("qualification.gate_control_kinds must be random-direction kinds (isotropic/orthogonal/covariance)")
+        if cfg.evaluation.controls.get(k, 0) < 1:
+            raise ValueError(f"gate control kind {k!r} needs at least one control in evaluation.controls")
     if cfg.exploratory.block_ablation.criterion not in ("conversion", "new_subspace"):
         raise ValueError("exploratory.block_ablation.criterion must be 'conversion' or 'new_subspace'")
     if cfg.exploratory.block_ablation.rank_by not in ("value", "z"):

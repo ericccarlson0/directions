@@ -39,6 +39,11 @@ def test_pilot_configs_match_preregistered_sizes():
     assert set(cfg.evaluation.controls) == {"isotropic", "orthogonal", "covariance", "other_task", "demo_variation"}
     assert cfg.qualification.enforce
     assert cfg.model.dtype == "bfloat16"
+    # D18: paired-excess gate and screen against all three random-direction kinds
+    assert cfg.qualification.gate_test == "paired_excess" and cfg.calibration.screen_test == "paired_excess"
+    assert set(cfg.qualification.gate_control_kinds) == {"isotropic", "orthogonal", "covariance"}
+    assert sum(cfg.evaluation.controls[k] for k in cfg.qualification.gate_control_kinds) >= 96
+    assert cfg.qualification.random_control_max_p <= 0.05 and cfg.calibration.random_screen_max_p <= 0.05
 
 
 def test_config_validation_errors():
@@ -50,5 +55,14 @@ def test_config_validation_errors():
         config_from_dict({"tasks": [{"name": "antonym"}], "calibration": {"rho_grid": [1.0, 0.5]}})
     with pytest.raises(ValueError):
         config_from_dict({"tasks": [{"name": "antonym"}], "unknown_key": 1})
+    with pytest.raises(ValueError):
+        config_from_dict({"tasks": [{"name": "antonym"}], "qualification": {"gate_test": "median"}})
+    with pytest.raises(ValueError):
+        config_from_dict({"tasks": [{"name": "antonym"}], "qualification": {"gate_control_kinds": ["other_task"]}})
+    with pytest.raises(ValueError):  # a gate kind with no controls configured
+        config_from_dict({"tasks": [{"name": "antonym"}], "evaluation": {"controls": {"isotropic": 8}}})
+    legacy = config_from_dict({"tasks": [{"name": "antonym"}], "qualification": {"gate_test": "rank"},
+                               "calibration": {"screen_test": "rank"}})
+    assert legacy.qualification.gate_test == "rank"
     cfg = config_from_dict({"tasks": [{"name": "antonym"}, {"name": "arithmetic", "params": {"operand": 7}}]})
     assert cfg.tasks[1].params == {"operand": 7}

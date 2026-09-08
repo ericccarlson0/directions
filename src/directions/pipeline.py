@@ -44,7 +44,7 @@ from .model import ForwardResult, Intervention, ModelBackend, environment_metada
 from .prompts import Prompt, few_shot_prompt, zero_shot_prompt
 from .runinfo import RejectionLog, git_info, make_run_dir, setup_logging, write_json, write_resolved_config
 from .seeds import derive_seed, rng_for
-from .stats import compare_to_null, paired_bootstrap_test, spearman
+from .stats import compare_to_null, paired_bootstrap_test, paired_excess_test, spearman
 from .tasks import Splits, build_task, filter_items, make_splits
 
 
@@ -56,6 +56,7 @@ class ControlResult:
     p_value: float
     metrics: dict[str, float]
     profile: LayerwiseProfile | None = None
+    per_example_diff: np.ndarray | None = None  # steered - baseline log p per token, per evaluation example
 
 
 @dataclass
@@ -359,42 +360,62 @@ class Pipeline:
                 assert r.residuals is not None
                 prof = compute_profile(st.base.residuals, r.residuals, u, sel.layer, cfg.evaluation, prng, with_ci=False,
                                        **readout_kw)
-            st.controls.append(ControlResult(kind, label, rt.mean_diff, rt.p_value, r.metrics_dict(), prof))
-        gate_kinds = list(cfg.evaluation.gate_kinds)
-        gate_null = np.array([c.mean_diff for c in st.controls if c.kind in gate_kinds])
+            st.controls.append(ControlResult(kind, label, rt.mean_diff, rt.p_value, r.metrics_dict(), prof,
+                                             r.logprob_per_token - st.base.logprob_per_token))
+        gate_kinds = list(cfg.evaluation.gate_kinds)  # primary null of the layerwise metrics
+        behav_gate_kinds = list(cfg.qualification.gate_control_kinds)  # behavioural gate (D18)
+        real_diff = st.steered.logprob_per_token - st.base.logprob_per_token
+        gate_null = np.array([c.mean_diff for c in st.controls if c.kind in behav_gate_kinds])
         null = compare_to_null(test.mean_diff, gate_null)
+        excess = paired_excess_test(real_diff, np.stack([c.per_example_diff for c in st.controls if c.kind in behav_gate_kinds]),
+                                    brng, n_boot=cfg.calibration.n_boot)
         by_kind_behav = {}
+        by_kind_excess = {}
         for kind in sorted({c.kind for c in st.controls}):
             vals = np.array([c.mean_diff for c in st.controls if c.kind == kind])
             by_kind_behav[kind] = compare_to_null(test.mean_diff, vals).__dict__
+            mat = np.stack([c.per_example_diff for c in st.controls if c.kind == kind])
+            by_kind_excess[kind] = paired_excess_test(real_diff, mat, brng, n_boot=cfg.calibration.n_boot).__dict__
         ev = {
             "selection": q["selection"],
             "baseline": st.base.metrics_dict(),
             "steered": st.steered.metrics_dict(),
             "steering_test": test.__dict__,
             "gate_kinds": gate_kinds,
+            "gate_test": cfg.qualification.gate_test,
+            "gate_control_kinds": behav_gate_kinds,
             "controls": [{"kind": c.kind, "label": c.label, "mean_diff": c.mean_diff, "p_value": c.p_value,
                           "metrics": c.metrics} for c in st.controls],
             "random_comparison": null.__dict__,
+            "excess_test": excess.__dict__,
             "by_kind_comparison": by_kind_behav,
+            "by_kind_excess": by_kind_excess,
             "per_example": {
                 "baseline_logprob_per_token": st.base.logprob_per_token.tolist(),
                 "steered_logprob_per_token": st.steered.logprob_per_token.tolist(),
                 "baseline_exact_match": st.base.exact_match.tolist(),
                 "steered_exact_match": st.steered.exact_match.tolist(),
+                "controls_logprob_per_token_diff": {c.label: c.per_example_diff.tolist() for c in st.controls},
             },
         }
         write_json(out / "evaluation.json", ev)
-        q["steering"] = {"test": test.__dict__, "random_comparison": null.__dict__, "by_kind": by_kind_behav}
+        q["steering"] = {"test": test.__dict__, "random_comparison": null.__dict__, "excess_test": excess.__dict__,
+                         "by_kind": by_kind_behav, "by_kind_excess": by_kind_excess}
         q["gates"]["steering"] = bool(test.p_value <= cfg.qualification.steering_alpha and test.mean_diff > 0)
-        q["gates"]["random_controls"] = bool(null.p_upper <= cfg.qualification.random_control_max_p)
-        log.info("[%s] held-out steering: mean d(lp/tok)=%.4f p=%.4f; vs %d gate controls: z=%.2f p=%.3f; by kind %s",
-                 name, test.mean_diff, test.p_value, null.n_null, null.z, null.p_upper,
-                 {k: (round(c["z"], 2), round(c["p_upper"], 3)) for k, c in by_kind_behav.items()})
+        if cfg.qualification.gate_test == "paired_excess":
+            q["gates"]["random_controls"] = bool(excess.p_value <= cfg.qualification.random_control_max_p)
+        else:
+            q["gates"]["random_controls"] = bool(null.p_upper <= cfg.qualification.random_control_max_p)
+        log.info("[%s] held-out steering: mean d(lp/tok)=%.4f p=%.4f; vs %d gate controls (%s): excess %.4f p=%.4f "
+                 "[rank z=%.2f p=%.3f]; excess (mean, p) by kind %s",
+                 name, test.mean_diff, test.p_value, excess.n_controls, "+".join(behav_gate_kinds), excess.excess_mean,
+                 excess.p_value, null.z, null.p_upper,
+                 {k: (round(c["excess_mean"], 4), round(c["p_value"], 4)) for k, c in by_kind_excess.items()})
         if not q["gates"]["steering"]:
             self.rejections.add("steering", name, "no_reliable_heldout_steering", {"test": test.__dict__})
         if not q["gates"]["random_controls"]:
-            self.rejections.add("random_controls", name, "steering_not_above_random_controls", {"comparison": null.__dict__})
+            self.rejections.add("random_controls", name, "steering_not_above_random_controls",
+                                {"gate_test": cfg.qualification.gate_test, "excess_test": excess.__dict__, "comparison": null.__dict__})
         st.qualified = all(q["gates"].values())
         if not st.qualified and cfg.qualification.enforce:
             return

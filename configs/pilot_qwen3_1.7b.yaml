@@ -51,7 +51,9 @@ qualification:
   min_fewshot_logprob_per_token: null
   min_stability: 0.8                 # min pairwise |cos| of seed PC1s at a candidate layer
   steering_alpha: 0.05               # one-sided paired bootstrap on the evaluation pool
-  random_control_max_p: 0.05         # vs the 64 gate controls: beat at least 61 of 64
+  gate_test: paired_excess           # D18: paired hierarchical bootstrap vs the mean gate control
+  gate_control_kinds: [isotropic, orthogonal, covariance]   # 96 matched random directions
+  random_control_max_p: 0.05         # one-sided p of the excess test
 
 extraction:
   n_seeds: 3
@@ -67,7 +69,8 @@ calibration:
   min_improvement: 0.05              # nats per target token
   n_random_screen: 16
   screen_kinds: [isotropic, orthogonal]
-  random_screen_max_p: 0.1           # with 16 controls the real direction must beat all of them
+  screen_test: paired_excess         # D18: same test as the gate, on the calibration pool
+  random_screen_max_p: 0.05
   n_boot: 2000
 
 evaluation:
@@ -79,7 +82,7 @@ evaluation:
     covariance: 32                   # random directions from the residual covariance at the layer
     other_task: 9                    # the other tasks' control directions at the same layer
     demo_variation: 8                # PC1 of correct-vs-correct demonstration differences
-  gate_kinds: [isotropic, orthogonal]
+  gate_kinds: [isotropic, orthogonal]   # primary null of the layerwise metrics (the behavioural gate is qualification.gate_control_kinds)
   n_boot: 1000
   ci_alpha: 0.05
   variance_fraction: 0.9

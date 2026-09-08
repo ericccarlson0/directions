@@ -3,6 +3,7 @@ import pytest
 
 from directions.seeds import derive_seed, rng_for
 from directions.stats import (
+    paired_excess_test,
     bootstrap_median_ci,
     bootstrap_median_ci_rows,
     centre_of_mass,
@@ -68,3 +69,38 @@ def test_entropy_ratio_and_centre_of_mass():
     assert entropy_ratio(np.array([1.0, 0.0, 0.0])) == pytest.approx(0.0)
     assert centre_of_mass(np.array([1.0, 1.0]), np.array([0.0, 1.0])) == pytest.approx(0.5)
     assert centre_of_mass(np.array([0.0, 1.0]), np.array([0.0, 1.0])) == pytest.approx(1.0)
+
+
+def test_paired_excess_test_detects_excess_and_respects_null():
+    rng = np.random.default_rng(5)
+    n, m = 96, 24
+    shared = rng.standard_normal(n)  # example-level noise common to every direction
+    controls = shared[None, :] + 0.3 * rng.standard_normal((m, n)) + 0.05
+    # real direction: same example noise, clearly above the control average
+    real = shared + 0.3 * rng.standard_normal(n) + 0.35
+    t = paired_excess_test(real, controls, rng_for(0, "a"), n_boot=500)
+    assert t.n_examples == n and t.n_controls == m
+    assert t.excess_mean == pytest.approx(real.mean() - controls.mean(axis=1).mean())
+    assert t.p_value < 0.01 and t.ci_low > 0 and t.frac_controls_beaten > 0.9
+    # a "real" direction drawn like the controls: no excess, p spread over (0, 1)
+    ps = []
+    for k in range(40):
+        fake = shared + 0.3 * rng.standard_normal(n) + 0.05
+        ps.append(paired_excess_test(fake, controls, rng_for(k, "b"), n_boot=300).p_value)
+    ps = np.array(ps)
+    assert 0.2 < np.mean(ps) < 0.8 and np.mean(ps <= 0.05) < 0.25
+    # the paired design removes the shared example noise: unpaired it would be far noisier
+    unpaired = paired_excess_test(rng.permutation(real), controls, rng_for(1, "c"), n_boot=300)
+    assert unpaired.ci_high - unpaired.ci_low > t.ci_high - t.ci_low
+    # edge cases: nans dropped, a single control works, mismatched shapes rejected
+    real_nan = real.copy()
+    real_nan[0] = np.nan
+    assert paired_excess_test(real_nan, controls, rng_for(0, "d"), n_boot=50).n_examples == n - 1
+    single = paired_excess_test(real, controls[:1], rng_for(0, "e"), n_boot=50)
+    assert single.n_controls == 1 and np.isnan(single.z_vs_controls)
+    with pytest.raises(ValueError):
+        paired_excess_test(real, controls[:, :10], rng_for(0, "f"))
+    # reproducible under the same seed
+    a = paired_excess_test(real, controls, rng_for(7, "g"), n_boot=200)
+    b = paired_excess_test(real, controls, rng_for(7, "g"), n_boot=200)
+    assert a == b

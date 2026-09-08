@@ -74,6 +74,17 @@ def test_smoke_pilot_outputs(smoke_run):
     # gates are recorded even though they are not enforced in smoke mode
     q = json.loads((root / "core" / "tasks" / "antonym" / "qualification.json").read_text())
     assert set(q["gates"]) == {"fewshot", "stability", "calibration", "steering", "random_controls"}
+    # D18: the gate is the paired excess test against every gate-kind control
+    ev = json.loads((root / "core" / "tasks" / "antonym" / "evaluation.json").read_text())
+    assert ev["gate_test"] == "paired_excess" and set(ev["gate_control_kinds"]) == {"isotropic", "orthogonal", "covariance"}
+    n_gate = sum(1 for c in ev["controls"] if c["kind"] in ev["gate_control_kinds"])
+    assert ev["excess_test"]["n_controls"] == n_gate and ev["excess_test"]["n_examples"] == 6
+    assert set(ev["by_kind_excess"]) == set(ev["by_kind_comparison"])
+    assert q["gates"]["random_controls"] == (ev["excess_test"]["p_value"] <= 0.05)
+    assert len(ev["per_example"]["controls_logprob_per_token_diff"]) == len(ev["controls"])
+    cal = json.loads((root / "core" / "tasks" / "antonym" / "calibration.json").read_text())
+    screened = [g for g in cal["grid"] if g["screen"] is not None]
+    assert screened and all("excess_test" in g["screen"] for g in screened)
     assert q["enforce"] is False
     rejections = [json.loads(l) for l in (root / "rejections.jsonl").read_text().splitlines()]
     assert not any(r["stage"] == "error" for r in rejections), rejections

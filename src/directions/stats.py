@@ -104,6 +104,78 @@ def paired_bootstrap_test(
 
 
 @dataclass(frozen=True)
+class PairedExcessTest:
+    """Real direction vs the *mean* matched control, paired over examples (D18)."""
+
+    excess_mean: float  # mean_x [ real(x) - mean_c control_c(x) ]
+    real_mean: float
+    control_mean: float  # mean over controls of their mean improvement
+    p_value: float  # one-sided hierarchical bootstrap P(excess <= 0), +1 continuity correction
+    ci_low: float
+    ci_high: float
+    n_examples: int
+    n_controls: int
+    frac_controls_beaten: float  # rank statistic kept for continuity with the iteration-2 gate
+    z_vs_controls: float  # (real_mean - control_mean) / sd of the control means
+
+
+def paired_excess_test(
+    real: np.ndarray,
+    controls: np.ndarray,
+    rng: np.random.Generator,
+    n_boot: int = 2000,
+    alpha: float = 0.05,
+    chunk: int = 250,
+) -> PairedExcessTest:
+    """Does the real direction improve the metric more than a matched random direction does on average?
+
+    ``real`` holds the per-example improvement of the real direction, shape (n,);
+    ``controls`` the per-example improvements of ``m`` matched controls, shape
+    (m, n), on the same examples. The statistic is the paired mean excess over
+    the control average. Its null distribution is bootstrapped hierarchically:
+    every replicate resamples the examples (with replacement, paired across the
+    real direction and all controls) *and* the controls, so both the
+    example-level noise and the control-sampling noise enter the p-value.
+    """
+    real = np.asarray(real, dtype=np.float64)
+    C = np.asarray(controls, dtype=np.float64)
+    if C.ndim != 2 or C.shape[1] != real.shape[0]:
+        raise ValueError("controls must be shaped (n_controls, n_examples) matching real")
+    ok = ~(np.isnan(real) | np.isnan(C).any(axis=0))
+    real, C = real[ok], C[:, ok]
+    n, m = real.shape[0], C.shape[0]
+    if n == 0 or m == 0:
+        return PairedExcessTest(*(float("nan"),) * 6, n, m, float("nan"), float("nan"))
+    ctrl_means = C.mean(axis=1)
+    excess = float(real.mean() - ctrl_means.mean())
+    stats = np.empty(n_boot)
+    done = 0
+    while done < n_boot:
+        b = min(chunk, n_boot - done)
+        idx = rng.integers(0, n, size=(b, n))
+        cidx = rng.integers(0, m, size=(b, m))
+        real_b = real[idx].mean(axis=1)  # (b,)
+        # control matrix resampled in both dimensions: (b, m, n)
+        ctrl_b = C[cidx[:, :, None], idx[:, None, :]].mean(axis=(1, 2))
+        stats[done : done + b] = real_b - ctrl_b
+        done += b
+    p = (1.0 + float(np.sum(stats <= 0))) / (n_boot + 1.0)
+    sd = float(ctrl_means.std(ddof=1)) if m > 1 else 0.0
+    return PairedExcessTest(
+        excess_mean=excess,
+        real_mean=float(real.mean()),
+        control_mean=float(ctrl_means.mean()),
+        p_value=float(p),
+        ci_low=float(np.quantile(stats, alpha / 2)),
+        ci_high=float(np.quantile(stats, 1 - alpha / 2)),
+        n_examples=int(n),
+        n_controls=int(m),
+        frac_controls_beaten=float(np.mean(ctrl_means < real.mean())),
+        z_vs_controls=float((real.mean() - ctrl_means.mean()) / sd) if sd > 0 else float("nan"),
+    )
+
+
+@dataclass(frozen=True)
 class NullComparison:
     value: float
     null_mean: float

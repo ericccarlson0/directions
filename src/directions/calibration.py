@@ -6,8 +6,10 @@ it, the smallest relative strength that *reliably* improves the decision metric
 
 * one-sided paired bootstrap p <= ``bootstrap_alpha``;
 * mean improvement >= ``min_improvement`` (nats per token);
-* empirical p <= ``random_screen_max_p`` against ``n_random_screen`` matched
-  random directions (same layer, same norm) on the calibration pool.
+* its improvement exceeds that of ``n_random_screen`` matched random directions
+  (same layer, same norm) on the calibration pool: by default the paired
+  excess test of docs/DECISIONS.md D18 (``screen_test: paired_excess``,
+  p <= ``random_screen_max_p``), or the iteration-2 rank rule (``rank``).
 
 The grid is extended geometrically when the best point sits at its upper edge.
 """
@@ -25,7 +27,7 @@ from .geometry import matched_random_controls
 from .model import ForwardResult, Intervention, ModelBackend
 from .prompts import Prompt, zero_shot_prompt
 from .seeds import rng_for
-from .stats import PairedTest, compare_to_null, paired_bootstrap_test
+from .stats import PairedTest, compare_to_null, paired_bootstrap_test, paired_excess_test
 from .tasks import Item
 
 
@@ -103,18 +105,23 @@ def random_screen(
     alpha: float,
     v: np.ndarray,
     real_mean_diff: float,
+    real_diff: np.ndarray,
     controls: list[tuple[str, np.ndarray]],
     cfg: CalibrationConfig,
     rng: np.random.Generator,
 ) -> dict[str, Any]:
-    """Mean improvement of each matched random direction at ``(layer, alpha)``."""
+    """Improvement of each matched random direction at ``(layer, alpha)``, and the
+    rank comparison plus the paired excess test of the real direction against them."""
     diffs = []
+    per_example = []
     for kind, u in controls:
         r = backend.run(prompts, interventions=[Intervention(layer, u, alpha)])
         t = paired_bootstrap_test(r.logprob_per_token, base.logprob_per_token, rng, n_boot=cfg.n_boot)
         diffs.append({"kind": kind, "mean_diff": t.mean_diff, "p_value": t.p_value, "metrics": r.metrics_dict()})
+        per_example.append(r.logprob_per_token - base.logprob_per_token)
     comp = compare_to_null(real_mean_diff, np.array([d["mean_diff"] for d in diffs]))
-    return {"controls": diffs, "comparison": comp.__dict__}
+    excess = paired_excess_test(real_diff, np.stack(per_example), rng, n_boot=cfg.n_boot)
+    return {"controls": diffs, "comparison": comp.__dict__, "excess_test": excess.__dict__}
 
 
 def calibrate(
@@ -171,8 +178,12 @@ def calibrate(
                         cfg.n_random_screen,
                         tuple(cfg.screen_kinds),
                     )
-                gp.screen = random_screen(backend, prompts, base, layer, alpha, v, t.mean_diff, controls, cfg, rng)
-                gp.passes_screen = bool(gp.screen["comparison"]["p_upper"] <= cfg.random_screen_max_p)
+                gp.screen = random_screen(backend, prompts, base, layer, alpha, v, t.mean_diff,
+                                          r.logprob_per_token - base.logprob_per_token, controls, cfg, rng)
+                if cfg.screen_test == "paired_excess":
+                    gp.passes_screen = bool(gp.screen["excess_test"]["p_value"] <= cfg.random_screen_max_p)
+                else:
+                    gp.passes_screen = bool(gp.screen["comparison"]["p_upper"] <= cfg.random_screen_max_p)
                 gp.reliable = gp.passes_screen
                 if gp.reliable:
                     if selected is None:

@@ -235,3 +235,59 @@ the cross-task table, aggregation (`task_alignment_z_mean`,
 `gradient_alignment_z_mean`, downstream means) and a new figure
 (`<task>_readouts.png`). No profile label depends on them yet; the
 qualitative labels stay the preregistered iteration-2 set.
+
+
+### D18. The random-control gate is a paired excess test, not a rank
+
+Iteration 2's gate ("beat ≥ 61 of the 64 gate controls", empirical
+`p ≤ 0.05`) turned out to sit on the boundary of the random spread: every
+held-out steering effect was significant on its own (`p = 0.0005`) while the
+real direction typically beat 60–62 of 64 controls, so which tasks qualified
+flipped with the seed (31/55 task-seed pairs on 0.6B/1.7B, 12/30 on 4B,
+14/27 on 8B; no task passed in every seed on 4B). The rank rule asks the
+real direction to be an *outlier among individual random directions*, which
+conflates the hypothesis of interest with the sampling spread of the
+controls themselves and with the example-level noise that the paired design
+was introduced to remove.
+
+The gate now tests the hypothesis directly: **does the real direction
+improve the decision metric more than a matched random direction does on
+average?** `paired_excess_test` (`src/directions/stats.py`) takes the
+per-example improvements `Δ_real(x)` and `Δ_c(x)` of every gate control on
+the same evaluation examples and computes the paired mean excess
+`mean_x[Δ_real(x) − mean_c Δ_c(x)]`. Its null distribution is bootstrapped
+hierarchically — every replicate resamples the examples (paired across the
+real direction and all controls) *and* the controls — so both noise sources
+enter the one-sided p-value (`+1` continuity correction, `n_boot = 2000`).
+Qualification requires `p ≤ qualification.random_control_max_p` (0.05).
+
+The gate controls are `qualification.gate_control_kinds =
+[isotropic, orthogonal, covariance]` (32 + 32 + 32 = 96 directions).
+Including the covariance-matched directions makes the behavioural null an
+in-distribution one — iteration 2 showed isotropic directions are out of
+distribution for the residual geometry and steer less than covariance-matched
+ones — so the real direction must beat the average *in-distribution* random
+direction of the same norm. The `other_task` and `demo_variation` directions
+stay structured nulls (reported, never gating). The layerwise metrics keep
+their preregistered primary null (`evaluation.gate_kinds =
+[isotropic, orthogonal]`) so that per-layer z-scores and labels remain
+comparable with iteration 2; the covariance-matched comparison is reported
+per kind as before.
+
+The calibration screen uses the same test on the calibration pool
+(`calibration.screen_test: paired_excess`, 16 controls, `p ≤ 0.05`); the old
+"beat all 16" rank rule (minimum attainable `p = 1/17`) is retained as
+`screen_test: rank` / `gate_test: rank` for re-running the iteration-2
+protocol. Per-example control improvements are now written to
+`evaluation.json` (`per_example.controls_logprob_per_token_diff`) so the
+gate can be recomputed offline, and both the excess test and the rank
+comparison (`random_comparison`, `by_kind_comparison`) are reported for
+every control kind (`by_kind_excess`).
+
+Consequences to expect: the paired test has far more power than the rank
+rule (the example-level noise is removed and the null mean is estimated from
+96 directions rather than compared with each of them), so more task/seed
+pairs will qualify and qualification should become stable across seeds; the
+screen is also more permissive, so calibration will tend to select earlier
+layers and smaller strengths (the selection rule is unchanged: first reliable
+point). Both effects are intended.

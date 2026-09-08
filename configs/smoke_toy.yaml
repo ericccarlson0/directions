@@ -47,7 +47,9 @@ qualification:
   min_fewshot_accuracy: 0.5
   min_stability: 0.8
   steering_alpha: 0.05
-  random_control_max_p: 0.1
+  gate_test: paired_excess
+  gate_control_kinds: [isotropic, orthogonal, covariance]
+  random_control_max_p: 0.05
 
 extraction:
   n_seeds: 2
