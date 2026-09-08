@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-08.
 
-## Implemented (all exercised by `uv run pytest`, 44 tests)
+## Implemented (all exercised by `uv run pytest`, 49 tests)
 
 `src/directions/`:
 
@@ -10,34 +10,42 @@ Last updated: 2026-09-08.
   pre/post hooks capturing `resid[0..L]` at the final query token (float32,
   gathered inside the hook); interventions at any read point with a shared or
   per-example vector; teacher-forced scoring (log p per token, log p sum,
-  exact match, first-token margin) verified against a native forward pass.
-  A tiny random Qwen3-architecture model with a character tokenizer provides
-  the no-download integration path.
-- `tasks.py`, `data.py`, `data_extra.py`, `prompts.py` — ten deterministic
-  tasks (antonym, plural, past tense, English→French, `n → n+3`, present
-  participle, singular, uppercase, number→words, two-operand addition; all
-  with ≥ 320 usable items, D14), token-length item filter with a per-task
-  override and rejection logging, three disjoint pools, few-shot / zero-shot
-  prompts, positive vs deranged demonstration pairs.
+  exact match, first-token margin) verified against a native forward pass;
+  a gradient pass (`gradients`) returning ∂ log p(target)/∂ resid[l] at the
+  query token for every read point, verified against finite differences
+  (D17). A tiny random Qwen3-architecture model with a character tokenizer
+  provides the no-download integration path.
+- `tasks.py`, `data.py`, `data_extra.py`, `prompts.py` — twelve deterministic
+  task builders, ten in the pilot configs (antonym, plural, past tense,
+  `n → n+3`, present participle, singular, uppercase, number→words, and the
+  composite `last_antonym` and `arithmetic_words`, D19; `en_fr`, `add_two`
+  and `alphabetically_first` remain available), all with ≥ 320 usable
+  items, token-length item filter with a per-task override and rejection
+  logging, three disjoint pools, few-shot / zero-shot prompts, positive vs
+  deranged demonstration pairs.
 - `extraction.py`, `geometry.py` — uncentered PC1 of paired differences at
   every candidate layer, per-seed explained variance and `cos(PC1, mean)`,
   min-pairwise-|cos| stability, pooled direction; demonstration-variation
   null directions; isotropic, orthogonal and residual-covariance-matched
   random controls; Gram-trick spectra.
 - `calibration.py` — layer × strength sweep with paired bootstrap, minimum
-  improvement, 16-control matched random screen and automatic grid extension.
+  improvement, 16-control matched random screen (paired excess test, D18)
+  and automatic grid extension.
 - `layerwise.py`, `stats.py` — `S_l`, `log G_l`, `C_l`, `A_l` (median +
   bootstrap CI), centered/uncentered `d_eff`, `d90`, centered variance,
-  `N_l` and `N_l^unc`, noise-floor diagnostic; per-layer z / empirical p
-  against the primary (isotropic + orthogonal) null and against each
-  structured null (covariance, other-task, demonstration-variation) (D15).
+  `N_l` and `N_l^unc`, noise-floor diagnostic; the direction-specific
+  readouts `T_l = cos(δ_l, v_{t,l})` and `Γ_l = cos(δ_l, ∇ log p)` (D17);
+  per-layer z / empirical p against the primary (isotropic + orthogonal)
+  null and against each structured null (covariance, other-task,
+  demonstration-variation) (D15); `paired_excess_test`, the hierarchical
+  paired bootstrap behind the qualification gate (D18).
 - `analysis.py`, `aggregate.py` — mode-discriminating quantities per task,
   rule-based labels, per-kind z summaries; multi-seed aggregation (D16).
 - `ablation.py` — exploratory necessity/sufficiency of high-conversion blocks.
 - `figures.py`, `pipeline.py` (two phases, D15), `runinfo.py`, `cli.py`
   (`validate | pilot | check | compare | aggregate`, `--seed`).
 
-Methodological choices are recorded in `docs/DECISIONS.md` (D1–D16).
+Methodological choices are recorded in `docs/DECISIONS.md` (D1–D19).
 `docs/AGENT_COMPARISON.md` compares this branch with the `opus` branch.
 
 ## Runs completed
@@ -311,46 +319,172 @@ as the only residuals. The gate remains seed-dependent (12/30 pairs pass on
 4B, 14/27 on 8B), and larger models increasingly select strong (ρ ≥ 1,
 α 40–100) early-layer injections for the lexical tasks.
 
+### Iteration 3 (current protocol; commit `8928088`; D17–D19)
+
+Changes from iteration 2, each in its own commit: direction-specific
+readouts `T_l = cos(δ_l, v_{t,l})` and `Γ_l = cos(δ_l, ∇ log p)` (D17); the
+random-control gate and calibration screen are a paired hierarchical
+bootstrap of the real direction's excess over the *mean* matched control,
+now including the covariance-matched pool (96 gate controls, p ≤ 0.05;
+D18); `add_two` and `en_fr` replaced by the composite `last_antonym` and
+`arithmetic_words` (D19). Ten tasks per model as before; everything else
+unchanged (192 held-out examples, 64 + 32 + 9 + 8 controls, candidate
+layers by depth fraction).
+
+```
+for size in 0.6b 1.7b 4b 8b; do
+  for rep in a b; do
+    HF_HUB_CACHE=/root/hf-cache uv run directions pilot --config configs/pilot_qwen3_$size.yaml --seed 20260907 --run-id pilot3_qwen3_${size}_seed20260907_$rep
+  done
+  uv run directions compare results/pilot3_qwen3_${size}_seed20260907_a results/pilot3_qwen3_${size}_seed20260907_b
+done
+```
+
+#### Reproducibility
+
+Each model's seed-20260907 run was executed twice from the same commit;
+`directions compare` reports every JSON output (72–75 files per pair,
+including all per-example arrays, bootstrap p-values and the new gradient
+readouts) **bit-identical** (`atol = 0`) for 0.6B (72 files), 1.7B (75), 4B (81) and 8B (84).
+Wall time per run: 7.1 / 11.6 / 19.5 / 29.9 min.
+
+#### Qualification with the paired-excess gate (seed 20260907, one run per model)
+
+| model | few-shot pass | qualified | fails | selections (layer, ρ) of qualified tasks |
+|---|---|---|---|---|
+| 0.6B | 8/10 (composites fail few-shot) | 8/8 | – | all layer 8, ρ 0.1–0.8; uppercase (6, 0.1) |
+| 1.7B | 9/10 (`arithmetic_words` fails few-shot) | 8/9 | present_participle (excess +0.012, p = 0.34) | layer 6 ρ 0.1–0.8; antonym (11, 1.0), arithmetic (11, 0.3), last_antonym (14, 0.5) |
+| 4B | 10/10 | 9/10 | uppercase (Δ +0.006, steering p > 0.05) | layer 7 ρ 0.2–0.3 for the lexical tasks; arithmetic (7, 1.95), plural / arithmetic_words (7, 1.25), last_antonym (7, 1.56), antonym (11, 0.1), number_to_words (18, 0.2) |
+| 8B | 10/10 | 10/10 | – | layer 7 ρ 0.05–0.6 (antonym, last_antonym, past_tense, plural, present_participle, singular); layer 11 (arithmetic_words 0.8, number_to_words 0.8, uppercase 0.1); arithmetic (14, 0.5) |
+
+Every qualified pair has excess p = 0.0005 (the minimum for 2000 replicates)
+against the 96 gate controls, while the iteration-2 rank statistic of the
+same runs is z 0.5–1.5 (p 0.08–0.32) — i.e. the previous gate was rejecting
+directions whose excess over the *average* random direction is beyond doubt.
+The gate now fails only where there is no excess at all (present_participle
+1.7B: +0.012; uppercase 4B: +0.006, whose steering effect itself is not
+significant). The composites qualify where they pass few-shot:
+`last_antonym` on 1.7B (Δ log p/token +0.24), 4B (+0.82) and 8B (+0.05),
+`arithmetic_words` on 4B (+0.12) and 8B (+0.13). On 8B every task
+qualifies, at small strengths (ρ ≤ 0.8, six tasks at layer 7 with
+ρ 0.05–0.6).
+
+Against the structured behavioural nulls (`by_kind_excess`): the real
+direction beats the covariance-matched directions everywhere (excess
++0.05–+1.9, p ≤ 0.001), but beats the *other tasks'* directions in only
+about half of the qualified pairs (0.6B: antonym, arithmetic,
+number_to_words, plural, uppercase; 1.7B: antonym, arithmetic,
+last_antonym, number_to_words, singular; 4B: antonym, arithmetic_words,
+last_antonym; 8B: last_antonym, present_participle, singular). For
+past_tense, present_participle, singular and plural on the smaller models
+the other tasks' directions steer as well as the task's own (other-task
+excess −0.02 to +0.09, p 0.13–0.88), and for the numeric/format tasks on
+the larger models the task's own direction steers *worse* than the other
+tasks' directions (4B arithmetic −0.025, p = 0.995; 8B arithmetic −0.05,
+arithmetic_words −0.11, number_to_words −0.16, uppercase −0.02, p ≥ 0.97).
+Demonstration-variation directions are beaten in most pairs, but not for
+antonym/present_participle/singular on 0.6B, antonym/last_antonym on 1.7B,
+or antonym/arithmetic_words/last_antonym/past_tense/plural on 8B.
+
+Together with the readouts below this says that a large part of the
+behavioural effect of a "task direction" is a *shared* in-context/answer
+component that every task's direction carries (and that a covariance-matched
+random direction does not), not content specific to the task: another
+task's direction is an equally good or better steering vector for most
+tasks on 8B. The task-specific residue is largest for the composites
+(`last_antonym` beats the other tasks' directions on 1.7B, 4B and 8B) and
+for antonym.
+
+#### Direction-specific readouts (D17), qualified pairs
+
+- **`T_l` (alignment with the task's own direction at `l`).** Downstream
+  median 0.03–0.31, final-layer −0.38 to +0.58 (negative for several 4B/8B
+  pairs). Against isotropic and covariance-matched directions it is
+  *above* the null in every pair (z +2.3 to +8.3 and +1.8 to +6.9), against
+  demonstration-variation directions in most (+1.0 to +5.3), but against
+  the **other tasks' directions z is −2.8 to +3.0, typically ≤ +1.3**
+  (8B: +0.1 to +2.0): other tasks'
+  directions, injected at the same layer, end up just as aligned with this
+  task's later-layer direction. The other-task directions already start at
+  cos ≈ 0.3–0.5 with the injected vector at `l*` (figure
+  `<task>_readouts.png`) — the per-task directions share a large common
+  component, and `v_{t,l}` at later layers is largely that common
+  component. (The per-layer z of `T_l` at `l*` itself is degenerate by
+  construction — real = 1, orthogonal controls = 0 — and is excluded from
+  the z-mean; it still shows in the `_vs_random.png` bar charts.)
+- **`Γ_l` (alignment with the target-log-prob gradient).** At the
+  intervention layer the injected direction is nearly orthogonal to the
+  gradient: `cos(v, ∇ log p)` = −0.02 to +0.06 in every pair. Downstream
+  the perturbation rotates toward the gradient (median `Γ_l` rising to
+  0.01–0.12 by the late layers, largest for `arithmetic`: 0.11–0.12 on
+  0.6B/1.7B/4B, 0.06 on 8B, e.g. 0.24 at layers 28–34 of 4B), and the real
+  direction is only modestly more gradient-aligned than a random one of the
+  same norm (z vs isotropic/covariance +0.4 to +3.1; vs other-task −1.2 to
+  +3.5, above +2 for antonym-0.6B, number_to_words-0.6B, arithmetic-1.7B,
+  last_antonym-1.7B, antonym-4B, last_antonym-8B). So the behavioural excess of the real
+  direction is not carried by a first-order (gradient-aligned) component of
+  the perturbation at any layer; whatever makes it steer better is
+  nonlinear in `δ`, or lives at the target positions rather than the query
+  token.
+- Geometric profile unchanged: every qualified pair is cascade +
+  amplification (cum log G 1.1–3.4; expansion on 1.7B for all but
+  number_to_words, on 4B for antonym, arithmetic and singular, on 8B for
+  antonym and uppercase), and cum log G against the covariance-matched null
+  is z −3.6 to +2.3 (uppercase-0.6B +2.3 and singular-8B +2.0, the latter
+  again above the other-task null too at +2.8, are the only excesses), as
+  in iteration 2.
+
 ## Not yet run / known limitations
 
-- No bit-identity rerun of the iteration-2 configs yet on any of the four
-  models (iteration 1 was verified twice per model; nothing in the changed
-  code touches determinism).
+- Iteration 3 has one seed per model (run twice for bit-identity); seeds
+  1 and 2 are not run yet, so the iteration-3 tables above have no
+  cross-seed spread. The iteration-2 configs were never rerun for
+  bit-identity (their code path is the iteration-3 one minus the readouts;
+  iteration 1 was verified twice per model).
 - Exploratory stages (strength robustness, block ablation) run only for
   qualified tasks.
-- Not started: direction-specific readouts (cross-layer alignment with the
-  task's own extracted directions, gradient alignment), a selection rule
-  based on excess over the random spread, canonical function-vector
-  extraction, a second model family.
-- 8B weights live in `/root/hf-cache` (local disk), not in `HF_HOME`; a
-  rerun after a container restart re-downloads them (16.4 GB).
+- Not started: canonical function-vector extraction, a second model family,
+  a readout at the *target* positions (the gradient readout is taken at the
+  query token only), a task-specific version of `T_l` (the task's direction
+  with the cross-task common component removed).
+- 8B weights live in `/root/hf-cache` (local disk), not in `HF_HOME`: the
+  `/workspace` volume has a ~40 GB hard quota and the 16.4 GB do not fit
+  next to the other three models and the uv cache (pruned to 7.6 GB). A
+  rerun after a container restart re-downloads them. Moving them back needs
+  either a larger quota or dropping the 0.6B/1.7B weights (4.5 GB), which
+  would still leave too little headroom; left as is.
 
 ## Next commands
 
 ```bash
-uv run pytest                                                           # 44 tests
-uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --seed 3  # another replicate (~9 min)
-uv run directions pilot --config configs/pilot_qwen3_1.7b.yaml --seed 3  # (~14 min)
-uv run directions pilot --config configs/pilot_qwen3_4b.yaml --seed 3    # (~21 min)
-HF_HUB_CACHE=/root/hf-cache uv run directions pilot --config configs/pilot_qwen3_8b.yaml --seed 3  # (~26 min, 18.8 GB GPU)
-uv run directions aggregate results/pilot2_qwen3_0.6b_seed* --out results/aggregate_qwen3_0.6b.json
+uv run pytest                                                           # 49 tests
+# iteration-3 replicates (seeds 1 and 2), then aggregate per model
+for seed in 1 2; do
+  uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --seed $seed --run-id pilot3_qwen3_0.6b_seed$seed   # ~7 min
+  uv run directions pilot --config configs/pilot_qwen3_1.7b.yaml --seed $seed --run-id pilot3_qwen3_1.7b_seed$seed   # ~12 min
+  uv run directions pilot --config configs/pilot_qwen3_4b.yaml   --seed $seed --run-id pilot3_qwen3_4b_seed$seed     # ~20 min
+  HF_HUB_CACHE=/root/hf-cache uv run directions pilot --config configs/pilot_qwen3_8b.yaml --seed $seed --run-id pilot3_qwen3_8b_seed$seed  # ~30 min, 18.8 GB GPU
+done
+uv run directions aggregate results/pilot3_qwen3_8b_seed20260907_a results/pilot3_qwen3_8b_seed1 results/pilot3_qwen3_8b_seed2 --out results/aggregate3_qwen3_8b.json
 uv run directions compare results/<run_a> results/<run_b>                # reproducibility diff
 ```
 
 Suggested next steps, in order:
 
-1. Add direction-specific readouts to the layerwise stage: cos(δ_l(x),
-   v_{t,l}) against the task's own direction extracted at each later read
-   point (already saved in `directions.npz` as `all_layers`), and cos with
-   the per-example gradient of log p(target); compare against the same
-   five nulls. This is where the behavioural specificity must show up if it
-   is geometric at all.
-2. Replace the fixed p ≤ 0.05 gate on the random null by a preregistered
-   excess-over-null rule (e.g. z ≥ 2 on both pools) and record it in
-   `docs/DECISIONS.md`; the current gate sits on the boundary of the
-   random spread and flips with the seed.
-3. Drop or fix tasks the models do zero-shot (add_two on 1.7B/4B/8B) and
-   tasks whose direction never calibrates (en_fr on 0.6B).
-4. Follow up singular-8B (layer 7, ρ ≤ 0.1): the only profile whose
-   cumulative gain exceeds the covariance-matched and other-task nulls in
-   every seed; check whether it survives the direction-specific readouts.
+1. Run seeds 1 and 2 of iteration 3 on all four models (commands above) so
+   the gate stability and the readout z-scores have a cross-seed spread.
+2. Separate the shared component from the task-specific one: extract the
+   cross-task common direction at each layer (mean or PC1 of the per-task
+   directions), inject it as a sixth control kind, and re-express `T_l`
+   against the task direction with that component projected out. The
+   other-task results above predict that the common direction steers most
+   tasks as well as their own direction.
+3. Add a gradient readout at the target positions (the perturbation is
+   measured at the query token; the behavioural effect is read at the
+   target tokens), and the first-order prediction `δ_l · ∇ log p` as a
+   compared metric, to test whether the excess over random is first-order
+   anywhere.
+4. Iteration-2 conclusions that still hold and need no more runs: the
+   geometric profile (cascade + amplification, expansion in the larger
+   models) is not direction-specific; singular-8B is the only cumulative-gain
+   excess over the structured nulls.
