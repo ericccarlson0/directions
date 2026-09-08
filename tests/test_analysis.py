@@ -109,6 +109,12 @@ def test_compute_profile_readouts():
     assert "task_alignment" in comp["metrics"] and "gradient_alignment" in comp["metrics"]
     sig = profile_signature(prof, comp, AnalysisConfig())
     assert sig["task_alignment_z_mean"] is not None and sig["gradient_alignment_z_mean"] is not None
+    # the task-alignment z-mean excludes the intervention layer, where the comparison is degenerate
+    # (real = 1 by construction); the other metrics keep it
+    zs = [r["z"] for l, r in enumerate(comp["metrics"]["task_alignment"]["per_layer"]) if l != ls and r["z"] is not None]
+    assert sig["task_alignment_z_mean"] == pytest.approx(float(np.mean([z for z in zs if not np.isnan(z)])))
+    zg = [r["z"] for r in comp["metrics"]["gradient_alignment"]["per_layer"] if r["z"] is not None and not np.isnan(r["z"])]
+    assert sig["gradient_alignment_z_mean"] == pytest.approx(float(np.mean(zg)))
     assert sig["gradient_alignment_at_intervention"] is not None
     # without the inputs everything is nan / None but nothing fails
     bare = compute_profile(base, steered, v, ls, cfg, np.random.default_rng(0))

@@ -30,16 +30,25 @@ def _finite(a: np.ndarray) -> np.ndarray:
     return a[~np.isnan(a)]
 
 
-def _z_means(comparison: dict[str, Any]) -> dict[str, Any]:
+# Per-metric read points excluded from the z-mean because the comparison there is
+# degenerate by construction: task_alignment at l* is 1 for the real direction while
+# orthogonal controls are exactly 0 and isotropic ones ~1/sqrt(d) with near-zero spread.
+_Z_MEAN_EXCLUDE_AT_INTERVENTION = ("task_alignment",)
+
+
+def _z_means(comparison: dict[str, Any], intervention_layer: int | None = None) -> dict[str, Any]:
     """Mean per-layer z-score of the real direction against one null, per metric."""
     out: dict[str, Any] = {"n": comparison.get("n_random", 0)}
     for metric, key in (("log_gain", "log_gain_z_mean"), ("d_eff", "d_eff_z_mean"),
                         ("new_subspace", "new_subspace_z_mean"), ("new_subspace_uncentered", "new_subspace_uncentered_z_mean"),
                         ("alignment", "alignment_z_mean"), ("conversion", "conversion_z_mean"),
                         ("task_alignment", "task_alignment_z_mean"), ("gradient_alignment", "gradient_alignment_z_mean")):
-        z = _finite(np.array([r["z"] for r in comparison["metrics"][metric]["per_layer"]], dtype=np.float64))
+        rows = comparison["metrics"][metric]["per_layer"]
+        if metric in _Z_MEAN_EXCLUDE_AT_INTERVENTION and intervention_layer is not None:
+            rows = [r for l, r in enumerate(rows) if l != intervention_layer]
+        z = _finite(np.array([r["z"] for r in rows], dtype=np.float64))
         out[key] = float(np.mean(z)) if len(z) else None
-        p = _finite(np.array([r["p_upper"] for r in comparison["metrics"][metric]["per_layer"]], dtype=np.float64))
+        p = _finite(np.array([r["p_upper"] for r in rows], dtype=np.float64))
         out[key.replace("_z_mean", "_frac_layers_p_upper_le_0.05")] = float(np.mean(p <= 0.05)) if len(p) else None
     cg = comparison.get("cumulative_log_gain", {})
     out["cumulative_log_gain_z"] = cg.get("z")
@@ -115,11 +124,11 @@ def profile_signature(
         "gradient_alignment_final": float(grad_al[L]) if not np.isnan(grad_al[L]) else None,
     }
     if comparison is not None:
-        zm = _z_means(comparison)
+        zm = _z_means(comparison, ls)
         sig.update({k: v for k, v in zm.items() if k != "n"})
         sig["n_primary_controls"] = zm["n"]
         sig["cumulative_log_gain_vs_random"] = comparison["cumulative_log_gain"]
-    sig["by_kind"] = {k: _z_means(c) for k, c in (by_kind or {}).items()}
+    sig["by_kind"] = {k: _z_means(c, ls) for k, c in (by_kind or {}).items()}
     sig["labels"] = assign_labels(sig, cfg)
     return sig
 

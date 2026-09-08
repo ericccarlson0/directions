@@ -234,7 +234,13 @@ like the existing metrics (per-layer z and empirical p; `_z_means`), enter
 the cross-task table, aggregation (`task_alignment_z_mean`,
 `gradient_alignment_z_mean`, downstream means) and a new figure
 (`<task>_readouts.png`). No profile label depends on them yet; the
-qualitative labels stay the preregistered iteration-2 set.
+qualitative labels stay the preregistered iteration-2 set. The per-kind
+z-mean of `task_alignment` excludes the intervention layer: there the real
+direction is 1 by construction while orthogonal controls are exactly 0 and
+isotropic ones ~1/√d with near-zero spread, so the z at `l*` is degenerate
+(hundreds) and would dominate the average; the downstream layers are the
+question. `gradient_alignment` at `l*` — cos between the injected direction
+and the gradient — is well defined for every control and stays in.
 
 
 ### D18. The random-control gate is a paired excess test, not a rank
