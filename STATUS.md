@@ -177,16 +177,153 @@ Other observations:
   BLAS thread pool (`DIRECTIONS_BLAS_THREADS`, default 4) is what makes them
   cheap — 70 s → 0.23 s per profile.
 
+### Iteration 2, models 3 and 4 (Qwen3-4B / 8B; same protocol, configs `pilot_qwen3_4b.yaml`, `pilot_qwen3_8b.yaml`)
+
+The two larger Qwen3 base models were run with the iteration-2 protocol
+unchanged (configs identical to the 0.6B/1.7B ones except `model.name`;
+enforced by `tests/test_configs.py`). Both have 36 layers, so the candidate
+layers are 7/11/14/18/22.
+
+```
+for seed in 20260907 1 2; do
+  uv run directions pilot --config configs/pilot_qwen3_4b.yaml --seed $seed --run-id pilot2_qwen3_4b_seed$seed
+  uv run directions pilot --config configs/pilot_qwen3_8b.yaml --seed $seed --run-id pilot2_qwen3_8b_seed$seed
+done
+uv run directions aggregate results/pilot2_qwen3_4b_seed* --out results/aggregate_qwen3_4b.json
+uv run directions aggregate results/pilot2_qwen3_8b_seed* --out results/aggregate_qwen3_8b.json
+```
+
+Code at commit `fe052ed` plus the two configs; torch 2.14, transformers
+5.16.1, RTX 4090. Model revisions `906bfd4b` (4B), `49e3418f` (8B).
+
+#### Qwen3-4B-Base (d = 2560), three seeds; wall time 21.2 / 20.8 / 18.7 min
+
+All ten tasks calibrate in every seed (few-shot accuracy 0.89–1.00). 12 of
+30 task/seed pairs pass the 64-control gate; no task passes in all three seeds.
+
+| task | qualified | selections (layer, ρ) | held-out Δ log p/token (seed 20260907) | gate z (seed 20260907) |
+|---|---|---|---|---|
+| en_fr | 2/3 | (18, 0.05), (14, 0.1), (14, 0.2) | +0.06 | 2.93 |
+| singular | 2/3 | (18, 0.05), (11, 1.95), (11, 1.25) | +0.08 | 2.60 |
+| number_to_words | 2/3 | (18, 0.2), (22, 0.05), (22, 0.05) | +0.08 | 1.81 |
+| uppercase | 2/3 | (7, 1.56), (14, 1.25), (7, 1.56) | +0.31 | 1.84 |
+| past_tense | 1/3 | (18, 0.1), (11, 1.56), (18, 0.1) | +0.09 | 1.98 |
+| present_participle | 1/3 | (11, 0.5), (7, 1.95), (7, 1.95) | +0.23 | 1.17 |
+| plural | 1/3 | (11, 0.4), (7, 1.56), (11, 0.4) | +0.12 | 1.38 |
+| antonym | 1/3 | (11, 0.5), (11, 1.56), (11, 1.56) | +0.38 | 0.74 |
+| arithmetic (n+3) | 0/3 | (11, 0.8), (7, 1.95), (11, 0.6) | +0.31 | 1.23 |
+| add_two | 0/3 | (18, 0.5), (14, 0.4), (18, 0.4) | +0.15 | 1.03 |
+
+Observations:
+
+- As on the smaller models every held-out steering effect is significant on
+  its own (p = 0.0005) while the real direction beats the random controls
+  only by z ≈ 0.7–3 (number_to_words in seeds 1 and 2: z 5.2–5.6). The gate
+  is on the boundary of the random spread; qualification flips with the seed.
+- Behavioural specificity is weaker than on 1.7B: against the covariance-
+  matched and other-task directions the real direction's steering z is
+  0.5–2.7 and −0.2–2.6 respectively; demonstration-variation directions
+  steer nearly as well (z −0.5–3.5, typically 1–2).
+- Calibration often selects a *strong* injection (ρ ≥ 1.25, α 44–77) at an
+  early layer (7 or 11), where the 1.7B selections were mostly ρ ≤ 0.1.
+- Every qualified profile is cascade + amplification (cum log G 1.1–2.0;
+  final alignment 0.02–0.08); 9 of 12 also show dimensional expansion
+  (`d_eff` 3–5 → 15–18 when injected at layer 11/18). number_to_words at
+  layer 22 contracts (26 → 9.5) and has a variance ratio at the intervention
+  layer of 1.6 × 10⁻² (noise floor; elsewhere 10⁻⁴–3 × 10⁻³).
+- Nulls, aggregated over qualified seeds (`results/aggregate_qwen3_4b.json`):
+  cum log G is above the isotropic null only for number_to_words
+  (z 5.9 ± 0.2), en_fr (2.9 ± 1.9) and past_tense (3.0), and against the
+  covariance-matched null these fall to +1.3 ± 0.4, −0.7 ± 0.5 and −1.6;
+  the other-task null gives 0.0 ± 0.2, +1.6 ± 0.1, +0.5. Every other
+  qualified task is inside or *below* all nulls (antonym and uppercase cum
+  log G z −2). `N_l^unc` z is −1 to +1 against isotropic and −2.5 to −0.2
+  against covariance-matched. Alignment z is −0.8 to +1.3 against isotropic
+  and −2.5 to −0.3 against covariance-matched. The 0.6B/1.7B conclusion
+  therefore holds on 4B: the geometric profile of the task direction is
+  reproduced by any in-distribution direction of the same norm at the same
+  layer, and the real direction's `N_l^unc` and alignment are if anything
+  *lower* than covariance-matched random directions'.
+
+#### Qwen3-8B-Base (d = 4096), three seeds; wall time 26.2 / 25.5 / 25.2 min
+
+The 8B weights (16.4 GB) do not fit in the `/workspace` volume's ~40 GB quota
+next to the existing caches; they were downloaded to the local disk with
+`HF_HUB_CACHE=/root/hf-cache` (ephemeral; the model revision is in
+`metadata.json`). GPU memory in use: 18.8 GB of 24 GB.
+
+Nine tasks calibrate in every seed; add_two never finds a calibration point
+(zero-shot log p/token −0.79, few-shot −0.003: no headroom). 14 of 27
+task/seed pairs pass the gate; arithmetic, number_to_words and singular pass
+in all three seeds.
+
+| task | qualified | selections (layer, ρ) | held-out Δ log p/token (seed 20260907) | gate z (seed 20260907) |
+|---|---|---|---|---|
+| arithmetic (n+3) | 3/3 | (18, 0.2), (18, 0.2), (14, 1.25) | +0.07 | 2.67 |
+| number_to_words | 3/3 | (18, 0.3), (18, 0.8), (18, 1.0) | +0.14 | 2.22 |
+| singular | 3/3 | (7, 0.1), (7, 0.05), (7, 0.02) | +0.15 | 2.44 |
+| en_fr | 2/3 | (11, 1.0), (11, 0.6), (11, 0.3) | +0.97 | 2.21 |
+| antonym | 1/3 | (7, 1.25), (7, 1.56), (7, 1.25) | +1.45 | 1.97 |
+| past_tense | 1/3 | (11, 0.05), (7, 0.1), (7, 0.5) | +0.05 | 2.66 |
+| present_participle | 1/3 | (7, 0.05), (7, 0.1), (7, 0.6) | +0.04 | 1.44 |
+| plural | 0/3 | (7, 1.0), (18, 0.05), (11, 0.05) | +0.63 | 1.67 |
+| uppercase | 0/3 | (11, 0.1), (14, 1.0), (14, 1.0) | +0.03 | 1.17 |
+| add_two | 0/3 | no calibration point | – | – |
+
+Observations:
+
+- Behavioural specificity vs covariance-matched directions: z 0.7–3.5,
+  highest and most consistent for singular (3.0, 3.5, 3.5); vs other-task
+  directions −0.5–4.8 (arithmetic and number_to_words 2–5 in two seeds).
+  Demonstration-variation directions steer with z −0.4–2.3 (one outlier 4.4).
+- 14 qualified profiles: 13 cascade + amplification (conversion entropy ratio
+  0.86–0.97, dominant block ≤ 21 %), one (singular, seed 2) *delayed
+  activation* + amplification. Only 5 of 14 show dimensional expansion
+  (`d_eff` 4 → 8–12 for layer-7/11 injections); arithmetic and en_fr do not
+  expand (ratio 1.06, 1.24), and singular contracts (17–34 → 9–11, ratio
+  0.43, injected at layer 7 where the raw `d_eff` estimate is high).
+- Noise floor: variance ratio at the intervention layer 10⁻⁴–8 × 10⁻³
+  (largest for the layer-7 singular injections, up to 8 × 10⁻³).
+- Nulls (`results/aggregate_qwen3_8b.json`), qualified seeds only:
+  - arithmetic (n = 3): cum log G z iso −0.2 ± 0.1, cov −1.4 ± 0.5, other
+    −0.2 ± 0.7; `N_l^unc` z −0.1 / −0.7 / −1.2; alignment z −1.3 / −2.2 / −0.7.
+  - number_to_words (n = 3): cum log G z −0.9 / −1.8 / −0.2; `N_l^unc`
+    +0.1 / −0.3 / +0.2; alignment −1.5 / −2.1 / −0.9.
+  - en_fr (n = 2), antonym, past_tense, present_participle (n = 1): inside
+    every null (|z| ≤ 1.9) except alignment vs isotropic for antonym (+3.9)
+    and present_participle (+4.3), which falls to +0.5 / +1.3 vs covariance.
+  - **singular (n = 3) is the one task where an excess survives the
+    structured nulls**: cum log G 3.56 ± 0.20 (the largest of any
+    model/task), z iso +3.5 ± 1.1, other-task +3.0 ± 1.4, covariance
+    +1.6 ± 0.6, demo-variation +2.7 ± 1.6; alignment z iso +4.6 ± 0.7,
+    covariance +1.2 ± 0.5, other-task −0.2 ± 0.1. `N_l^unc` is at the null
+    (+1.1 / −0.1 / +0.7). So singular-8B amplifies more than any other
+    in-distribution direction injected at layer 7 with the same norm, but
+    does not open a new subspace, and its alignment excess is not
+    task-specific (other tasks' directions align equally well).
+
+Across the four models (0.6B, 1.7B, 4B, 8B; 12 runs), the iteration-2
+conclusion stands: the isotropic-null excess is an out-of-distribution
+artefact, and against covariance-matched or other-task directions the
+geometric profile of the task direction is unremarkable, with singular-8B
+(cum log G) and the two zero-shot-solved arithmetic tasks on the small models
+as the only residuals. The gate remains seed-dependent (12/30 pairs pass on
+4B, 14/27 on 8B), and larger models increasingly select strong (ρ ≥ 1,
+α 40–100) early-layer injections for the lexical tasks.
+
 ## Not yet run / known limitations
 
-- No bit-identity rerun of the iteration-2 configs yet (iteration 1 was
-  verified twice per model; nothing in the changed code touches determinism).
+- No bit-identity rerun of the iteration-2 configs yet on any of the four
+  models (iteration 1 was verified twice per model; nothing in the changed
+  code touches determinism).
 - Exploratory stages (strength robustness, block ablation) run only for
   qualified tasks.
 - Not started: direction-specific readouts (cross-layer alignment with the
   task's own extracted directions, gradient alignment), a selection rule
   based on excess over the random spread, canonical function-vector
   extraction, a second model family.
+- 8B weights live in `/root/hf-cache` (local disk), not in `HF_HOME`; a
+  rerun after a container restart re-downloads them (16.4 GB).
 
 ## Next commands
 
@@ -194,6 +331,8 @@ Other observations:
 uv run pytest                                                           # 44 tests
 uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --seed 3  # another replicate (~9 min)
 uv run directions pilot --config configs/pilot_qwen3_1.7b.yaml --seed 3  # (~14 min)
+uv run directions pilot --config configs/pilot_qwen3_4b.yaml --seed 3    # (~21 min)
+HF_HUB_CACHE=/root/hf-cache uv run directions pilot --config configs/pilot_qwen3_8b.yaml --seed 3  # (~26 min, 18.8 GB GPU)
 uv run directions aggregate results/pilot2_qwen3_0.6b_seed* --out results/aggregate_qwen3_0.6b.json
 uv run directions compare results/<run_a> results/<run_b>                # reproducibility diff
 ```
@@ -210,5 +349,8 @@ Suggested next steps, in order:
    excess-over-null rule (e.g. z ≥ 2 on both pools) and record it in
    `docs/DECISIONS.md`; the current gate sits on the boundary of the
    random spread and flips with the seed.
-3. Drop or fix tasks the models do zero-shot (add_two on 1.7B) and tasks
-   whose direction never calibrates (en_fr on 0.6B).
+3. Drop or fix tasks the models do zero-shot (add_two on 1.7B/4B/8B) and
+   tasks whose direction never calibrates (en_fr on 0.6B).
+4. Follow up singular-8B (layer 7, ρ ≤ 0.1): the only profile whose
+   cumulative gain exceeds the covariance-matched and other-task nulls in
+   every seed; check whether it survives the direction-specific readouts.

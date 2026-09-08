@@ -1,0 +1,102 @@
+# Measurement-validation pilot, model 3 (docs/EXPERIMENT.md), strengthened
+# protocol (docs/DECISIONS.md D14-D16): 192 held-out examples, ten tasks, 64
+# preregistered random controls plus structured nulls.
+# Identical to pilot_qwen3_0.6b.yaml except for `model.name`
+# (enforced by tests/test_configs.py).
+name: pilot
+seed: 20260907
+output_dir: results
+
+model:
+  backend: hf
+  name: Qwen/Qwen3-4B-Base
+  dtype: bfloat16          # model execution; captured activations float32, statistics float64
+  device: auto
+  batch_size: 32
+
+prompt:
+  instruction: ""
+  demo_template: "Q: {input}\nA: {output}"
+  query_template: "Q: {input}\nA:"
+  target_template: " {output}"
+  separator: "\n\n"
+  n_shots: 8
+
+data:
+  n_extraction: 64
+  n_calibration: 64
+  n_evaluation: 192        # 3x the initial pilot (D14)
+  max_target_tokens: 4     # items whose formatted target exceeds this are dropped and logged
+  allow_reduced_splits: false
+
+tasks:
+  - name: antonym
+  - name: plural
+  - name: past_tense
+  - name: en_fr
+  - name: arithmetic
+    params: {operation: add, operand: 3, min: 0, max: 400}
+  - name: present_participle
+  - name: singular
+  - name: uppercase
+  - name: number_to_words
+    params: {min: 0, max: 999}
+    max_target_tokens: 6
+  - name: add_two
+    params: {min: 2, max: 59}
+
+qualification:
+  enforce: true
+  min_fewshot_accuracy: 0.5          # few-shot accuracy on the evaluation pool
+  min_fewshot_logprob_per_token: null
+  min_stability: 0.8                 # min pairwise |cos| of seed PC1s at a candidate layer
+  steering_alpha: 0.05               # one-sided paired bootstrap on the evaluation pool
+  random_control_max_p: 0.05         # vs the 64 gate controls: beat at least 61 of 64
+
+extraction:
+  n_seeds: 3
+  center: false                      # preregistered: PC1 of the raw (uncentered) differences
+  candidate_depth_fractions: [0.2, 0.3, 0.4, 0.5, 0.6]
+
+calibration:
+  rho_grid: [0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0]
+  extend_grid: true                  # extend geometrically while the best point is at the upper edge
+  extension_factor: 1.25
+  max_rho: 2.0
+  bootstrap_alpha: 0.05
+  min_improvement: 0.05              # nats per target token
+  n_random_screen: 16
+  screen_kinds: [isotropic, orthogonal]
+  random_screen_max_p: 0.1           # with 16 controls the real direction must beat all of them
+  n_boot: 2000
+
+evaluation:
+  # matched controls on the evaluation pool, by kind (D15); every control is
+  # injected at the selected layer with the selected absolute norm
+  controls:
+    isotropic: 32                    # preregistered random null (gate), with orthogonal
+    orthogonal: 32
+    covariance: 32                   # random directions from the residual covariance at the layer
+    other_task: 9                    # the other tasks' control directions at the same layer
+    demo_variation: 8                # PC1 of correct-vs-correct demonstration differences
+  gate_kinds: [isotropic, orthogonal]
+  n_boot: 1000
+  ci_alpha: 0.05
+  variance_fraction: 0.9
+
+exploratory:
+  strength_robustness: true
+  block_ablation: {enabled: true, n_blocks: 2, criterion: conversion, rank_by: value}
+
+analysis:
+  conserved_alignment_min: 0.7
+  conserved_abs_cumlog_gain_max: 0.5
+  dominant_block_share_min: 0.4
+  cascade_entropy_ratio_min: 0.85
+  delayed_centre_of_mass_min: 0.6
+  expansion_ratio_min: 1.5
+  new_direction_z_min: 2.0
+
+figures:
+  enabled: true
+  dpi: 120

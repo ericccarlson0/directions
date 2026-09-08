@@ -12,6 +12,8 @@ Run in order:
 
 1. `Qwen/Qwen3-0.6B-Base`
 2. `Qwen/Qwen3-1.7B-Base`
+3. `Qwen/Qwen3-4B-Base`
+4. `Qwen/Qwen3-8B-Base`
 
 Use:
 

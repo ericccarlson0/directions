@@ -13,13 +13,21 @@ def test_all_configs_load():
         assert cfg.tasks, p
 
 
+QWEN_CONFIGS = {
+    "pilot_qwen3_0.6b.yaml": "Qwen/Qwen3-0.6B-Base",
+    "pilot_qwen3_1.7b.yaml": "Qwen/Qwen3-1.7B-Base",
+    "pilot_qwen3_4b.yaml": "Qwen/Qwen3-4B-Base",
+    "pilot_qwen3_8b.yaml": "Qwen/Qwen3-8B-Base",
+}
+
+
 def test_qwen_configs_differ_only_in_model_name():
     a = config_to_dict(load_config(CONFIGS / "pilot_qwen3_0.6b.yaml"))
-    b = config_to_dict(load_config(CONFIGS / "pilot_qwen3_1.7b.yaml"))
-    assert a["model"]["name"] == "Qwen/Qwen3-0.6B-Base"
-    assert b["model"]["name"] == "Qwen/Qwen3-1.7B-Base"
-    a["model"]["name"] = b["model"]["name"]
-    assert a == b
+    for fname, model_name in QWEN_CONFIGS.items():
+        b = config_to_dict(load_config(CONFIGS / fname))
+        assert b["model"]["name"] == model_name, fname
+        b["model"]["name"] = a["model"]["name"]
+        assert a == b, fname
 
 
 def test_pilot_configs_match_preregistered_sizes():
