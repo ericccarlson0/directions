@@ -287,6 +287,38 @@ class LayerwiseExampleMetrics:
     block_norm: np.ndarray  # ||b_l(x)||, shape (L, n)
 
 
+def direction_readouts(
+    delta: np.ndarray, task_directions: np.ndarray | None, gradients: np.ndarray | None
+) -> dict[str, np.ndarray]:
+    """Direction-specific readouts of the perturbation, per example and read point.
+
+    ``task_alignment[l, x] = cos(delta_l(x), v_{t,l})`` with ``v_{t,l}`` the task's
+    own control direction extracted at read point ``l`` (sign-aligned with the
+    mean few-shot-minus-permuted difference, so the sign is meaningful);
+    ``gradient_alignment[l, x] = cos(delta_l(x), g_l(x))`` with ``g_l(x)`` the
+    gradient of the target log-probability with respect to the baseline residual
+    at ``l``; ``gradient_projection[l, x] = delta_l(x) . g_l(x)``, the first-order
+    predicted change of the target log-probability. Arrays are ``nan`` where the
+    corresponding input is missing or a norm is zero.
+    """
+    delta = np.asarray(delta, dtype=np.float64)
+    L1, n, _ = delta.shape
+    dn = np.linalg.norm(delta, axis=2)
+    out = {k: np.full((L1, n), np.nan) for k in ("task_alignment", "gradient_alignment", "gradient_projection")}
+    with np.errstate(divide="ignore", invalid="ignore"):
+        if task_directions is not None:
+            V = normalize(np.asarray(task_directions, dtype=np.float64), axis=1)  # (L+1, d)
+            proj = np.einsum("lnd,ld->ln", delta, V)
+            out["task_alignment"] = np.where(dn > 0, proj / dn, np.nan)
+        if gradients is not None:
+            G = np.asarray(gradients, dtype=np.float64)
+            gn = np.linalg.norm(G, axis=2)
+            dot = np.einsum("lnd,lnd->ln", delta, G)
+            out["gradient_projection"] = dot
+            out["gradient_alignment"] = np.where((dn > 0) & (gn > 0), dot / (dn * gn), np.nan)
+    return out
+
+
 def layerwise_example_metrics(
     delta: np.ndarray, base: np.ndarray, v: np.ndarray
 ) -> LayerwiseExampleMetrics:

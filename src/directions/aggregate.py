@@ -21,7 +21,14 @@ SCALARS = (
     "new_subspace_uncentered_z_mean",
     "conversion_entropy_ratio",
     "conversion_dominant_share",
+    "task_alignment_downstream_mean",
+    "task_alignment_z_mean",
+    "gradient_alignment_at_intervention",
+    "gradient_alignment_downstream_mean",
+    "gradient_alignment_z_mean",
 )
+BY_KIND_KEYS = ("new_subspace_uncentered_z_mean", "log_gain_z_mean", "alignment_z_mean", "d_eff_z_mean",
+                "cumulative_log_gain_z", "task_alignment_z_mean", "gradient_alignment_z_mean")
 
 
 def _mean_sd(values: list[float | None]) -> dict[str, Any]:
@@ -57,8 +64,7 @@ def aggregate_runs(runs: list[Path]) -> dict[str, Any]:
                 for k in SCALARS:
                     t["scalars"][k].append(sig.get(k))
                 for kind, d in sig.get("by_kind", {}).items():
-                    bk = t["by_kind"].setdefault(kind, {"new_subspace_uncentered_z_mean": [], "log_gain_z_mean": [],
-                                                        "alignment_z_mean": [], "d_eff_z_mean": [], "cumulative_log_gain_z": []})
+                    bk = t["by_kind"].setdefault(kind, {k: [] for k in BY_KIND_KEYS})
                     for k in bk:
                         bk[k].append(d.get(k))
     for t in per_task.values():
@@ -69,8 +75,9 @@ def aggregate_runs(runs: list[Path]) -> dict[str, Any]:
 
 def format_table(result: dict[str, Any]) -> str:
     lines = [f"runs: {len(result['runs'])}  seeds: {result['seeds']}  models: {result['models']}", ""]
-    lines.append("| task | qualified | selections (layer, rho) | cum log G | cum log G z | align z | N_unc z | labels |")
-    lines.append("|---|---|---|---|---|---|---|---|")
+    lines.append("| task | qualified | selections (layer, rho) | cum log G | cum log G z | align z | N_unc z | "
+                 "task-align z | grad-align z | labels |")
+    lines.append("|---|---|---|---|---|---|---|---|---|---|")
     for task, t in sorted(result["tasks"].items()):
         s = t["scalars"]
 
@@ -81,5 +88,6 @@ def format_table(result: dict[str, Any]) -> str:
         sel = ", ".join(f"({x['layer']}, {x['rho']:g})" for x in t["selections"]) or "-"
         labels = ", ".join(f"{k}×{v}" for k, v in sorted(t["labels"].items())) or "-"
         lines.append(f"| {task} | {t['n_qualified']}/{t['n_runs']} | {sel} | {ms('cumulative_log_gain')} | "
-                     f"{ms('cumulative_log_gain_z')} | {ms('alignment_z_mean')} | {ms('new_subspace_uncentered_z_mean')} | {labels} |")
+                     f"{ms('cumulative_log_gain_z')} | {ms('alignment_z_mean')} | {ms('new_subspace_uncentered_z_mean')} | "
+                     f"{ms('task_alignment_z_mean')} | {ms('gradient_alignment_z_mean')} | {labels} |")
     return "\n".join(lines)

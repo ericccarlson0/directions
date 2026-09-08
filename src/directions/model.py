@@ -288,7 +288,19 @@ class ModelBackend:
             outs.append(self._run_batch(batch, sliced, capture))
         return _concat_results(outs)
 
-    def _run_batch(self, prompts: Sequence[Prompt], interventions: Sequence[Intervention], capture: bool) -> ForwardResult:
+    def gradients(self, prompts: Sequence[Prompt], batch_size: int | None = None) -> np.ndarray:
+        """Gradient of the summed target log-probability with respect to the residual
+        stream at every read point ``0..L``, taken at each example's final query token.
+
+        Returns an array shaped ``(L+1, N, d)`` (float32). Model parameters are
+        frozen, so the backward pass only produces activation gradients; the
+        forward pass is the unsteered teacher-forced pass used everywhere else.
+        """
+        bs = batch_size or self.cfg.batch_size
+        parts = [self._gradient_batch(prompts[start : start + bs]) for start in range(0, len(prompts), bs)]
+        return np.concatenate(parts, axis=1)
+
+    def _prepare_batch(self, prompts: Sequence[Prompt]) -> dict[str, Any]:
         encoded = [self._encode_prompt(p) for p in prompts]
         B = len(encoded)
         lengths = [len(a) + len(b) for a, b in encoded]
@@ -306,20 +318,24 @@ class ModelBackend:
             attn[i, : len(ids)] = 1
             query_pos[i] = len(a) - 1
             target_ids[i, : len(b)] = torch.tensor(b)
-        input_ids = input_ids.to(self.device)
-        attn = attn.to(self.device)
-        query_pos_dev = query_pos.to(self.device)
+        return {
+            "input_ids": input_ids.to(self.device),
+            "attn": attn.to(self.device),
+            "query_pos": query_pos.to(self.device),
+            "target_ids": target_ids.to(self.device),
+            "n_tgt": n_tgt,
+            "T": T,
+            "Tt": Tt,
+        }
 
-        session = _HookSession(
-            n_layers=self.n_layers,
-            query_pos=query_pos_dev,
-            interventions=interventions,
-            capture=capture,
-            device=self.device,
-        )
+    def _forward_scores(self, batch: dict[str, Any], session: _HookSession) -> dict[str, torch.Tensor]:
+        """Teacher-forced forward with ``session`` installed; target-position scores."""
+        T, Tt = batch["T"], batch["Tt"]
+        query_pos_dev = batch["query_pos"]
+        n_tgt_dev = batch["n_tgt"].to(self.device)
         self._session = session
         try:
-            base_out = self.model.model(input_ids=input_ids, attention_mask=attn)
+            base_out = self.model.model(input_ids=batch["input_ids"], attention_mask=batch["attn"])
         finally:
             self._session = None
         hidden = base_out.last_hidden_state  # (B, T, d) after final norm
@@ -329,29 +345,55 @@ class ModelBackend:
         gathered = torch.gather(hidden, 1, pos[:, :, None].expand(-1, -1, hidden.shape[-1]))
         logits = self.model.lm_head(gathered).float()  # (B, Tt, V)
         logprobs = torch.log_softmax(logits, dim=-1)
-        tgt_dev = target_ids.to(self.device)
-        valid = (torch.arange(Tt, device=self.device)[None, :] < n_tgt.to(self.device)[:, None])
+        tgt_dev = batch["target_ids"]
+        valid = torch.arange(Tt, device=self.device)[None, :] < n_tgt_dev[:, None]
         tok_lp = torch.gather(logprobs, 2, tgt_dev[:, :, None]).squeeze(-1)
         tok_lp = torch.where(valid, tok_lp, torch.zeros_like(tok_lp))
         lp_sum = tok_lp.sum(dim=1)
-        lp_tok = lp_sum / n_tgt.to(self.device)
+        lp_tok = lp_sum / n_tgt_dev
         argmax = logits.argmax(dim=-1)
         em = ((argmax == tgt_dev) | ~valid).all(dim=1)
         first = logits[:, 0, :]
         gold = torch.gather(first, 1, tgt_dev[:, :1]).squeeze(1)
-        masked = first.clone()
+        masked = first.detach().clone()
         masked.scatter_(1, tgt_dev[:, :1], float("-inf"))
         margin = gold - masked.max(dim=1).values
+        return {"lp_sum": lp_sum, "lp_tok": lp_tok, "em": em, "margin": margin}
 
+    def _run_batch(self, prompts: Sequence[Prompt], interventions: Sequence[Intervention], capture: bool) -> ForwardResult:
+        batch = self._prepare_batch(prompts)
+        session = _HookSession(
+            n_layers=self.n_layers,
+            query_pos=batch["query_pos"],
+            interventions=interventions,
+            capture=capture,
+            device=self.device,
+        )
+        sc = self._forward_scores(batch, session)
         residuals = session.stacked() if capture else None
         return ForwardResult(
-            logprob_sum=lp_sum.cpu().numpy().astype(np.float64),
-            logprob_per_token=lp_tok.cpu().numpy().astype(np.float64),
-            exact_match=em.cpu().numpy().astype(bool),
-            first_token_margin=margin.cpu().numpy().astype(np.float64),
-            n_target_tokens=n_tgt.numpy().astype(np.int64),
+            logprob_sum=sc["lp_sum"].cpu().numpy().astype(np.float64),
+            logprob_per_token=sc["lp_tok"].cpu().numpy().astype(np.float64),
+            exact_match=sc["em"].cpu().numpy().astype(bool),
+            first_token_margin=sc["margin"].cpu().numpy().astype(np.float64),
+            n_target_tokens=batch["n_tgt"].numpy().astype(np.int64),
             residuals=residuals,
         )
+
+    def _gradient_batch(self, prompts: Sequence[Prompt]) -> np.ndarray:
+        batch = self._prepare_batch(prompts)
+        session = _HookSession(
+            n_layers=self.n_layers,
+            query_pos=batch["query_pos"],
+            interventions=(),
+            capture=False,
+            device=self.device,
+            grad_capture=True,
+        )
+        with torch.enable_grad():
+            sc = self._forward_scores(batch, session)
+            sc["lp_sum"].sum().backward()
+        return session.stacked_gradients()
 
 
 class _HookSession:
@@ -364,12 +406,15 @@ class _HookSession:
         interventions: Sequence[Intervention],
         capture: bool,
         device: torch.device,
+        grad_capture: bool = False,
     ) -> None:
         self.n_layers = n_layers
         self.query_pos = query_pos
         self.batch_idx = torch.arange(query_pos.shape[0], device=device)
         self.capture = capture
         self.captured: dict[int, torch.Tensor] = {}
+        self.grad_capture = grad_capture
+        self.grad_tensors: dict[int, torch.Tensor] = {}
         self.by_layer: dict[int, list[Intervention]] = {}
         for iv in interventions:
             if not (0 <= iv.layer <= n_layers):
@@ -390,7 +435,24 @@ class _HookSession:
             hidden[self.batch_idx, self.query_pos] = current.to(hidden.dtype)
         if self.capture:
             self.captured[layer] = hidden[self.batch_idx, self.query_pos].detach().float().cpu()
+        if self.grad_capture:
+            # The first read point (embedding output) does not require grad because the
+            # parameters are frozen: make it the graph's leaf. Every later read point is a
+            # function of it; keep its gradient after the backward pass.
+            if not hidden.requires_grad:
+                hidden = hidden.detach().requires_grad_(True)
+            else:
+                hidden.retain_grad()
+            self.grad_tensors[layer] = hidden
         return hidden
+
+    def stacked_gradients(self) -> np.ndarray:
+        """Gradients at the query token, ``(L+1, B, d)`` float32, after ``backward()``."""
+        missing = [l for l in range(self.n_layers + 1) if l not in self.grad_tensors or self.grad_tensors[l].grad is None]
+        if missing:
+            raise RuntimeError(f"gradients not available at layers {missing}")
+        grads = [self.grad_tensors[l].grad[self.batch_idx, self.query_pos].detach().float().cpu() for l in range(self.n_layers + 1)]
+        return torch.stack(grads).numpy().astype(np.float32)
 
     def stacked(self) -> np.ndarray:
         missing = [l for l in range(self.n_layers + 1) if l not in self.captured]

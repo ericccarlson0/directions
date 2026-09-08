@@ -48,12 +48,21 @@ def test_smoke_pilot_outputs(smoke_run):
         assert real["summaries"]["alignment"]["median"][ls] == pytest.approx(1.0, abs=1e-4)
         assert sorted({c["kind"] for c in lw["controls"]}) == ["covariance", "demo_variation", "isotropic", "orthogonal", "other_task"]
         assert len(lw["controls"]) == 7 and set(lw["null_summaries"]) >= {"primary", "isotropic"}
-        assert set(lw["comparison"]["primary"]["metrics"]) >= {"log_gain", "d_eff", "new_subspace", "alignment"}
+        assert set(lw["comparison"]["primary"]["metrics"]) >= {"log_gain", "d_eff", "new_subspace", "alignment",
+                                                               "task_alignment", "gradient_alignment"}
+        # direction-specific readouts (D17): defined from the intervention layer on, task alignment 1 at l*
+        for m in ("task_alignment", "gradient_alignment"):
+            med = real["summaries"][m]["median"]
+            assert all(x is None or np.isnan(x) for x in med[:ls]) and all(x is not None for x in med[ls:]), m
+        assert real["summaries"]["task_alignment"]["median"][ls] == pytest.approx(1.0, abs=1e-4)
+        assert real["readout_diagnostics"]["gradients_available"] is True
+        assert lw["signature"]["gradient_alignment_at_intervention"] is not None
+        assert (root / "figures" / f"{task}_readouts.png").exists()
         assert set(lw["comparison"]["by_kind"]) == {"covariance", "demo_variation", "isotropic", "orthogonal", "other_task"}
         assert lw["comparison"]["primary"]["n_random"] == 3
         assert isinstance(lw["signature"]["labels"], list)
         arrays = np.load(d / "layerwise_arrays.npz")
-        assert arrays["log_gain"].shape == (4, 6)
+        assert arrays["log_gain"].shape == (4, 6) and arrays["gradient_alignment"].shape == (5, 6)
         assert (root / "figures" / f"{task}_structured_nulls.png").exists()
         cal = json.loads((d / "calibration.json").read_text())
         # only candidate layers passing the stability filter are calibrated

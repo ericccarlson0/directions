@@ -195,3 +195,43 @@ summarises several runs per task: qualification rate, gates failed,
 selections, label counts, and mean ± sd of the cross-task scalars and of the
 per-kind z-scores. Seeds change the pool partition, demonstrations,
 derangements, random controls and bootstraps together.
+
+
+## 2026-09-08 — Third iteration: direction-specific readouts, paired-excess gate, task set
+
+### D17. Direction-specific readouts in the layerwise stage
+
+Iteration 2 (four Qwen3 models, twelve runs) established that every geometric
+metric of the control direction's perturbation — gain, `d_eff`, `N_l`,
+alignment with the injected vector — is reproduced by any in-distribution
+direction of the same norm at the same layer, while the *behavioural* effect
+is direction-specific. The geometric metrics cannot see task content, so two
+readouts that can were added as core per-example metrics (docs/EXPERIMENT.md,
+"Direction-specific readouts"):
+
+* `task_alignment` `T_l(x) = cos(δ_l(x), v_{t,l})`, with `v_{t,l}` the pooled
+  PC1 of the same extraction differences at read point `l` (already computed
+  for every layer and stored as `all_layers` in `directions.npz`);
+* `gradient_alignment` `Γ_l(x) = cos(δ_l(x), ∇_{h_l} log p(target | x))`,
+  the gradient taken on the baseline (unsteered) zero-shot pass at the query
+  token, one forward+backward per task with frozen parameters
+  (`ModelBackend.gradients`; verified against central finite differences on
+  the toy model, `tests/test_model.py`). `δ_l · ∇ log p` (first-order
+  predicted Δ log p) is stored as an array but not compared.
+
+Choices: (i) signed cosines, not absolute values — `v_{t,l}` has a meaningful
+sign (aligned with the mean few-shot-minus-permuted difference) and a
+perturbation pointing *down* the gradient is a different finding from one
+that is merely unaligned; (ii) the gradient is that of the *baseline* pass,
+so every control's profile is scored against the same field and the readout
+is a property of the perturbation, not of the steered state; (iii) the
+gradient of the summed target log-probability (not per token) — cosines are
+invariant to the per-example scale; (iv) bf16 backward: the gradient carries
+the same rounding as the forward differences it is compared with, and both
+are float32 at the query token. Both readouts are undefined below `l*`, are
+summarised and compared per layer against all five control kinds exactly
+like the existing metrics (per-layer z and empirical p; `_z_means`), enter
+the cross-task table, aggregation (`task_alignment_z_mean`,
+`gradient_alignment_z_mean`, downstream means) and a new figure
+(`<task>_readouts.png`). No profile label depends on them yet; the
+qualitative labels stay the preregistered iteration-2 set.

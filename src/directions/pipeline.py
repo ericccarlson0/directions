@@ -63,6 +63,8 @@ class TaskState:
     name: str
     splits: Splits
     directions: dict[int, LayerDirection] = field(default_factory=dict)
+    all_layer_directions: np.ndarray | None = None  # (L+1, d) pooled PC1 at every read point (D17 readouts)
+    gradients: np.ndarray | None = None  # (L+1, n_eval, d) d log p(target) / d resid at the query token (D17)
     demo_variation: dict[int, list[np.ndarray]] = field(default_factory=dict)
     stable_layers: list[int] = field(default_factory=list)
     ready: bool = False  # reached the end of phase A without a blocking rejection
@@ -242,6 +244,7 @@ class Pipeline:
         seeds = extract_differences(self.backend, cfg.prompt, splits.extraction, cfg.seed, name, cfg.extraction.n_seeds)
         st.directions = directions_from_differences(seeds, self.layers, cfg.extraction)
         all_dirs = directions_from_differences(seeds, list(range(self.backend.n_layers + 1)), cfg.extraction)
+        st.all_layer_directions = np.stack([all_dirs[l].direction for l in range(self.backend.n_layers + 1)])
         ext = {
             "seeds": [{"seed_index": s.seed_index, "seed": s.seed, "metrics": s.metrics} for s in seeds],
             "layers": {str(l): d.summary() for l, d in st.directions.items()},
@@ -262,7 +265,7 @@ class Pipeline:
                             layers=np.array(self.layers),
                             pooled=np.stack([st.directions[l].direction for l in self.layers]),
                             per_seed=np.stack([st.directions[l].seed_directions for l in self.layers]),
-                            all_layers=np.stack([all_dirs[l].direction for l in range(self.backend.n_layers + 1)]))
+                            all_layers=st.all_layer_directions)
         st.stable_layers = [l for l in self.layers if st.directions[l].stability >= cfg.qualification.min_stability]
         q["stability"] = {str(l): st.directions[l].stability for l in self.layers}
         q["stable_layers"] = st.stable_layers
@@ -342,6 +345,11 @@ class Pipeline:
         st.steered = self.backend.run(zs_prompts, interventions=[Intervention(sel.layer, v, sel.alpha)], capture=True)
         brng = rng_for(cfg.seed, "bootstrap", name)
         prng = rng_for(cfg.seed, "profile_bootstrap", name)
+        if do_layerwise:
+            # Direction-specific readouts (D17): the baseline target-log-prob gradient at every
+            # read point, computed once per task and shared by the real and every control profile.
+            st.gradients = self.backend.gradients(zs_prompts)
+        readout_kw = {"task_directions": st.all_layer_directions, "gradients": st.gradients}
         test = paired_bootstrap_test(st.steered.logprob_per_token, st.base.logprob_per_token, brng, n_boot=cfg.calibration.n_boot)
         for kind, label, u in self._build_controls(st, states, sel.layer, v):
             r = self.backend.run(zs_prompts, interventions=[Intervention(sel.layer, u, sel.alpha)], capture=do_layerwise)
@@ -349,7 +357,8 @@ class Pipeline:
             prof = None
             if do_layerwise:
                 assert r.residuals is not None
-                prof = compute_profile(st.base.residuals, r.residuals, u, sel.layer, cfg.evaluation, prng, with_ci=False)
+                prof = compute_profile(st.base.residuals, r.residuals, u, sel.layer, cfg.evaluation, prng, with_ci=False,
+                                       **readout_kw)
             st.controls.append(ControlResult(kind, label, rt.mean_diff, rt.p_value, r.metrics_dict(), prof))
         gate_kinds = list(cfg.evaluation.gate_kinds)
         gate_null = np.array([c.mean_diff for c in st.controls if c.kind in gate_kinds])
@@ -394,7 +403,7 @@ class Pipeline:
 
         # 6. layerwise ---------------------------------------------------
         assert st.steered.residuals is not None
-        st.profile = compute_profile(st.base.residuals, st.steered.residuals, v, sel.layer, cfg.evaluation, prng)
+        st.profile = compute_profile(st.base.residuals, st.steered.residuals, v, sel.layer, cfg.evaluation, prng, **readout_kw)
         by_kind: dict[str, list[LayerwiseProfile]] = {}
         for c in st.controls:
             if c.profile is not None:
@@ -418,6 +427,13 @@ class Pipeline:
                  st.signature["cumulative_log_gain"], st.signature["alignment_final"] or float("nan"),
                  st.signature["d_eff_first"] or float("nan"), st.signature["d_eff_final"] or float("nan"),
                  st.signature["labels"], zk)
+        rz = {k: (round(d.get("task_alignment_z_mean") or float("nan"), 2), round(d.get("gradient_alignment_z_mean") or float("nan"), 2))
+              for k, d in st.signature["by_kind"].items()}
+        log.info("[%s] readouts: task-alignment downstream %.3f (final %.3f); gradient-alignment at l* %.3f, downstream %.3f; "
+                 "(task, gradient) alignment z by kind %s", name,
+                 st.signature["task_alignment_downstream_mean"] or float("nan"), st.signature["task_alignment_final"] or float("nan"),
+                 st.signature["gradient_alignment_at_intervention"] or float("nan"),
+                 st.signature["gradient_alignment_downstream_mean"] or float("nan"), rz)
         if self.stop_after == "layerwise":
             return
 
@@ -452,11 +468,13 @@ class Pipeline:
                     continue
                 r = self.backend.run(st.eval_prompts, interventions=[Intervention(alt.layer, v, alt.alpha)], capture=True)
                 assert r.residuals is not None
-                p = compute_profile(st.base.residuals, r.residuals, v, alt.layer, cfg.evaluation, prng)
+                p = compute_profile(st.base.residuals, r.residuals, v, alt.layer, cfg.evaluation, prng,
+                                    task_directions=st.all_layer_directions, gradients=st.gradients)
                 rob["profiles"][label] = {"selection": alt.__dict__, "metrics": r.metrics_dict(), "profile": p.as_dict()}
                 rob["rank_correlations"][label] = {
                     m: spearman(st.profile.metric_curve(m), p.metric_curve(m))
-                    for m in ("log_gain", "d_eff", "new_subspace", "new_subspace_uncentered", "conversion", "magnitude")
+                    for m in ("log_gain", "d_eff", "new_subspace", "new_subspace_uncentered", "conversion", "magnitude",
+                              "task_alignment", "gradient_alignment")
                 }
             write_json(out / "strength_robustness.json", rob)
 

@@ -80,3 +80,38 @@ def test_profile_signature_runs_end_to_end():
     assert len(sig["conversion_mass"]) == 4 and abs(sum(sig["conversion_mass"]) - 1) < 1e-9
     assert sig["cumulative_log_gain"] > 0
     assert isinstance(sig["labels"], list)
+
+
+def test_compute_profile_readouts():
+    rng = np.random.default_rng(11)
+    L1, n, d, ls = 5, 12, 8, 1
+    base = rng.standard_normal((L1, n, d))
+    v = normalize(rng.standard_normal(d))
+    steered = base.copy()
+    steered[ls:] += 0.5 * v
+    steered[ls + 1 :] += 0.1 * rng.standard_normal((L1 - ls - 1, n, d))  # exact injection at l*, noise after
+    V = rng.standard_normal((L1, d))
+    V[ls] = v  # the task's direction at the intervention layer is the injected one
+    G = rng.standard_normal((L1, n, d))
+    cfg = EvaluationConfig(n_boot=50)
+    prof = compute_profile(base, steered, v, ls, cfg, np.random.default_rng(0), task_directions=V, gradients=G)
+    for name in ("task_alignment", "gradient_alignment"):
+        curve = prof.metric_curve(name)
+        assert curve.shape == (L1,) and np.all(np.isnan(curve[:ls])) and not np.any(np.isnan(curve[ls:]))
+        assert prof.readouts[name].shape == (L1, n)
+    assert prof.metric_curve("task_alignment")[ls] == pytest.approx(1.0)
+    assert prof.readout_diagnostics["gradients_available"] and len(prof.readout_diagnostics["gradient_norm_median"]) == L1
+    assert -1 <= prof.readout_diagnostics["injected_direction_gradient_cosine_median"] <= 1
+    # the comparison machinery treats the readouts like every other metric
+    controls = [compute_profile(base, steered + 0.01 * rng.standard_normal(steered.shape), v, ls, cfg,
+                                np.random.default_rng(i), with_ci=False, task_directions=V, gradients=G) for i in range(3)]
+    comp = compare_to_random(prof, controls)
+    assert "task_alignment" in comp["metrics"] and "gradient_alignment" in comp["metrics"]
+    sig = profile_signature(prof, comp, AnalysisConfig())
+    assert sig["task_alignment_z_mean"] is not None and sig["gradient_alignment_z_mean"] is not None
+    assert sig["gradient_alignment_at_intervention"] is not None
+    # without the inputs everything is nan / None but nothing fails
+    bare = compute_profile(base, steered, v, ls, cfg, np.random.default_rng(0))
+    assert np.all(np.isnan(bare.metric_curve("gradient_alignment")))
+    sig_bare = profile_signature(bare, compare_to_random(bare, []), AnalysisConfig())
+    assert sig_bare["gradient_alignment_downstream_mean"] is None and sig_bare["task_alignment_z_mean"] is None

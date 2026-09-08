@@ -35,7 +35,8 @@ def _z_means(comparison: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {"n": comparison.get("n_random", 0)}
     for metric, key in (("log_gain", "log_gain_z_mean"), ("d_eff", "d_eff_z_mean"),
                         ("new_subspace", "new_subspace_z_mean"), ("new_subspace_uncentered", "new_subspace_uncentered_z_mean"),
-                        ("alignment", "alignment_z_mean"), ("conversion", "conversion_z_mean")):
+                        ("alignment", "alignment_z_mean"), ("conversion", "conversion_z_mean"),
+                        ("task_alignment", "task_alignment_z_mean"), ("gradient_alignment", "gradient_alignment_z_mean")):
         z = _finite(np.array([r["z"] for r in comparison["metrics"][metric]["per_layer"]], dtype=np.float64))
         out[key] = float(np.mean(z)) if len(z) else None
         p = _finite(np.array([r["p_upper"] for r in comparison["metrics"][metric]["per_layer"]], dtype=np.float64))
@@ -66,6 +67,13 @@ def profile_signature(
     depth = (blocks - ls) / max(1, (L - 1 - ls))  # 0 = intervention block, 1 = last block
     align = profile.metric_curve("alignment")
     conv = profile.metric_curve("conversion")
+    task_al = profile.metric_curve("task_alignment")
+    grad_al = profile.metric_curve("gradient_alignment")
+
+    def downstream_mean(curve: np.ndarray) -> float | None:
+        vals = _finite(curve[ls + 1 :])
+        return float(np.mean(vals)) if len(vals) else None
+
     d_eff = profile.d_eff
     d_eff_def = _finite(d_eff)
     d90_def = _finite(profile.d90)
@@ -99,6 +107,12 @@ def profile_signature(
         "new_subspace_uncentered_mean": float(np.nanmean(profile.new_subspace_uncentered)),
         "new_subspace_uncentered_max_block": int(np.nanargmax(profile.new_subspace_uncentered)),
         "noise_floor_variance_ratio": profile.noise_floor["variance_ratio_intervention_over_next"],
+        # direction-specific readouts (D17): median curves summarised downstream of the intervention
+        "task_alignment_downstream_mean": downstream_mean(task_al),
+        "task_alignment_final": float(task_al[L]) if not np.isnan(task_al[L]) else None,
+        "gradient_alignment_at_intervention": float(grad_al[ls]) if not np.isnan(grad_al[ls]) else None,
+        "gradient_alignment_downstream_mean": downstream_mean(grad_al),
+        "gradient_alignment_final": float(grad_al[L]) if not np.isnan(grad_al[L]) else None,
     }
     if comparison is not None:
         zm = _z_means(comparison)
@@ -181,6 +195,11 @@ def cross_task_table(signatures: dict[str, dict[str, Any]]) -> dict[str, Any]:
         "d_eff_z_mean",
         "alignment_z_mean",
         "cumulative_log_gain_z",
+        "task_alignment_downstream_mean",
+        "task_alignment_z_mean",
+        "gradient_alignment_at_intervention",
+        "gradient_alignment_downstream_mean",
+        "gradient_alignment_z_mean",
         "n_primary_controls",
         "noise_floor_variance_ratio",
         "labels",
@@ -190,7 +209,8 @@ def cross_task_table(signatures: dict[str, dict[str, Any]]) -> dict[str, Any]:
         row = {k: sig.get(k) for k in keys}
         row["by_kind"] = {
             kind: {k: d.get(k) for k in ("n", "log_gain_z_mean", "d_eff_z_mean", "new_subspace_uncentered_z_mean",
-                                          "alignment_z_mean", "cumulative_log_gain_z")}
+                                          "alignment_z_mean", "cumulative_log_gain_z",
+                                          "task_alignment_z_mean", "gradient_alignment_z_mean")}
             for kind, d in sig.get("by_kind", {}).items()
         }
         table[task] = row

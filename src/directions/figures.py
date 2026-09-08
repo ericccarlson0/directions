@@ -168,8 +168,9 @@ def task_figures(root: Path, st: "TaskState", cfg: Config) -> None:
     _save(fig, figdir / f"{st.name}_alignment_conversion.png", dpi)
 
     # 6. real vs random: per-layer z-scores for every primary metric
-    metrics = ["magnitude", "log_gain", "conversion", "alignment", "d_eff", "d90", "new_subspace", "new_subspace_uncentered"]
-    fig, axes = plt.subplots(2, 4, figsize=(13, 5.5))
+    metrics = ["magnitude", "log_gain", "conversion", "alignment", "d_eff", "d90", "new_subspace", "new_subspace_uncentered",
+               "task_alignment", "gradient_alignment"]
+    fig, axes = plt.subplots(2, 5, figsize=(16, 5.5))
     for ax, m in zip(axes.ravel(), metrics):
         x = layers if len(comp[m]["real"]) == L + 1 else blocks
         z = np.array([r["z"] if r["z"] is not None else np.nan for r in comp[m]["per_layer"]], dtype=np.float64)
@@ -185,6 +186,7 @@ def task_figures(root: Path, st: "TaskState", cfg: Config) -> None:
     _save(fig, figdir / f"{st.name}_vs_random.png", dpi)
 
     _structured_nulls_figure(root, figdir, st, dpi)
+    _readouts_figure(root, figdir, st, dpi)
     # diagnostics
     _calibration_figure(figdir, st, dpi)
     _stability_figure(figdir, st, dpi)
@@ -224,6 +226,41 @@ def _structured_nulls_figure(root: Path, figdir: Path, st: "TaskState", dpi: int
     axes[0, 0].legend(fontsize=7)
     fig.suptitle(f"{st.name}: control direction vs structured nulls (median, 5-95 % band)", color=TEXT)
     _save(fig, figdir / f"{st.name}_structured_nulls.png", dpi)
+
+
+def _readouts_figure(root: Path, figdir: Path, st: "TaskState", dpi: int) -> None:
+    """Direction-specific readouts (D17): task-direction and gradient alignment vs every control kind."""
+    p = st.profile
+    assert p is not None and st.comparison is not None
+    ls, L = p.intervention_layer, p.n_layers
+    if p.readout_diagnostics is None or not (p.readout_diagnostics.get("task_directions_available")
+                                             or p.readout_diagnostics.get("gradients_available")):
+        return
+    kinds = [k for k in KIND_COLORS if k in st.comparison["by_kind"]]
+    x = np.arange(L + 1)
+    specs = [("task_alignment", "median cos(δ_l, v_{t,l})  (task's own direction at l)"),
+             ("gradient_alignment", "median cos(δ_l, ∇ log p(target))")]
+    fig, axes = plt.subplots(1, 2, figsize=(11, 3.6))
+    for ax, (m, ylabel) in zip(axes, specs):
+        for k in kinds:
+            curves = _random_curves(root, st.name, m, [k])
+            if curves.shape[0] == 0 or np.all(np.isnan(curves)):
+                continue
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                med = np.nanmedian(curves, axis=0)
+                lo, hi = np.nanpercentile(curves, 5, axis=0), np.nanpercentile(curves, 95, axis=0)
+            n = st.comparison["by_kind"][k]["n_random"]
+            ax.fill_between(x, lo, hi, color=KIND_COLORS[k], alpha=0.12, linewidth=0)
+            ax.plot(x, med, color=KIND_COLORS[k], linestyle="--", linewidth=1.5, label=f"{k} (n={n})")
+        _ci_line(ax, x, p.summaries[m], REAL, "control direction")
+        ax.axhline(0, color=TEXT2, linewidth=0.8)
+        _mark_intervention(ax, ls)
+        ax.set_ylabel(ylabel)
+        ax.set_xlabel("residual read point l")
+    axes[0].legend(fontsize=7)
+    fig.suptitle(f"{st.name}: direction-specific readouts (median, 5-95 % band of each null)", color=TEXT)
+    _save(fig, figdir / f"{st.name}_readouts.png", dpi)
 
 
 _CURVE_CACHE: dict[tuple[Path, str], list[dict]] = {}

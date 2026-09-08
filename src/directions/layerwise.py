@@ -17,6 +17,7 @@ from .config import EvaluationConfig
 from .geometry import (
     LayerwiseExampleMetrics,
     block_responses,
+    direction_readouts,
     effective_rank,
     layerwise_example_metrics,
     new_subspace_fraction,
@@ -24,7 +25,8 @@ from .geometry import (
 )
 from .stats import bootstrap_median_ci, bootstrap_median_ci_rows, compare_to_null
 
-PER_EXAMPLE_METRICS = ("magnitude", "log_gain", "conversion", "alignment")
+READOUT_METRICS = ("task_alignment", "gradient_alignment")  # direction-specific (docs/DECISIONS.md D17)
+PER_EXAMPLE_METRICS = ("magnitude", "log_gain", "conversion", "alignment") + READOUT_METRICS
 MATRIX_METRICS = ("d_eff", "d90", "total_centered_variance", "d_eff_uncentered", "new_subspace", "new_subspace_uncentered")
 
 
@@ -44,6 +46,8 @@ class LayerwiseProfile:
     cumulative_log_gain: dict[str, float]  # median + CI of log(||delta_L|| / ||delta_l*||)
     noise_floor: dict[str, float | None]
     pre_intervention_max_abs_delta: float
+    readouts: dict[str, np.ndarray] = None  # type: ignore[assignment]  # per-example (L+1, n) arrays, nan if inputs absent
+    readout_diagnostics: dict[str, Any] = None  # type: ignore[assignment]
 
     def as_dict(self) -> dict[str, Any]:
         def lst(a: np.ndarray) -> list[float | None]:
@@ -63,6 +67,7 @@ class LayerwiseProfile:
             "cumulative_log_gain": self.cumulative_log_gain,
             "noise_floor": self.noise_floor,
             "pre_intervention_max_abs_delta": self.pre_intervention_max_abs_delta,
+            "readout_diagnostics": self.readout_diagnostics,
         }
 
     def metric_curve(self, name: str) -> np.ndarray:
@@ -92,10 +97,15 @@ def compute_profile(
     cfg: EvaluationConfig,
     rng: np.random.Generator,
     with_ci: bool = True,
+    task_directions: np.ndarray | None = None,
+    gradients: np.ndarray | None = None,
 ) -> LayerwiseProfile:
     """Full layerwise profile from residuals shaped (L+1, n, d).
 
     ``with_ci=False`` skips the bootstrap confidence intervals (medians only).
+    ``task_directions`` (L+1, d) and ``gradients`` (L+1, n, d) feed the
+    direction-specific readouts (:func:`direction_readouts`); when absent those
+    metrics are all ``nan``.
     """
     base = np.asarray(base, dtype=np.float64)
     steered = np.asarray(steered, dtype=np.float64)
@@ -106,19 +116,36 @@ def compute_profile(
     pre_max = float(np.abs(delta[:ls]).max()) if ls > 0 else 0.0
 
     ex = layerwise_example_metrics(delta, base, v)
+    readouts = direction_readouts(delta, task_directions, gradients)
     # Quantities are only defined from the intervention layer on.
-    for arr in (ex.magnitude, ex.alignment):
+    for arr in (ex.magnitude, ex.alignment, *readouts.values()):
         arr[:ls] = np.nan
     for arr in (ex.gain, ex.log_gain, ex.conversion):
         arr[:ls] = np.nan
 
+    def per_example(name: str) -> np.ndarray:
+        return readouts[name] if name in readouts else getattr(ex, name)
+
     if with_ci:
         summaries = {
-            name: bootstrap_median_ci_rows(getattr(ex, name), rng, n_boot=cfg.n_boot, alpha=cfg.ci_alpha)
+            name: bootstrap_median_ci_rows(per_example(name), rng, n_boot=cfg.n_boot, alpha=cfg.ci_alpha)
             for name in PER_EXAMPLE_METRICS
         }
     else:
-        summaries = {name: _median_rows(getattr(ex, name)) for name in PER_EXAMPLE_METRICS}
+        summaries = {name: _median_rows(per_example(name)) for name in PER_EXAMPLE_METRICS}
+    readout_diagnostics: dict[str, Any] = {
+        "task_directions_available": task_directions is not None,
+        "gradients_available": gradients is not None,
+    }
+    if gradients is not None:
+        gnorm = np.linalg.norm(np.asarray(gradients, dtype=np.float64), axis=2)  # (L+1, n)
+        readout_diagnostics["gradient_norm_median"] = [float(x) for x in np.median(gnorm, axis=1)]
+        # cos(v, g_l*): does the *injected* direction itself point along the target gradient?
+        vv = v / np.linalg.norm(v)
+        g_ls = np.asarray(gradients[ls], dtype=np.float64)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            c = (g_ls @ vv) / np.linalg.norm(g_ls, axis=1)
+        readout_diagnostics["injected_direction_gradient_cosine_median"] = float(np.nanmedian(c))
     with np.errstate(divide="ignore", invalid="ignore"):
         cum = np.log(ex.delta_norm[L] / ex.delta_norm[ls])
     if with_ci:
@@ -186,6 +213,8 @@ def compute_profile(
         cumulative_log_gain={"median": cum_ci.median, "low": cum_ci.low, "high": cum_ci.high, "n": cum_ci.n},
         noise_floor=noise_floor,
         pre_intervention_max_abs_delta=pre_max,
+        readouts=readouts,
+        readout_diagnostics=readout_diagnostics,
     )
 
 
@@ -243,6 +272,7 @@ def profile_arrays(profile: LayerwiseProfile) -> dict[str, np.ndarray]:
         "d_eff_uncentered": profile.d_eff_uncentered,
         "new_subspace": profile.new_subspace,
         "new_subspace_uncentered": profile.new_subspace_uncentered,
+        **{k: v for k, v in (profile.readouts or {}).items()},
     }
 
 

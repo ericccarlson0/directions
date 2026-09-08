@@ -169,3 +169,31 @@ def test_layerwise_metrics_batched_matches_loop():
                 assert m.conversion[l, i] == pytest.approx(
                     np.linalg.norm(delta[l + 1, i] - delta[l, i]) / np.linalg.norm(delta[l, i])
                 )
+
+
+def test_direction_readouts_hand_computed():
+    from directions.geometry import direction_readouts
+
+    rng = np.random.default_rng(3)
+    L1, n, d = 3, 4, 5
+    delta = rng.standard_normal((L1, n, d))
+    V = rng.standard_normal((L1, d))
+    G = rng.standard_normal((L1, n, d))
+    out = direction_readouts(delta, V, G)
+    for l in range(L1):
+        for x in range(n):
+            dv = delta[l, x]
+            v = V[l] / np.linalg.norm(V[l])
+            assert out["task_alignment"][l, x] == pytest.approx(dv @ v / np.linalg.norm(dv))
+            g = G[l, x]
+            assert out["gradient_alignment"][l, x] == pytest.approx(dv @ g / (np.linalg.norm(dv) * np.linalg.norm(g)))
+            assert out["gradient_projection"][l, x] == pytest.approx(dv @ g)
+    # the sign is kept (a direction pointing against v gives -1) and missing inputs give nan
+    delta2 = -np.broadcast_to(V[:, None, :], (L1, n, d)).copy()
+    assert np.allclose(direction_readouts(delta2, V, None)["task_alignment"], -1.0)
+    partial = direction_readouts(delta, None, G)
+    assert np.all(np.isnan(partial["task_alignment"])) and not np.any(np.isnan(partial["gradient_alignment"]))
+    assert np.all(np.isnan(direction_readouts(delta, None, None)["gradient_projection"]))
+    # a zero perturbation is undefined, not an error
+    zero = np.zeros((L1, n, d))
+    assert np.all(np.isnan(direction_readouts(zero, V, G)["task_alignment"]))

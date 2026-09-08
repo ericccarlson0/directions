@@ -82,3 +82,21 @@ def test_hooks_are_inert_outside_run(backend, prompts):
         a = backend.model(input_ids=ids).logits
         b = backend.model(input_ids=ids).logits
     assert torch.equal(a, b)
+
+
+def test_gradients_match_finite_differences_and_batching(backend, prompts):
+    g = backend.gradients(prompts)
+    assert g.shape == (5, 6, 32) and g.dtype == np.float32
+    rng = np.random.default_rng(0)
+    eps = 1e-3
+    for layer in (0, 2, 4):
+        u = rng.standard_normal(32)
+        u /= np.linalg.norm(u)
+        plus = backend.run(prompts, interventions=[Intervention(layer, u, eps)]).logprob_sum
+        minus = backend.run(prompts, interventions=[Intervention(layer, u, -eps)]).logprob_sum
+        fd = (plus - minus) / (2 * eps)
+        assert np.allclose(fd, g[layer] @ u, atol=5e-3, rtol=1e-2), layer
+    # batching invariance, and the gradient pass leaves the hooks inert
+    assert np.allclose(g, backend.gradients(prompts, batch_size=2), atol=1e-5)
+    a = backend.run(prompts, capture=True)
+    assert np.array_equal(a.logprob_sum, backend.run(prompts).logprob_sum)

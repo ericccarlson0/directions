@@ -200,6 +200,20 @@ $$
 
 The most direct test of conserved transmission: it equals 1 at the intervention layer by construction and stays near 1 only if the injected direction is propagated unchanged.
 
+#### Direction-specific readouts
+
+The metrics above are *geometric*: none of them knows what the task is, and a matched random direction of the same norm reproduces their profile (iteration 2). Two readouts tie the perturbation to the task content:
+
+$$
+T_l(x) = \cos\big(\delta_l(x),\, v_{t,l}\big), \qquad
+\Gamma_l(x) = \cos\big(\delta_l(x),\, \nabla_{h_l(x)} \log p(\text{target} \mid x)\big)
+$$
+
+* \(v_{t,l}\) is the task's own control direction extracted (same rule, same pool) at read point \(l\), sign-aligned with the mean few-shot-minus-permuted difference; \(T_{l^*} = 1\) by construction. It asks whether the downstream perturbation stays inside the task's own later-layer representation of the control.
+* \(\nabla_{h_l(x)} \log p(\text{target} \mid x)\) is the gradient of the summed target log-probability with respect to the *baseline* residual at the query token, from one backward pass per task (parameters frozen; same bf16 forward as everywhere else). \(\Gamma_l\) asks whether the perturbation points where the target log-probability increases; at \(l^*\) it is the cosine between the injected direction and the gradient. The signed first-order prediction \(\delta_l \cdot \nabla \log p\) is stored alongside.
+
+Both are signed cosines, summarised like \(A_l\) (per-example, median with bootstrap CI) and compared per layer against every control kind. They are the place where behavioural specificity must appear if it is geometric at all: a covariance-matched random direction that steers less should also align less with the gradient.
+
 #### Effective dimensionality
 
 Across held-out inputs, stack:
