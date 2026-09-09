@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from directions.remote import ResultsTooLarge, execute, pack_results, unpack_results
+from directions.remote import ResultsTooLarge, execute, link_results_to_volume, pack_results, unpack_results
 
 MAX_OUTPUT_MB = 1
 ONE_MIB = 1024 * 1024
@@ -117,3 +117,48 @@ def test_execute_missing_executable_is_reported(tmp_path: Path) -> None:
 
     assert result["returncode"] != 0
     assert MISSING_BINARY in result["log_tail"]
+
+
+WRITE_RESULT = "import pathlib; pathlib.Path('results/out.txt').write_text('ok')"
+
+
+def _app_with_empty_results(root: Path) -> Path:
+    cwd = root / "app"
+    (cwd / "results").mkdir(parents=True)
+    (cwd / "results" / ".gitkeep").write_text("")
+    return cwd
+
+
+def test_execute_leaves_results_on_the_volume_instead_of_a_tarball(tmp_path: Path) -> None:
+    volume = tmp_path / "volume"
+    volume.mkdir()
+    cwd = _app_with_empty_results(tmp_path)
+
+    result = _execute(cwd, [sys.executable, "-c", WRITE_RESULT], volume_root=volume, results_name="r1")
+
+    assert result["returncode"] == 0
+    assert result["results_tar_b64"] is None
+    assert result["results_path"] == "results/r1"
+    assert (volume / "results" / "r1" / "out.txt").read_text() == "ok"
+    assert (volume / "results" / "r1" / "runner.log").exists()
+    assert json.loads((volume / "results" / "r1" / "run_metadata.json").read_text())["results_on_volume"] is True
+    assert (cwd / "results").is_symlink()
+    assert result["results_file_count"] == 3
+
+
+def test_execute_falls_back_to_a_tarball_without_a_mounted_volume(tmp_path: Path) -> None:
+    cwd = _app_with_empty_results(tmp_path)
+
+    result = _execute(cwd, [sys.executable, "-c", WRITE_RESULT], volume_root=tmp_path / "missing", results_name="r1")
+
+    assert result["results_tar_b64"] is not None
+    assert "results_path" not in result
+    assert not (cwd / "results").is_symlink()
+
+
+def test_link_results_to_volume_refuses_to_discard_existing_results(tmp_path: Path) -> None:
+    cwd = _app_with_empty_results(tmp_path)
+    (cwd / "results" / "old.json").write_text("{}")
+
+    with pytest.raises(RuntimeError, match="old.json"):
+        link_results_to_volume(cwd, "results", tmp_path / "volume", "r1")
