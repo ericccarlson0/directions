@@ -18,9 +18,11 @@ Use:
 * Hugging Face Transformers
 * PyTorch hooks
 * bf16 model execution
-* float32 for PCA/SVD/statistics
+* float32 for captured activations, float64 for PCA/SVD/statistics
 * no quantization
 * no training
+
+Note that bf16 execution has a relative precision of \(2^{-8}\). Any geometric quantity computed from *differences* of residual streams can therefore be contaminated by rounding wherever the true difference is small or near-constant across examples. The pipeline should measure this noise floor rather than assume it is negligible.
 
 ## Candidate Tasks
 
@@ -33,25 +35,61 @@ Tasks must admit automatic scoring.
 * English → French
 * simple arithmetic mappings
 
+Each task needs enough unique items for three disjoint query pools (see *Data Splits*). An item whose target does not tokenize within a configured maximum number of tokens should be dropped automatically, and every dropped item should be written to the run's rejection log.
+
+## Prompt Regimes
+
+Two prompt regimes:
+
+* **few-shot** (8 demonstrations or so): for task qualification ("does this model do this task at all?") and for control-direction extraction;
+* **zero-shot** (only the query, same template): for intervention calibration, held-out steering, and all layerwise measurements.
+
+The evaluation regime must leave behavioural headroom, and with few-shot prompts the model is frequently at or near ceiling (no steering effect could be observed regardless of the direction's quality).
+
+## Data Splits
+
+Partition each task's items into three disjoint query pools:
+
+| split | used for |
+|---|---|
+| extraction | paired prompts for direction extraction |
+| calibration | layer/strength selection |
+| evaluation | held-out steering, controls, layerwise measurement |
+
+Selecting the intervention layer and strength is itself a fit to data, so it must not happen on the final evaluation pool. Demonstrations for a prompt are drawn from that prompt's own pool and never include the query itself.
+
+## Behavioral Metrics
+
+All metrics come from a single teacher-forced forward pass over `prompt + target`:
+
+* **target log-probability per token** — teacher-forced log-probability of the target sequence divided by its token count. This is the decision metric for calibration and for the held-out steering test.
+* target log-probability (sum);
+* teacher-forced exact-match accuracy — the argmax at every target position equals the target;
+* first-target-token logit margin — gold logit minus the largest competing logit.
+
+Rationale: a small base model provided a bare zero-shot `Q:/A:` prompt could not even adopt the answer format, so zero-shot exact-match accuracy could sit at or near 0 across the entire calibration grid, producing no gradient with which to select anything. log-probability is exact, and per-token normalisation makes it comparable across tasks with different target lengths. Accuracy, log-probability-sum and the logit margin are still computed and reported for every condition.
+
+Few-shot task qualification uses **accuracy**, which is the correct metric for "does the model do the task" and should not hit the floor.
+
 ## Task Qualification
 
 For each model/task:
 
-1. Evaluate few-shot ICL performance.
+1. Evaluate few-shot ICL performance on the evaluation pool.
 2. Reject tasks below a configured accuracy/log-probability threshold.
-3. Extract control directions using multiple seeds.
-4. Require reasonable cross-seed direction stability.
-5. Require a held-out causal steering effect.
+3. Extract control directions at each candidate layer using ≥ 3 seeds.
+4. Require cross-seed direction stability at the candidate layer.
+5. Require a held-out causal steering effect (statistically supported).
 6. Require steering to outperform matched random controls.
 
-Only qualified task/control pairs proceed to the layerwise experiment.
+Only qualified task/control pairs proceed to the layerwise experiment. Every rejection is written to a rejection log together with the numbers that produced it.
 
-## Initial Control-Direction Extraction
+## Control-Direction Extraction
 
 For each task, construct paired prompts:
 
 * positive: correct demonstrations
-* negative: same inputs with demonstration outputs permuted
+* negative/permuted: identical demonstration *inputs*, demonstration *outputs* deranged (a permutation with no fixed point)
 
 At candidate layer \(l\), record the final query-token residual:
 
@@ -59,15 +97,17 @@ $$
 d_i = h_l(p_i^+) - h_l(p_i^-)
 $$
 
-Extract the first Principal Component of \(\{d_i\}\):
+Extract the first principal component of \(\{d_i\}\):
 
 $$
 v_{t,l} = \operatorname{PC1}(\{d_i\})
 $$
 
+Do not mean-center before the PCA. The mean of \(\{d_i\}\) is the task-general component of the contrast (the part shared across queries that constitutes the control signal). To mean-center before the PCA would be to discard the task-general component and return the direction of largest variation *between* queries. Take PC1 as the top right-singular vector of the raw difference matrix. You can expose centering as a configuration option, off by default.
+
 Normalize \(v_{t,l}\) to unit norm.
 
-Use at least 3 independent extraction seeds.
+Use at least 3 independent extraction seeds (each resamples the demonstrations and the derangement). Report, per seed, the explained-variance ratio and \(\cos(\text{PC1}, \bar d)\), where stability is the minimum pairwise \(|\cos|\) between seed directions. The direction that we carry forward should be PC1 of the pooled differences across seeds.
 
 ## Intervention Calibration
 
@@ -75,13 +115,7 @@ Candidate intervention layers:
 
 * approximately 20%, 30%, 40%, 50%, 60% through model depth
 
-Sweep intervention strengths as you see fit:
-
-$$
-\rho \in \{0.01, ..., \ 0.3\}
-$$
-
-where
+Relative strength:
 
 $$
 \rho =
@@ -89,13 +123,23 @@ $$
 {\operatorname{median}_x \|h_l(x)\|}
 $$
 
-Select the earliest layer and smallest strength that reliably improves held-out task performance.
+Sweep a log-spaced grid over the following (or wider, if necessary):
+
+$$
+\rho \in [0.01,\ 1.0]
+$$
+
+(e.g. 0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0). The effects of steering typically only become measurable at a sizeable fraction of the residual norm, peak, and then collapse as the stream is pushed off-distribution. The grid should bracket both the onset and the peak (so, if the best point sits at the upper edge of the grid, extend the grid). The absolute strength \(\alpha = \rho \cdot \operatorname{median}_x\|h_l(x)\|\) is computed once from the calibration pool and reused unchanged at evaluation.
+
+### Selection Rule
+
+Select the earliest layer and, within it, the smallest strength that reliably improves the decision metric on the calibration pool, where "reliably" is operationalised statistically. For instance, we could use a paired one-sided bootstrap over calibration examples with e.g. \(p \le 0.05\) and a matched random-control screen (≥ 8 random directions at the same layer and same norm) on the calibration pool, as well as requiring its improvement over the unsteered baseline exceeds a minimum.
 
 Intervene at the final query token.
 
 ## Layerwise Measurements
 
-For each held-out input \(x\), record baseline and steered residuals at every downstream layer.
+For each held-out input \(x\), record baseline and steered residuals at the intervened token at every layer. (Gather at the measured token inside the hook so full activation tensors are never retained.)
 
 Define:
 
@@ -146,6 +190,14 @@ C_l
 {\|\delta_l\|}
 $$
 
+#### Control alignment
+
+$$
+A_l(x) = \left|\cos\big(\delta_l(x),\, v\big)\right|
+$$
+
+The most direct test of conserved transmission: it equals 1 at the intervention layer by construction and stays near 1 only if the injected direction is propagated unchanged.
+
 #### Effective dimensionality
 
 Across held-out inputs, stack:
@@ -175,57 +227,19 @@ For every validated control direction:
 * match intervention norm
 * include directions orthogonal to the control vector
 
-Use at least ~16 random controls per validated direction in the main pilot.
+Use two types, alternating: **isotropic** (uniform random unit vector) and **orthogonal** (uniform random unit vector in the orthogonal complement of \(v\)). Use at least ~16 random controls per validated direction in the main pilot.
 
-Report primary metrics relative to the random-control distribution where appropriate.
+Report every primary metric relative to the random-control distribution (per-layer \(z\) and empirical \(p\)). Several geometric quantities, such as \(N_l\) and \(d_{\mathrm{eff}}\), are only interpretable against this null, because a random direction of the same norm also propagates into "new" directions.
 
-## Behavioral Metric
+## Residual-Stream Indexing
 
-Prefer exact automatic metrics:
+For \(L\) transformer blocks there are \(L+1\) read points:
 
-* classification accuracy when applicable
-* target-token logit margin
-* teacher-forced target sequence log-probability for multi-token outputs
+* `resid[0]` = embedding output (input to block 0);
+* `resid[l]` = output of block \(l-1\) = input to block \(l\), \(1 \le l \le L-1\);
+* `resid[L]` = output of block \(L-1\), before the final norm.
 
-## Causal Validation of Important Layers
-
-For layers with unusually large conversion or new-subspace creation:
-
-1. Run the steered forward pass.
-2. Remove or restore the steering-induced block contribution at that layer.
-3. Measure loss of the steering-induced behavioral improvement.
-
-Note that this is secondary to the main geometric measurements.
-
-## Initial Run Sizes
-
-Per task:
-
-* candidate tasks: ~5
-* extraction examples: 64
-* held-out evaluation examples: 64
-* extraction seeds: 3
-* random directions: 16
-
-These can be reduced for e.g. smoke tests.
-
-## Outputs
-
-Each run must save:
-
-* resolved config
-* model identifier
-* git commit
-* random seeds
-* environment/package metadata
-* task qualification results
-* control-direction stability metrics
-* intervention calibration results
-* layerwise metrics
-* random-control comparisons
-* generated figures
-
-Avoid saving e.g. full activation tensors unless needed for debugging.
+Block \(l\) maps `resid[l]` to `resid[l+1]`, so \(b_l = \delta_{l+1} - \delta_l\) is block \(l\)'s contribution. An intervention "at layer \(l\)" adds \(\alpha v\) to `resid[l]` (the *input* of block \(l\)) and is defined for \(0 \le l \le L-1\).
 
 ## Primary Figures
 
@@ -250,6 +264,8 @@ Avoid saving e.g. full activation tensors unless needed for debugging.
 
 6. **real vs. random controls**
    For each primary metric, compare the real control direction against the distribution from matched random controls.
+
+Plus diagnostics: the calibration grid per task, and cross-seed stability per candidate layer.
 
 Note that, when discussing a task's layerwise profile, the "amplification profile" refers collectively to its measured trajectories of \(S_l\), \(\log G_l\), \(d_{\mathrm{eff}}(D_l)\), and \(N_l\).
 
@@ -280,6 +296,11 @@ d_{\mathrm{eff}}(D_l)
 $$
 
 * \(d_{90}(D_l)\): minimum number of singular directions explaining 90% of centered variance.
+* the total centered variance of \(D_l\), per layer, so that a reader can tell where the spectrum is signal and where it is noise.
+
+Also report the **uncentered** effective rank, since centering removes the shared control component.
+
+Note that, at the intervention layer every \(\delta_l(x)\) equals \(\alpha v\) by construction, so the centered \(D_l\) is exactly zero and \(d_{\mathrm{eff}}\), \(d_{90}\) are undefined there. Report them as null.
 
 ### New-Subspace Creation
 
@@ -314,17 +335,29 @@ Interpretation:
 * \(N_l \approx 0\): the block mostly transforms/amplifies directions already present.
 * large \(N_l\): the block creates steering-induced variation in new residual-stream directions.
 
+Two refinements are required:
+
+1. Centering \(D_l\) removes the shared (mean) perturbation component (the control direction itself), so a block that merely propagates the control direction would score as if it created a new one. Report the centered \(N_l\) as the primary metric as well as an uncentered companion \(N_l^{\text{unc}}\) (whose \(P_l\) includes the shared component); use the uncentered one when distinguishing propagation from creation.
+2. At the intervention layer the centered \(D_l\) is zero and \(N_l\) is undefined; report null.
+
+### Numerical Noise Floor
+
+In exact arithmetic the centered variance of \(D_l\) at the intervention layer is zero. In bf16 the observed value is the rounding of \(h + \alpha v\), which is isotropic and therefore *looks* high-dimensional. Record, for every condition:
+
+* the observed \(d_{\mathrm{eff}}\) and centered variance at the intervention layer (as a diagnostic, never as a measurement);
+* the ratio of that variance to the centered variance at the next layer.
+
+This ratio can be used to check the numerical noise floor of every downstream dimensionality metric.
+
 ### Aggregation
 
-Perturbation magnitude and gain are defined per example:
+Perturbation magnitude, gain, conversion, alignment, etc. are defined per example:
 
 $$
 S_l(x)=
 \frac{\|\delta_l(x)\|}
 {\|h_l^{\mathrm{base}}(x)\|}
-$$
-
-$$
+\qquad
 G_l(x)=
 \frac{\|\delta_{l+1}(x)\|}
 {\|\delta_l(x)\|}
@@ -340,6 +373,11 @@ For gain, plot \(\log G_l\), so:
 
 Effective dimensionality and new-subspace creation are computed from the full held-out-example matrices, not averaged per-example.
 
+### Strength robustness (exploratory)
+
+We preregister the *smallest* reliable strength, which is correct for measuring propagation with minimal off-distribution distortion but leaves open whether the measured profile is a property of the direction or of the injection magnitude. Repeat the full layerwise measurement at (a) the **strongest** reliable strength at the same layer and (b) a strength between the weakest and the strongest, and report rank correlations between the two profiles for \(\log G_l\), \(d_{\mathrm{eff}}\) and \(N_l\).
+This should be written to the exploratory outputs (not the core outputs).
+
 ## Qualitative Profile Labels
 
 Use these only after computing quantitative metrics:
@@ -351,6 +389,50 @@ Use these only after computing quantitative metrics:
 * localized transformation
 
 Any clustering/classification procedure should be automatic.
+
+## Causal Validation of Important Layers
+
+For layers with unusually large conversion or new-subspace creation:
+
+1. Run the steered forward pass.
+2. Remove the steering-induced block contribution \(b_l(x)\) at the intervened token (necessity), and separately inject \(+b_l(x)\) into an unsteered run (sufficiency).
+3. Measure the fraction of the steering-induced behavioural improvement lost, and reproduced.
+
+Note that this is secondary to the main geometric measurements.
+
+## Initial Run Sizes
+
+Per task:
+
+* extraction examples: 64
+* calibration examples: 64
+* held-out evaluation examples: 64
+* extraction seeds: 3
+* random directions: 16 (plus ≥ 8 for the calibration screen)
+
+These can be reduced for e.g. smoke tests.
+
+## Outputs
+
+Each run must save:
+
+* resolved config
+* model identifier
+* git commit
+* random seeds
+* environment/package metadata
+* task qualification results
+* control-direction stability metrics
+* intervention calibration results
+* layerwise metrics
+* random-control comparisons
+* the numerical noise-floor diagnostic
+* a cross-task analysis of the quantities that discriminate the propagation modes (see `docs/PROJECT.md`)
+* a rejection log for automatic filtering decisions
+* generated figures
+
+Keep preregistered/core outputs and exploratory outputs in separate directories.
+Avoid saving e.g. full activation tensors unless needed for debugging.
 
 ## Pilot Success Criterion
 
