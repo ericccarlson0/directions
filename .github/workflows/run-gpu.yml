@@ -1,0 +1,165 @@
+# Run a command on a RunPod GPU worker via Runpod Flash.
+#
+# Flow: build + deploy this commit as a Flash app (the private repo's code ships inside the build artifact) ->
+# submit to the `directions-runner` endpoint -> poll -> unpack the results directory into a workflow artifact.
+#
+# Required secret: RUNPOD_API_KEY.
+# Each dispatch deletes the previous endpoint and creates a fresh one (see scripts/runpod_cleanup.py).
+
+name: run-gpu
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "Command to run at the repository root on the worker"
+        required: true
+        default: 'python -c "import torch; print(torch.__version__, torch.cuda.get_device_name(0))"'
+      gpu_tier:
+        description: "GPU tier (runpod_flash GpuGroup name)"
+        type: choice
+        default: ADA_24
+        options: [AMPERE_16, AMPERE_24, ADA_24, AMPERE_48, ADA_48_PRO, AMPERE_80, ADA_80_PRO]
+      gpu_type:
+        description: "Exact device name to pin (e.g. NVIDIA RTX A4500); overrides the tier when set"
+        default: ""
+      flash_env:
+        description: "Flash environment name (separate endpoints per env)"
+        default: ci
+      timeout_minutes:
+        description: "Wall-clock budget for the remote job in minutes"
+        default: "300"
+      max_output_mb:
+        description: "Budget for the base64 results tarball in the job output"
+        default: "8"
+
+# Note: one deploy + run at a time.
+concurrency:
+  group: run-gpu-${{ inputs.flash_env }}
+  cancel-in-progress: false
+
+env:
+  RUNPOD_FLASH_VERSION: "1.19.0"
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    # Hosted-runner ceiling.
+    timeout-minutes: 360
+    env:
+      RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+
+      - name: export pinned runtime requirements
+        # Flash reads requirements.txt (not pyproject); export the committed lock.
+        # --frozen fails if the lock is stale (reproducibility guard).
+        # The worker image has torch + CUDA and Flash auto-excludes torch, but not the nvidia-*/cuda-*/triton 
+        # wheels the lock pins for Linux; drop them.
+        run: |
+          uv export --frozen --no-dev --no-hashes --no-emit-project --format requirements-txt \
+            | grep -v -E '^(nvidia-|cuda-|triton)' > requirements.txt
+
+      - name: build the deploy environment
+        # Flash's build imports every module to discover endpoints, so the pipeline's deps must be importable
+        # where `flash deploy` runs. CPU torch keeps that small.
+        # `.venv` is on Flash's built-in ignore list, so it never enters the artifact.
+        run: |
+          uv venv --python ${{ env.PYTHON_VERSION }} .venv
+          uv pip install --python .venv/bin/python --torch-backend cpu \
+            -r requirements.txt "runpod-flash==${RUNPOD_FLASH_VERSION}"
+
+      - name: remove the previous endpoint
+        # flash deploy only knows about endpoints through a .flash pickle, which a fresh runner does not have
+        # (a second deploy would fail on the duplicate template name without this).
+        env:
+          FLASH_ENV: ${{ inputs.flash_env }}
+        run: .venv/bin/python scripts/runpod_cleanup.py --app directions --env "${FLASH_ENV}" --endpoint-name directions-runner
+
+      - name: build and deploy Flash app
+        env:
+          DIRECTIONS_GPU_TIER: ${{ inputs.gpu_tier }}
+          DIRECTIONS_GPU_TYPE: ${{ inputs.gpu_type }}
+          FLASH_ENV: ${{ inputs.flash_env }}
+        run: |
+          .venv/bin/flash deploy --app directions --env "${FLASH_ENV}" --python-version "${PYTHON_VERSION}"
+
+      - name: resolve endpoint URL
+        id: endpoint
+        run: |
+          url=$(python - <<'PY'
+          import json
+          m = json.load(open(".flash/flash_manifest.json"))
+          print(m["resources_endpoints"]["directions-runner"])
+          PY
+          )
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "endpoint: $url"
+
+      - name: split command into argv
+        id: argv
+        env:
+          COMMAND: ${{ inputs.command }}
+        run: |
+          argv=$(python -c 'import json, os, shlex; print(json.dumps(shlex.split(os.environ["COMMAND"])))')
+          echo "json=$argv" >> "$GITHUB_OUTPUT"
+          echo "argv: $argv"
+
+      - name: run on RunPod
+        id: job
+        env:
+          ARGV_JSON: ${{ steps.argv.outputs.json }}
+          TIMEOUT_MINUTES: ${{ inputs.timeout_minutes }}
+          MAX_OUTPUT_MB: ${{ inputs.max_output_mb }}
+        run: |
+          .venv/bin/python scripts/runpod_job.py \
+            --endpoint-url "${{ steps.endpoint.outputs.url }}" \
+            --argv-json "$ARGV_JSON" \
+            --git-commit "${{ github.sha }}" \
+            --timeout-minutes "${TIMEOUT_MINUTES}" \
+            --max-output-mb "${MAX_OUTPUT_MB}" \
+            --job-id-file .runpod-job-id \
+            --out results/remote
+
+      - name: cancel remote job if this workflow was cancelled
+        if: cancelled()
+        run: |
+          if [ -f .runpod-job-id ]; then
+            curl -sS -X POST -H "Authorization: Bearer ${RUNPOD_API_KEY}" \
+              "${{ steps.endpoint.outputs.url }}/cancel/$(cat .runpod-job-id)" || true
+          fi
+
+      - name: upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: results-${{ inputs.flash_env }}-${{ github.run_id }}-${{ github.sha }}
+          path: results/remote
+          if-no-files-found: warn
+
+      - name: summary
+        if: always()
+        env:
+          SHA: ${{ github.sha }}
+          GPU_TIER: ${{ inputs.gpu_tier }}
+          GPU_TYPE: ${{ inputs.gpu_type }}
+          COMMAND: ${{ inputs.command }}
+          ENDPOINT: ${{ steps.endpoint.outputs.url }}
+        run: |
+          {
+            echo "## run-gpu"
+            echo "- commit: \`${SHA}\`"
+            echo "- gpu tier: \`${GPU_TIER}\`"
+            echo "- gpu type pinned: \`${GPU_TYPE:-none}\`"
+            echo "- command: \`${COMMAND}\`"
+            echo "- endpoint: \`${ENDPOINT}\`"
+            if [ -f results/remote/run_metadata.json ]; then
+              echo '```json'; cat results/remote/run_metadata.json; echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
