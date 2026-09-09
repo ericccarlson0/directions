@@ -3,7 +3,8 @@
 # Flow: build + deploy this commit as a Flash app (the private repo's code ships inside the build artifact) ->
 # submit to the `directions-runner` endpoint -> poll -> unpack the results directory into a workflow artifact.
 #
-# Required secret: RUNPOD_API_KEY.
+# Required secrets: RUNPOD_API_KEY, and RUNPOD_S3_ACCESS_KEY + RUNPOD_S3_SECRET_KEY (S3 API from RunPod) to
+# download results from the worker's network volume.
 # Each dispatch deletes the previous endpoint and creates a fresh one (see scripts/runpod_cleanup.py).
 
 name: run-gpu
@@ -23,6 +24,9 @@ on:
       gpu_type:
         description: "Exact device name to pin (e.g. NVIDIA RTX A4500); overrides the tier when set"
         default: ""
+      datacenter:
+        description: "Data center for the network volume; must offer the GPU tier and the S3 API"
+        default: EUR-NO-1
       flash_env:
         description: "Flash environment name (separate endpoints per env)"
         default: ci
@@ -73,7 +77,7 @@ jobs:
         run: |
           uv venv --python ${{ env.PYTHON_VERSION }} .venv
           uv pip install --python .venv/bin/python --torch-backend cpu \
-            -r requirements.txt "runpod-flash==${RUNPOD_FLASH_VERSION}"
+            -r requirements.txt "runpod-flash==${RUNPOD_FLASH_VERSION}" boto3
 
       - name: remove the previous endpoint
         # flash deploy only knows about endpoints through a .flash pickle, which a fresh runner does not have
@@ -86,6 +90,7 @@ jobs:
         env:
           DIRECTIONS_GPU_TIER: ${{ inputs.gpu_tier }}
           DIRECTIONS_GPU_TYPE: ${{ inputs.gpu_type }}
+          DIRECTIONS_DATACENTER: ${{ inputs.datacenter }}
           FLASH_ENV: ${{ inputs.flash_env }}
         run: |
           .venv/bin/flash deploy --app directions --env "${FLASH_ENV}" --python-version "${PYTHON_VERSION}"
@@ -117,11 +122,17 @@ jobs:
           ARGV_JSON: ${{ steps.argv.outputs.json }}
           TIMEOUT_MINUTES: ${{ inputs.timeout_minutes }}
           MAX_OUTPUT_MB: ${{ inputs.max_output_mb }}
+          DATACENTER: ${{ inputs.datacenter }}
+          RUNPOD_S3_ACCESS_KEY: ${{ secrets.RUNPOD_S3_ACCESS_KEY }}
+          RUNPOD_S3_SECRET_KEY: ${{ secrets.RUNPOD_S3_SECRET_KEY }}
         run: |
           .venv/bin/python scripts/runpod_job.py \
             --endpoint-url "${{ steps.endpoint.outputs.url }}" \
             --argv-json "$ARGV_JSON" \
             --git-commit "${{ github.sha }}" \
+            --results-name "run-${{ github.run_id }}" \
+            --volume-name directions \
+            --datacenter "${DATACENTER}" \
             --timeout-minutes "${TIMEOUT_MINUTES}" \
             --max-output-mb "${MAX_OUTPUT_MB}" \
             --job-id-file .runpod-job-id \
@@ -149,6 +160,7 @@ jobs:
           SHA: ${{ github.sha }}
           GPU_TIER: ${{ inputs.gpu_tier }}
           GPU_TYPE: ${{ inputs.gpu_type }}
+          DATACENTER: ${{ inputs.datacenter }}
           COMMAND: ${{ inputs.command }}
           ENDPOINT: ${{ steps.endpoint.outputs.url }}
         run: |
@@ -157,6 +169,7 @@ jobs:
             echo "- commit: \`${SHA}\`"
             echo "- gpu tier: \`${GPU_TIER}\`"
             echo "- gpu type pinned: \`${GPU_TYPE:-none}\`"
+            echo "- data center / volume: \`${DATACENTER}\` / \`directions\`, results under \`results/run-${{ github.run_id }}\`"
             echo "- command: \`${COMMAND}\`"
             echo "- endpoint: \`${ENDPOINT}\`"
             if [ -f results/remote/run_metadata.json ]; then
