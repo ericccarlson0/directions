@@ -14,6 +14,10 @@ Build-time knobs:
   pins that card and overrides ``DIRECTIONS_GPU_TIER``.
 * ``DIRECTIONS_DATACENTER`` - where the volume lives (default ``EUR-NO-1``); the endpoint is pinned to it.
 * ``DIRECTIONS_VOLUME_NAME`` / ``DIRECTIONS_VOLUME_GB`` - volume name (default ``directions``) and size (50).
+* ``DIRECTIONS_MIN_CUDA`` - lowest driver CUDA version a worker's host may have (default ``13.0``). The
+  pipeline installs torch from ``uv.lock`` at job start, and that torch is a CUDA 13 build; on a host with an
+  older driver it cannot see the GPU and ``device: auto`` would silently run on the CPU (observed: 50-170x
+  slower). Raise this if the lock moves to a newer CUDA build.
 """
 
 from __future__ import annotations
@@ -47,10 +51,14 @@ VOLUME = NetworkVolume(
     name="directions-runner",
     gpu=GPU,
     volume=VOLUME,
-    workers=(0, 1),  # scale to zero; one experiment at a time
+    workers=(0, 2),  # scale to zero; one experiment at a time, plus room for a short probe job alongside it
+    min_cuda_version=os.environ.get("DIRECTIONS_MIN_CUDA", "13.0"),
     idle_timeout=30,  # seconds a warm worker lingers
     execution_timeout_ms=0,  # unlimited; the GitHub job enforces the wall clock
-    flashboot=True,
+    # FlashBoot restores workers from a snapshot of an earlier boot on the same image, /app included, so
+    # after a redeploy workers ran the previous build (observed 2026-09-09). Off: every worker unpacks the
+    # current artifact at start.
+    flashboot=False,
 )
 async def run_experiment(
     argv: list[str],
@@ -60,14 +68,14 @@ async def run_experiment(
     results_name: str | None = None,
 ) -> dict:
     """Run ``argv`` at the artifact root; results go to the volume: ``results/<results_name>``."""
-    from directions.remote import execute
+    from directions.remote import artifact_fingerprints, execute
 
     extra_env = {"PYTHONPATH": str(SRC), "PYTHONUNBUFFERED": "1"}
     if git_commit:
         extra_env["DIRECTIONS_GIT_COMMIT"] = git_commit
     if VOLUME_ROOT.is_dir():
         extra_env["HF_HOME"] = str(VOLUME_ROOT / "hf")
-    return execute(
+    result = execute(
         argv=argv,
         cwd=ROOT,
         results_dir=results_dir,
@@ -76,3 +84,5 @@ async def run_experiment(
         volume_root=VOLUME_ROOT,
         results_name=results_name,
     )
+    result.update(artifact_fingerprints(ROOT))
+    return result

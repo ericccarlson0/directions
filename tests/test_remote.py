@@ -8,7 +8,13 @@ from pathlib import Path
 
 import pytest
 
-from directions.remote import ResultsTooLarge, execute, link_results_to_volume, pack_results, unpack_results
+from directions.remote import (
+    ResultsTooLarge,
+    artifact_fingerprints,
+    execute,
+    pack_results,
+    unpack_results,
+)
 
 MAX_OUTPUT_MB = 1
 ONE_MIB = 1024 * 1024
@@ -142,8 +148,26 @@ def test_execute_leaves_results_on_the_volume_instead_of_a_tarball(tmp_path: Pat
     assert (volume / "results" / "r1" / "out.txt").read_text() == "ok"
     assert (volume / "results" / "r1" / "runner.log").exists()
     assert json.loads((volume / "results" / "r1" / "run_metadata.json").read_text())["results_on_volume"] is True
-    assert (cwd / "results").is_symlink()
-    assert result["results_file_count"] == 3
+    assert (cwd / "results" / "out.txt").read_text() == "ok"
+    assert result["results_file_count"] == 4
+
+
+def test_execute_writes_the_log_to_the_volume_while_running(tmp_path: Path) -> None:
+    volume = tmp_path / "volume"
+    volume.mkdir()
+    cwd = _app_with_empty_results(tmp_path)
+    live = volume / "results" / "r1" / "runner.log"
+    script = (
+        "import pathlib, time, sys\n"
+        "print('first', flush=True)\n"
+        f"time.sleep(0.05); assert 'first' in pathlib.Path({str(live)!r}).read_text()\n"
+        "print('second', flush=True)"
+    )
+
+    result = _execute(cwd, [sys.executable, "-c", script], volume_root=volume, results_name="r1")
+
+    assert result["returncode"] == 0
+    assert live.read_text().splitlines() == ["first", "second"]
 
 
 def test_execute_falls_back_to_a_tarball_without_a_mounted_volume(tmp_path: Path) -> None:
@@ -153,12 +177,15 @@ def test_execute_falls_back_to_a_tarball_without_a_mounted_volume(tmp_path: Path
 
     assert result["results_tar_b64"] is not None
     assert "results_path" not in result
-    assert not (cwd / "results").is_symlink()
 
 
-def test_link_results_to_volume_refuses_to_discard_existing_results(tmp_path: Path) -> None:
-    cwd = _app_with_empty_results(tmp_path)
-    (cwd / "results" / "old.json").write_text("{}")
+def test_artifact_fingerprints_reads_manifest_and_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "flash_manifest.json").write_text(json.dumps({"source_fingerprint": "abc"}))
+    monkeypatch.setenv("_FLASH_SOURCE_FINGERPRINT", "def")
 
-    with pytest.raises(RuntimeError, match="old.json"):
-        link_results_to_volume(cwd, "results", tmp_path / "volume", "r1")
+    assert artifact_fingerprints(tmp_path) == {"code_fingerprint": "abc", "expected_fingerprint": "def"}
+
+
+def test_artifact_fingerprints_without_manifest_or_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("_FLASH_SOURCE_FINGERPRINT", raising=False)
+    assert artifact_fingerprints(tmp_path) == {"code_fingerprint": None, "expected_fingerprint": None}

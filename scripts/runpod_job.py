@@ -67,8 +67,15 @@ def cancel(endpoint_url: str, api_key: str, job_id: str) -> None:
         print(f"::warning::cancel {job_id} failed: {exc}", file=sys.stderr)
 
 
-def wait(endpoint_url: str, api_key: str, job_id: str, deadline_s: float, poll_s: float) -> dict:
-    """Poll ``/status``; cancel on deadline."""
+def wait(
+    endpoint_url: str,
+    api_key: str,
+    job_id: str,
+    deadline_s: float,
+    poll_s: float,
+    progress: Callable[[], None] | None = None,
+) -> dict:
+    """Poll ``/status``; call ``progress`` after each poll; cancel on deadline."""
     last = None
     start = time.time()
     while True:
@@ -81,6 +88,8 @@ def wait(endpoint_url: str, api_key: str, job_id: str, deadline_s: float, poll_s
         if status != last:
             print(f"[{time.time() - start:7.0f}s] {status}", flush=True)
             last = status
+        if progress is not None:
+            progress()
         if status in TERMINAL:
             return body
         if time.time() - start > deadline_s:
@@ -93,7 +102,8 @@ def wait(endpoint_url: str, api_key: str, job_id: str, deadline_s: float, poll_s
 def resolve_volume_id(volumes: list[dict], name: str, datacenter: str) -> str:
     """Id of the network volume called ``name`` in ``datacenter``."""
     for volume in volumes:
-        if volume.get("name") == name and volume.get("dataCenterId") == datacenter:
+        location = volume.get("dataCenter") or volume.get("dataCenterId")  # REST v2 uses the former
+        if volume.get("name") == name and location == datacenter:
             return volume["id"]
     raise RuntimeError(f"no network volume named {name!r} in {datacenter}")
 
@@ -131,6 +141,26 @@ def download_results(client, bucket: str, prefix: str, out: Path) -> int:
     return count
 
 
+class LogTail:
+    def __init__(self, client, bucket: str, key: str) -> None:
+        self.client, self.bucket, self.key = client, bucket, key
+        self.offset = 0
+
+    def __call__(self) -> None:
+        try:
+            body = self.client.get_object(Bucket=self.bucket, Key=self.key, Range=f"bytes={self.offset}-")["Body"].read()
+        except Exception as exc:  # not written yet, or nothing new (416): both are normal mid-run
+            name = type(exc).__name__
+            if "NoSuchKey" in name or "InvalidRange" in name or "416" in str(exc) or "NoSuchKey" in str(exc):
+                return
+            print(f"::warning::log tail failed: {exc}", file=sys.stderr)
+            return
+        if body:
+            sys.stdout.write(body.decode("utf-8", errors="replace"))
+            sys.stdout.flush()
+            self.offset += len(body)
+
+
 def collect(final: dict, out: Path, download: Downloader | None = None) -> int:
     """Write logs/results; return the process exit code."""
     status = final.get("status")
@@ -145,6 +175,10 @@ def collect(final: dict, out: Path, download: Downloader | None = None) -> int:
     print("----- remote log tail -----")
     print(output.get("log_tail", ""))
     print("---------------------------")
+    code, expected = output.get("code_fingerprint"), output.get("expected_fingerprint")
+    if code and expected and code != expected:
+        print(f"::error::stale worker: ran code {code[:12]} but the deploy was {expected[:12]}", file=sys.stderr)
+        return 1
     returncode = int(output.get("returncode", 1))
     if output.get("results_error"):
         print(f"::error::{output['results_error']}", file=sys.stderr)
@@ -187,6 +221,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     download: Downloader | None = None
+    progress: Callable[[], None] | None = None
     if args.results_name:
         access_key, secret_key = os.environ.get("RUNPOD_S3_ACCESS_KEY"), os.environ.get("RUNPOD_S3_SECRET_KEY")
         if not access_key or not secret_key:
@@ -195,6 +230,7 @@ def main(argv: list[str] | None = None) -> int:
         volume_id = resolve_volume_id(list_volumes(api_key), args.volume_name, args.datacenter)
         client = s3_client(args.datacenter, access_key, secret_key)
         download = lambda results_path, out: download_results(client, volume_id, results_path, out)  # noqa: E731
+        progress = LogTail(client, volume_id, f"results/{args.results_name}/runner.log")
 
     job_input = {
         "argv": command,
@@ -209,7 +245,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.job_id_file:
         args.job_id_file.write_text(job_id)
 
-    final = wait(endpoint_url, api_key, job_id, args.timeout_minutes * 60, args.poll_seconds)
+    final = wait(endpoint_url, api_key, job_id, args.timeout_minutes * 60, args.poll_seconds, progress)
     return collect(final, args.out, download)
 
 

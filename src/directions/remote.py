@@ -111,23 +111,50 @@ def _environment_metadata() -> dict[str, Any]:
     return meta
 
 
-def link_results_to_volume(cwd: Path, results_dir: str, volume_root: Path, results_name: str) -> Path:
-    """symlink ``cwd/results_dir`` to ``volume_root/results/results_name`` (the command writes there).
+def artifact_fingerprints(root: Path) -> dict[str, str | None]:
+    """The source fingerprint of the code on disk versus the one the endpoint was deployed with.
 
-    Refuses to discard an existing results directory that holds anything besides ``.gitkeep``.
+    Flash writes ``source_fingerprint`` into ``flash_manifest.json`` at build time and sets
+    ``_FLASH_SOURCE_FINGERPRINT`` in the endpoint's env at deploy time; they differ when a worker runs a
+    stale unpacked artifact.
     """
-    target = Path(volume_root) / VOLUME_RESULTS_SUBDIR / results_name
-    target.mkdir(parents=True, exist_ok=True)
-    link = Path(cwd) / results_dir
-    if link.is_symlink() or link.is_file():
-        link.unlink()
-    elif link.is_dir():
-        leftovers = [p.name for p in link.iterdir() if p.name != ".gitkeep"]
-        if leftovers:
-            raise RuntimeError(f"{link} already holds results; refusing to replace it: {leftovers[:5]}")
-        shutil.rmtree(link)
-    link.symlink_to(target, target_is_directory=True)
-    return target
+    manifest = Path(root) / "flash_manifest.json"
+    on_disk = None
+    if manifest.is_file():
+        try:
+            on_disk = json.loads(manifest.read_text()).get("source_fingerprint")
+        except (OSError, ValueError):
+            on_disk = None
+    return {"code_fingerprint": on_disk, "expected_fingerprint": os.environ.get("_FLASH_SOURCE_FINGERPRINT")}
+
+
+def _run_streaming(
+    argv: list[str], cwd: Path, env: dict[str, str], log_path: Path, live_copy: Path | None = None
+) -> tuple[int, str]:
+    """Run ``argv``, relaying its combined output line by line to our stdout and to ``log_path`` as it arrives.
+
+    Relaying to stdout puts the child's progress in the worker's container log, so a long run can be watched 
+    from outside; ``live_copy`` (where the logs live on the network volume) receives every line, flushed, so the 
+    runner can tail it over S3 throughout the run.
+    Returns the exit code and the last ``LOG_TAIL_BYTES`` of output.
+    """
+    tail: list[bytes] = []
+    tail_size = 0
+    proc = subprocess.Popen(argv, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    assert proc.stdout is not None
+    with log_path.open("wb") as log_file, (live_copy.open("wb") if live_copy else open(os.devnull, "wb")) as live:
+        for line in proc.stdout:
+            log_file.write(line)
+            live.write(line)
+            live.flush()
+            sys.stdout.buffer.write(line)
+            sys.stdout.flush()
+            tail.append(line)
+            tail_size += len(line)
+            while tail_size > 2 * LOG_TAIL_BYTES and len(tail) > 1:
+                tail_size -= len(tail.pop(0))
+    returncode = proc.wait()
+    return returncode, b"".join(tail).decode("utf-8", errors="replace")
 
 
 def execute(
@@ -147,26 +174,25 @@ def execute(
     """
     cwd = Path(cwd)
     on_volume = bool(results_name) and volume_root is not None and Path(volume_root).is_dir()
-    if on_volume:
-        out_dir = link_results_to_volume(cwd, results_dir, Path(volume_root), results_name)
-    else:
-        out_dir = cwd / results_dir
-        out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = cwd / results_dir  # local disk during the run; a network volume is slow for many small writes
+    out_dir.mkdir(parents=True, exist_ok=True)
     env = {**os.environ, **(extra_env or {})}
 
     started = time.time()
+    log_path = out_dir / RUNNER_LOG_NAME
+    live_copy = None
+    if on_volume:
+        target = Path(volume_root) / VOLUME_RESULTS_SUBDIR / results_name
+        target.mkdir(parents=True, exist_ok=True)
+        live_copy = target / RUNNER_LOG_NAME
     try:
-        proc = subprocess.run(
-            argv, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False
-        )
-        returncode = proc.returncode
-        log = proc.stdout.decode("utf-8", errors="replace")
+        returncode, log = _run_streaming(argv, cwd, env, log_path, live_copy)
     except OSError as exc:
         returncode = 127
         log = f"failed to start {argv!r}: {exc}\n"
+        log_path.write_text(log)
     duration = time.time() - started
 
-    (out_dir / RUNNER_LOG_NAME).write_text(log)
     metadata = {
         "argv": argv,
         "returncode": returncode,
@@ -184,7 +210,8 @@ def execute(
         "log_tail": log[-LOG_TAIL_BYTES:],
     }
     if on_volume:
-        files = [p for p in out_dir.rglob("*") if p.is_file()]
+        shutil.copytree(out_dir, target, dirs_exist_ok=True)
+        files = [p for p in target.rglob("*") if p.is_file()]
         result.update(
             {
                 "results_tar_b64": None,
