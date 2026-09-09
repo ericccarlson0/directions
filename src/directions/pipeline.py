@@ -25,7 +25,7 @@ from typing import Any
 
 import numpy as np
 
-from . import __version__
+from ._version import __version__
 from .ablation import block_ablation, select_blocks
 from .analysis import cross_task_table, profile_signature
 from .calibration import CalibrationResult, Selection, calibrate
