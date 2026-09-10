@@ -11,7 +11,7 @@ model:
   backend: hf
   name: Qwen/Qwen3-4B-Base
   dtype: bfloat16          # model execution; captured activations float32, statistics float64
-  device: auto
+  device: cuda             # fail fast; "auto" silently fell back to the CPU on a worker whose driver could not run the locked torch
   batch_size: 32
 
 prompt:

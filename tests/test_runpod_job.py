@@ -76,6 +76,41 @@ def test_wait_polls_until_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
     assert len(calls) == 3
 
 
+def test_wait_calls_progress_after_every_poll(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_requests(monkeypatch, ["IN_QUEUE", "IN_PROGRESS", "COMPLETED"])
+    ticks = []
+
+    runpod_job.wait(ENDPOINT, API_KEY, JOB_ID, deadline_s=60, poll_s=0, progress=lambda: ticks.append(1))
+
+    assert len(ticks) == 3
+
+
+class FakeLogObject:
+    def __init__(self, content: bytes) -> None:
+        self.content = content
+        self.ranges: list[str] = []
+
+    def get_object(self, Bucket: str, Key: str, Range: str):
+        self.ranges.append(Range)
+        start = int(Range.removeprefix("bytes=").rstrip("-"))
+        if start >= len(self.content):
+            raise RuntimeError("InvalidRange (416)")
+        return {"Body": __import__("io").BytesIO(self.content[start:])}
+
+
+def test_log_tail_prints_only_new_bytes(capsys: pytest.CaptureFixture) -> None:
+    obj = FakeLogObject(b"line 1\n")
+    tail = runpod_job.LogTail(obj, VOLUME_ID, "results/r1/runner.log")
+
+    tail()
+    obj.content += b"line 2\n"
+    tail()
+    tail()
+
+    assert capsys.readouterr().out == "line 1\nline 2\n"
+    assert obj.ranges == ["bytes=0-", "bytes=7-", "bytes=14-"]
+
+
 def test_wait_cancels_on_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = _patch_requests(monkeypatch, itertools.repeat("IN_PROGRESS"))
     clock = itertools.chain([0], itertools.repeat(100))
@@ -96,8 +131,8 @@ def test_main_rejects_bad_argv(monkeypatch: pytest.MonkeyPatch) -> None:
 VOLUME_ID = "vol1"
 DATACENTER = "EUR-NO-1"
 VOLUMES = [
-    {"id": "other", "name": "directions", "dataCenterId": "US-KS-2"},
-    {"id": VOLUME_ID, "name": "directions", "dataCenterId": DATACENTER},
+    {"id": "other", "name": "directions", "dataCenter": "US-KS-2"},
+    {"id": VOLUME_ID, "name": "directions", "dataCenter": DATACENTER},
 ]
 
 
@@ -136,6 +171,11 @@ def test_resolve_volume_id_matches_name_and_datacenter() -> None:
     assert runpod_job.resolve_volume_id(VOLUMES, "directions", DATACENTER) == VOLUME_ID
 
 
+def test_resolve_volume_id_accepts_the_data_center_id_key() -> None:
+    volumes = [{"id": VOLUME_ID, "name": "directions", "dataCenterId": DATACENTER}]
+    assert runpod_job.resolve_volume_id(volumes, "directions", DATACENTER) == VOLUME_ID
+
+
 def test_resolve_volume_id_raises_when_missing() -> None:
     with pytest.raises(RuntimeError, match="EU-CZ-1"):
         runpod_job.resolve_volume_id(VOLUMES, "directions", "EU-CZ-1")
@@ -152,6 +192,16 @@ def test_collect_downloads_volume_results(tmp_path: Path) -> None:
 
     assert runpod_job.collect(final, tmp_path / "out", download) == 0
     assert seen == [("results/r1", tmp_path / "out")]
+
+
+def test_collect_fails_on_a_stale_worker(tmp_path: Path) -> None:
+    final = _completed(returncode=0, log_tail="", results_tar_b64=None, code_fingerprint="old", expected_fingerprint="new")
+    assert runpod_job.collect(final, tmp_path / "out") == 1
+
+
+def test_collect_accepts_matching_fingerprints(tmp_path: Path) -> None:
+    final = _completed(returncode=0, log_tail="", results_tar_b64=None, code_fingerprint="same", expected_fingerprint="same")
+    assert runpod_job.collect(final, tmp_path / "out") == 0
 
 
 def test_collect_fails_on_volume_results_without_a_downloader(tmp_path: Path) -> None:
