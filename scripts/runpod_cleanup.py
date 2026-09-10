@@ -2,15 +2,17 @@
 """Delete the endpoint a previous ``flash deploy`` left in a Flash environment.
 
 ``flash deploy`` decides whether an endpoint exists from ``.flash/resources.pkl``, which a fresh CI runner does
-not have; a second deploy would attempt to re-create the endpoint and RunPod would reject the duplicate template 
+not have; a second deploy would attempt to re-create the endpoint and RunPod would reject the duplicate template
 name. Deleting the previous endpoint first fixes this.
 
 Usage::
 
     uv run scripts/runpod_cleanup.py --app directions --env ci --endpoint-name directions-runner
+    uv run scripts/runpod_cleanup.py --app directions --env ci --endpoint-name directions-runner --exists <id>
 
-Reads ``RUNPOD_API_KEY`` from the env. A missing app or env (the API reports these as GraphQL "not found" errors,
-e.g. on the first deploy to a new env) means nothing to delete.
+The second form deletes nothing and reports whether an endpoint id is still live (the workflow reuses a recorded
+endpoint when its handler digest is unchanged). Reads ``RUNPOD_API_KEY`` from the env. A missing app or env (the
+API reports these as GraphQL "not found" errors, e.g. on the first deploy to a new env) means nothing to delete.
 Standard library only.
 """
 
@@ -98,17 +100,33 @@ def delete_endpoints(app: str, env: str, endpoint_name: str, api_key: str) -> li
     return deleted
 
 
+def endpoint_exists(app: str, env: str, endpoint_name: str, endpoint_id: str, api_key: str) -> bool:
+    """Whether the environment still has the endpoint ``endpoint_id`` under ``endpoint_name``."""
+    return any(
+        e.get("id") == endpoint_id and e.get("name") == endpoint_name for e in find_endpoints(app, env, api_key)
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", required=True)
     parser.add_argument("--env", required=True)
     parser.add_argument("--endpoint-name", required=True)
+    parser.add_argument("--exists", metavar="ENDPOINT_ID", default=None,
+                        help="delete nothing; exit 0 if this endpoint id is live in the environment, else 3")
     args = parser.parse_args(argv)
 
     api_key = os.environ.get("RUNPOD_API_KEY")
     if not api_key:
         print("RUNPOD_API_KEY is not set", file=sys.stderr)
         return 1
+
+    if args.exists:
+        if endpoint_exists(args.app, args.env, args.endpoint_name, args.exists, api_key):
+            print(f"endpoint {args.exists} ({args.endpoint_name!r}) is live in {args.app}/{args.env}")
+            return 0
+        print(f"endpoint {args.exists} ({args.endpoint_name!r}) is not in {args.app}/{args.env}")
+        return 3
 
     deleted = delete_endpoints(args.app, args.env, args.endpoint_name, api_key)
     if deleted:
