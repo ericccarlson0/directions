@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-09-08.
+Last updated: 2026-09-10.
 
 ## Implemented (all exercised by `uv run pytest`, 49 tests)
 
@@ -478,18 +478,45 @@ beat antonym) and every profile label is the same. Cumulative log G and its
 z-scores agree to within 0.1–0.3 z, as expected from the same direction
 against a half-sized null.
 
-Bit-identity check (required after the batch-size change): the replicate
-`pilot3b_qwen3_0.6b_seed20260907_b` was requested through the new push
-trigger (run 34434569577, commit `eb7b605`). The pilot completed on the
-worker in 539 s, but the runner rejected the results because a worker
-holding the *previous* build (fbab4d4, whose `src/` and configs are
-identical) served the job three seconds after run 1 ended (docs/INFRA.md,
-Flash section). The handler now refuses stale workers before running and
-the runner resubmits after they scale down; the replicate is re-requested
-by the request file of the commit that adds this (results below when run).
+#### Bit-identity check (required after the batch-size change)
+
+```
+# workflow run 34438110479 (push-triggered request), commit 82171db (since squashed into ac33360, whose src/ and configs are unchanged; only the RunPod path differs), RTX 4090 (ADA_24), EUR-NO-1
+uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --run-id pilot3b_qwen3_0.6b_seed20260907_b
+uv run directions compare results/remote/run1/.../pilot3b_qwen3_0.6b_seed20260907 results/remote/run2/.../pilot3b_qwen3_0.6b_seed20260907_b
+```
+
+`directions compare` on the two runs (71 JSON files and 16 `.npz` arrays
+each, `atol = 0`): **every result file is identical**; the only three
+differences are `metadata.json/git/{commit, dirty, source}`, which the
+replicate records (`82171db`, later squashed into `ac33360`, shipped
+tree) and run 1 does not (`null`,
+before the run metadata learned the shipped commit). The two runs come
+from commits `fbab4d4` and `82171db` (since squashed into `ac33360` together
+with later RunPod-path changes), whose `src/` numerical path and configs
+are identical (the intervening commits touch the RunPod workflow, scripts,
+`directions/remote.py`, `runinfo.py` and docs only).
+Wall time 8.4 min for both.
+
+Three earlier attempts at the replicate failed on the RunPod path, not on
+the science, and led to the changes recorded in `docs/INFRA.md`: workers
+were running the *previous* deploy's artifact when a run started within
+~15 min of the previous one (runs 34434569577 and 34436082660; in the
+latter the same container answered every retry for 16 min), and that
+container then rejected the shipped-source job inputs with a FAILED status
+(run 34437755152). The job now ships `git archive` of its commit and the
+worker runs that, so results no longer depend on which build a worker
+holds; a stale handler is only a warning, and the runner terminates and
+resubmits when a worker predates shipped source.
 
 ## Not yet run / known limitations
 
+- Iteration 3b (D20: 16 controls per random kind, batch 128) has run only
+  on 0.6B, seed 20260907 (twice, bit-identical). The 1.7B/4B/8B configs
+  carry the same change but have not been run with it; 8B at batch 128 has
+  not been memory-checked (18.8 GB of 24 GB at batch 32; the batch only adds
+  transformer activations for ~200-token prompts, so it should fit, but
+  verify `run_metadata`/log on the first run).
 - Iteration 3 has one seed per model (run twice for bit-identity); seeds
   1 and 2 are not run yet, so the iteration-3 tables above have no
   cross-seed spread. The iteration-2 configs were never rerun for
@@ -511,15 +538,18 @@ by the request file of the commit that adds this (results below when run).
 ## Next commands
 
 ```bash
-uv run pytest                                                           # 49 tests
-# iteration-3 replicates (seeds 1 and 2), then aggregate per model
-for seed in 1 2; do
-  uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --seed $seed --run-id pilot3_qwen3_0.6b_seed$seed   # ~7 min
-  uv run directions pilot --config configs/pilot_qwen3_1.7b.yaml --seed $seed --run-id pilot3_qwen3_1.7b_seed$seed   # ~12 min
-  uv run directions pilot --config configs/pilot_qwen3_4b.yaml   --seed $seed --run-id pilot3_qwen3_4b_seed$seed     # ~20 min
-  HF_HUB_CACHE=/root/hf-cache uv run directions pilot --config configs/pilot_qwen3_8b.yaml --seed $seed --run-id pilot3_qwen3_8b_seed$seed  # ~30 min, 18.8 GB GPU
-done
-uv run directions aggregate results/pilot3_qwen3_8b_seed20260907_a results/pilot3_qwen3_8b_seed1 results/pilot3_qwen3_8b_seed2 --out results/aggregate3_qwen3_8b.json
+uv run pytest                                                           # 122 tests
+# GPU runs: edit .github/gpu-run.yaml (command + a new `request` label), commit, push; the run-gpu
+# workflow triggers on the push (README, "Run on GPUs"). One run per push; the ci environment runs
+# them one at a time. Then:
+gh run list --workflow=run-gpu.yml --branch fable --limit 1 && gh run watch <RUN_ID>
+gh run download <RUN_ID> --dir results/remote/<name>
+# iteration-3b (D20 protocol) on the other models and seeds, e.g. as request-file commands:
+uv run directions pilot --config configs/pilot_qwen3_1.7b.yaml --run-id pilot3b_qwen3_1.7b_seed20260907   # ADA_24
+uv run directions pilot --config configs/pilot_qwen3_4b.yaml   --run-id pilot3b_qwen3_4b_seed20260907     # ADA_24
+uv run directions pilot --config configs/pilot_qwen3_8b.yaml   --run-id pilot3b_qwen3_8b_seed20260907     # ADA_24 (18.8 GB at batch 32; check memory at 128)
+uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --seed 1 --run-id pilot3b_qwen3_0.6b_seed1
+uv run directions aggregate results/remote/<a>/... results/remote/<b>/... --out results/aggregate3b_qwen3_0.6b.json
 uv run directions compare results/<run_a> results/<run_b>                # reproducibility diff
 ```
 
