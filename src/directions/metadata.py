@@ -38,8 +38,13 @@ def _git(*args: str) -> str | None:
 
 def git_metadata() -> dict:
     status = _git("status", "--porcelain")
+    commit = _git("rev-parse", "HEAD")
+    if commit is None and os.environ.get("DIRECTIONS_GIT_COMMIT"):
+        # A shipped `git archive` tree has no .git; the RunPod handler passes the commit it was given.
+        return {"commit": os.environ["DIRECTIONS_GIT_COMMIT"], "branch": None, "describe": None,
+                "dirty": False, "uncommitted_files": [], "source": "shipped"}
     return {
-        "commit": _git("rev-parse", "HEAD"),
+        "commit": commit,
         "branch": _git("rev-parse", "--abbrev-ref", "HEAD"),
         "describe": _git("describe", "--always", "--dirty"),
         "dirty": bool(status) if status is not None else None,

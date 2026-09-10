@@ -244,3 +244,14 @@ def test_unpack_source_rejects_a_wrong_digest(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="digest mismatch"):
         unpack_source(shipped["source_tar_b64"], "0" * 64, tmp_path / "jobs")
     assert not (tmp_path / "jobs").exists()
+
+
+def test_git_metadata_falls_back_to_the_shipped_commit(monkeypatch) -> None:
+    from directions import metadata
+
+    monkeypatch.setattr(metadata, "_git", lambda *args: None)  # a `git archive` tree has no .git
+    monkeypatch.setenv("DIRECTIONS_GIT_COMMIT", "abc123")
+    assert metadata.git_metadata() == {"commit": "abc123", "branch": None, "describe": None, "dirty": False,
+                                       "uncommitted_files": [], "source": "shipped"}
+    monkeypatch.delenv("DIRECTIONS_GIT_COMMIT")
+    assert metadata.git_metadata()["commit"] is None
