@@ -62,6 +62,12 @@ extraction:
   n_seeds: 3
   center: false                      # preregistered: PC1 of the raw (uncentered) differences
   candidate_depth_fractions: [0.2, 0.3, 0.4, 0.5, 0.6]
+  control: function_vector         # D21: the canonical function vector is the control; PC1 is still
+                                   # extracted at every layer (the T_l readout) and reported beside it
+  function_vector:
+    n_heads: 10                      # heads summed into the vector (Todd et al. 2024)
+    head_selection: universal        # one head set for all tasks, ranked by the mean indirect effect
+    aie_seeds: 1                     # indirect effects measured on the deranged prompts of seed 0 (64 prompts)
 
 calibration:
   rho_grid: [0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0]

@@ -10,7 +10,7 @@ import numpy as np
 from .config import ExtractionConfig, PromptConfig
 from .geometry import pca_direction, stability
 from .model import ModelBackend
-from .prompts import few_shot_prompt, paired_prompts
+from .prompts import Prompt, few_shot_prompt, paired_prompts
 from .seeds import rng_for
 from .tasks import Item
 
@@ -21,24 +21,30 @@ class SeedExtraction:
     seed: int
     differences: np.ndarray  # (n, L+1, d) float32: h(p+) - h(p-) at every read point
     metrics: dict[str, Any]  # behavioural metrics of positive / permuted prompts
+    # Function-vector inputs (D21), present when extracted with ``capture_heads``:
+    head_means: np.ndarray | None = None  # (L, n_heads, head_dim) mean head outputs over the positive prompts
+    permuted_prompts: list[Prompt] = field(default_factory=list)  # the deranged-label prompts of this seed
+    permuted_logprob_per_token: np.ndarray | None = None  # (n,) their unpatched decision metric
 
 
 @dataclass
 class LayerDirection:
     layer: int
-    direction: np.ndarray  # pooled PC1, unit norm (float64)
+    direction: np.ndarray  # unit norm (float64): pooled PC1, or the function vector (kind = "function_vector")
     seed_directions: np.ndarray  # (n_seeds, d)
-    explained_variance_ratio: list[float]  # per seed
-    cos_with_mean: list[float]  # per seed
+    explained_variance_ratio: list[float]  # per seed (PCA only)
+    cos_with_mean: list[float]  # per seed (PCA only)
     stability: float  # min pairwise |cos| across seeds
     pooled_explained_variance_ratio: float
     pooled_cos_with_mean: float
-    mean_difference_norm: float
+    mean_difference_norm: float  # PCA: ||mean difference||; function vector: its natural norm
     cos_pooled_vs_seeds: list[float] = field(default_factory=list)
+    kind: str = "pca"
 
     def summary(self) -> dict[str, Any]:
         return {
             "layer": self.layer,
+            "kind": self.kind,
             "explained_variance_ratio": self.explained_variance_ratio,
             "cos_with_mean": self.cos_with_mean,
             "stability": self.stability,
@@ -62,8 +68,13 @@ def extract_differences(
     run_seed: int,
     task_name: str,
     n_seeds: int,
+    capture_heads: bool = False,
 ) -> list[SeedExtraction]:
-    """For each seed, resample demonstrations/derangements and capture h(p+) - h(p-)."""
+    """For each seed, resample demonstrations/derangements and capture h(p+) - h(p-).
+
+    With ``capture_heads`` the positive prompts' mean per-head outputs and the deranged-label prompts
+    (with their unpatched decision metric) are kept for function-vector extraction (D21).
+    """
     out: list[SeedExtraction] = []
     for s in range(n_seeds):
         seed = rng_for(run_seed, "extraction", task_name, s).integers(0, 2**31 - 1)
@@ -73,7 +84,7 @@ def extract_differences(
             p, n = paired_prompts(prompt_cfg, pool, q, rng)
             pos.append(p)
             neg.append(n)
-        rp = backend.run(pos, capture=True)
+        rp = backend.run(pos, capture=True, capture_heads=capture_heads)
         rn = backend.run(neg, capture=True)
         assert rp.residuals is not None and rn.residuals is not None
         diffs = np.transpose(rp.residuals - rn.residuals, (1, 0, 2))  # (n, L+1, d)
@@ -83,8 +94,32 @@ def extract_differences(
                 seed=int(seed),
                 differences=diffs,
                 metrics={"positive": rp.metrics_dict(), "permuted": rn.metrics_dict()},
+                head_means=rp.head_outputs.astype(np.float64).mean(axis=1) if capture_heads else None,
+                permuted_prompts=neg if capture_heads else [],
+                permuted_logprob_per_token=rn.logprob_per_token.copy() if capture_heads else None,
             )
         )
+    return out
+
+
+def permuted_head_means(
+    backend: ModelBackend,
+    prompt_cfg: PromptConfig,
+    pool: list[Item],
+    run_seed: int,
+    task_name: str,
+    n: int,
+) -> list[np.ndarray]:
+    """``n`` mean per-head output arrays ``(L, n_heads, head_dim)`` from deranged-label prompts with fresh
+    demonstration samples: the function-vector construction without a task-correct signal (the
+    ``demo_variation`` null of D21). Seeded like the demonstration-variation directions."""
+    out: list[np.ndarray] = []
+    for k in range(n):
+        rng = np.random.default_rng(rng_for(run_seed, "demo_variation", task_name, k).integers(0, 2**31 - 1))
+        neg = [paired_prompts(prompt_cfg, pool, q, rng)[1] for q in pool]
+        r = backend.run(neg, capture_heads=True)
+        assert r.head_outputs is not None
+        out.append(r.head_outputs.astype(np.float64).mean(axis=1))
     return out
 
 

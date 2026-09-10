@@ -42,10 +42,17 @@ Last updated: 2026-09-10.
 - `analysis.py`, `aggregate.py` — mode-discriminating quantities per task,
   rule-based labels, per-kind z summaries; multi-seed aggregation (D16).
 - `ablation.py` — exploratory necessity/sufficiency of high-conversion blocks.
+- `function_vector.py`, `model.py` head hooks — the canonical function vector
+  (D21): per-head output capture and per-example head patching at the
+  query token, average indirect effects on deranged-label prompts, a
+  universal or per-task head ranking, the vector as the sum of the
+  selected heads' mean outputs through `o_proj`, per-seed stability;
+  `extraction.control` selects it as the control (PC1 stays the readout
+  direction and is reported beside it).
 - `figures.py`, `pipeline.py` (two phases, D15), `runinfo.py`, `cli.py`
   (`validate | pilot | check | compare | aggregate`, `--seed`).
 
-Methodological choices are recorded in `docs/DECISIONS.md` (D1–D19).
+Methodological choices are recorded in `docs/DECISIONS.md` (D1–D21).
 `docs/AGENT_COMPARISON.md` compares this branch with the `opus` branch.
 
 ## Runs completed

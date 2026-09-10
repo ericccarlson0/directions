@@ -3,6 +3,11 @@
 Phase A, for every task: (1) items -> filter -> three disjoint pools;
 (2) few-shot qualification; (3) control-direction extraction at every candidate
 layer with cross-seed stability (plus demonstration-variation null directions).
+With ``extraction.control: function_vector`` (D21) stage 3 also records the
+per-head outputs and their indirect effects, and a phase between A and B ranks
+the heads across tasks and builds every task's canonical function vector, which
+then replaces the PCA direction as the control (the PCA direction stays as the
+per-layer readout direction and a reported comparison).
 
 Phase B, for every task that reached stage 3: (4) calibration on the
 calibration pool; (5) held-out steering on the evaluation pool against matched
@@ -37,8 +42,10 @@ from .extraction import (
     directions_from_differences,
     extract_demo_variation,
     extract_differences,
+    permuted_head_means,
 )
-from .geometry import covariance_matched_unit_vector, random_orthogonal_unit_vector, random_unit_vector
+from .function_vector import FunctionVector, build_function_vector, compose, head_effects, select_heads
+from .geometry import covariance_matched_unit_vector, normalize, random_orthogonal_unit_vector, random_unit_vector
 from .layerwise import LayerwiseProfile, compare_by_kind, compute_profile, metric_curves, null_summary, profile_arrays
 from .model import ForwardResult, Intervention, ModelBackend, environment_metadata, set_torch_determinism
 from .prompts import Prompt, few_shot_prompt, zero_shot_prompt
@@ -63,8 +70,15 @@ class ControlResult:
 class TaskState:
     name: str
     splits: Splits
-    directions: dict[int, LayerDirection] = field(default_factory=dict)
+    directions: dict[int, LayerDirection] = field(default_factory=dict)  # the control at each candidate layer
+    pca_directions: dict[int, LayerDirection] = field(default_factory=dict)  # PC1 at each candidate layer (always)
     all_layer_directions: np.ndarray | None = None  # (L+1, d) pooled PC1 at every read point (D17 readouts)
+    # Function-vector inputs and result (D21), when extraction.control == "function_vector":
+    seed_head_means: np.ndarray | None = None  # (n_seeds, L, n_heads, head_dim) mean head outputs, positive prompts
+    head_effects: np.ndarray | None = None  # (L, n_heads) average indirect effect on deranged-label prompts
+    head_effects_n_prompts: int = 0
+    permuted_head_means: list[np.ndarray] = field(default_factory=list)  # demo_variation null inputs
+    fv: FunctionVector | None = None
     gradients: np.ndarray | None = None  # (L+1, n_eval, d) d log p(target) / d resid at the query token (D17)
     demo_variation: dict[int, list[np.ndarray]] = field(default_factory=dict)
     stable_layers: list[int] = field(default_factory=list)
@@ -118,6 +132,7 @@ class Pipeline:
         self.metadata["model"] = self.backend.metadata()
         self.layers = candidate_layers(self.backend.n_layers, cfg.extraction.candidate_depth_fractions)
         self.metadata["candidate_layers"] = self.layers
+        self.metadata["control"] = cfg.extraction.control
         self.metadata["seeds"] = self._seed_table()
         write_json(self.root / "metadata.json", self.metadata)
         self.log.info("run %s: model %s (%d layers, d=%d), candidate layers %s",
@@ -133,6 +148,10 @@ class Pipeline:
                 self.log.error("task %s failed in phase A: %s", tcfg.name, e)
                 self.rejections.add("error", tcfg.name, f"{type(e).__name__}: {e}", {"traceback": traceback.format_exc()})
             self.timings[f"prepare:{tcfg.name}"] = time.time() - t1
+        if cfg.extraction.control == "function_vector":
+            t1 = time.time()
+            self._build_function_vectors(states)
+            self.timings["function_vectors"] = time.time() - t1
         for name, st in states.items():
             t1 = time.time()
             if st.ready and self.stop_after not in ("fewshot", "extraction"):
@@ -242,18 +261,41 @@ class Pipeline:
             return st
 
         # 3. extraction --------------------------------------------------
-        seeds = extract_differences(self.backend, cfg.prompt, splits.extraction, cfg.seed, name, cfg.extraction.n_seeds)
-        st.directions = directions_from_differences(seeds, self.layers, cfg.extraction)
+        fv_mode = cfg.extraction.control == "function_vector"
+        seeds = extract_differences(self.backend, cfg.prompt, splits.extraction, cfg.seed, name, cfg.extraction.n_seeds,
+                                    capture_heads=fv_mode)
+        st.pca_directions = directions_from_differences(seeds, self.layers, cfg.extraction)
+        st.directions = st.pca_directions
         all_dirs = directions_from_differences(seeds, list(range(self.backend.n_layers + 1)), cfg.extraction)
         st.all_layer_directions = np.stack([all_dirs[l].direction for l in range(self.backend.n_layers + 1)])
         ext = {
+            "control": cfg.extraction.control,
             "seeds": [{"seed_index": s.seed_index, "seed": s.seed, "metrics": s.metrics} for s in seeds],
-            "layers": {str(l): d.summary() for l, d in st.directions.items()},
+            "layers": {str(l): d.summary() for l, d in st.pca_directions.items()},
             "all_layer_stability": {str(l): d.stability for l, d in all_dirs.items()},
             "all_layer_pooled_evr": {str(l): d.pooled_explained_variance_ratio for l, d in all_dirs.items()},
         }
         n_dv = int(cfg.evaluation.controls.get("demo_variation", 0))
-        if n_dv > 0:
+        if fv_mode:
+            # Function-vector inputs (D21): mean head outputs per seed, and each head's indirect effect
+            # on the deranged-label prompts of the first `aie_seeds` seeds (the same demonstrations).
+            k = cfg.extraction.function_vector.aie_seeds
+            st.seed_head_means = np.stack([s.head_means for s in seeds])
+            neg = [p for s in seeds[:k] for p in s.permuted_prompts]
+            base_lp = np.concatenate([s.permuted_logprob_per_token for s in seeds[:k]])
+            t2 = time.time()
+            st.head_effects = head_effects(self.backend, neg, base_lp, st.seed_head_means.mean(axis=0))
+            st.head_effects_n_prompts = len(neg)
+            self.timings[f"head_effects:{name}"] = time.time() - t2
+            top = np.dstack(np.unravel_index(np.argsort(-st.head_effects, axis=None)[:5], st.head_effects.shape))[0]
+            log.info("[%s] head effects over %d deranged prompts in %.0fs: max %.4f, top (layer, head) %s", name,
+                     len(neg), self.timings[f"head_effects:{name}"], float(st.head_effects.max()),
+                     [(int(l), int(h)) for l, h in top])
+            ext["function_vector"] = {"aie_seeds": k, "aie_n_prompts": len(neg)}
+            if n_dv > 0:
+                st.permuted_head_means = permuted_head_means(self.backend, cfg.prompt, splits.extraction, cfg.seed, name, n_dv)
+                ext["demo_variation"] = {"n": n_dv, "construction": "function vector of deranged-label prompts (D21)"}
+        elif n_dv > 0:
             dv = extract_demo_variation(self.backend, cfg.prompt, splits.extraction, cfg.seed, name, n_dv)
             st.demo_variation = demo_variation_directions(dv, self.layers, cfg.extraction)
             ext["demo_variation"] = {
@@ -262,16 +304,18 @@ class Pipeline:
                                      for l, us in st.demo_variation.items()},
             }
         write_json(out / "extraction.json", ext)
-        np.savez_compressed(out / "directions.npz",
-                            layers=np.array(self.layers),
-                            pooled=np.stack([st.directions[l].direction for l in self.layers]),
-                            per_seed=np.stack([st.directions[l].seed_directions for l in self.layers]),
-                            all_layers=st.all_layer_directions)
+        self._write_directions(st)
+        pca_stability = {str(l): st.pca_directions[l].stability for l in self.layers}
+        log.info("[%s] PC1 stability per candidate layer: %s", name, {l: round(st.pca_directions[l].stability, 3) for l in self.layers})
+        if fv_mode:
+            # The control's stability gate is applied to the function vector once the heads are chosen.
+            q["pca_stability"] = pca_stability
+            st.ready = True
+            return st
         st.stable_layers = [l for l in self.layers if st.directions[l].stability >= cfg.qualification.min_stability]
-        q["stability"] = {str(l): st.directions[l].stability for l in self.layers}
+        q["stability"] = pca_stability
         q["stable_layers"] = st.stable_layers
         q["gates"]["stability"] = bool(st.stable_layers)
-        log.info("[%s] stability per candidate layer: %s", name, {l: round(st.directions[l].stability, 3) for l in self.layers})
         if not st.stable_layers:
             self.rejections.add("stability", name, "no_stable_candidate_layer",
                                 {"stability": q["stability"], "min_stability": cfg.qualification.min_stability})
@@ -280,6 +324,91 @@ class Pipeline:
             st.stable_layers = list(self.layers)
         st.ready = True
         return st
+
+    def _write_directions(self, st: TaskState) -> None:
+        arrays: dict[str, np.ndarray] = {
+            "layers": np.array(self.layers),
+            "pooled": np.stack([st.pca_directions[l].direction for l in self.layers]),
+            "per_seed": np.stack([st.pca_directions[l].seed_directions for l in self.layers]),
+            "all_layers": st.all_layer_directions,
+        }
+        if st.fv is not None:
+            arrays.update({
+                "fv": st.fv.vector,
+                "fv_direction": st.fv.direction,
+                "fv_per_seed": st.fv.seed_directions,
+                "fv_heads": np.array([[h["layer"], h["head"]] for h in st.fv.heads], dtype=np.int64),
+                "head_effects": st.head_effects,
+            })
+        np.savez_compressed(self._task_dir(st.name) / "directions.npz", **arrays)
+
+    # ---- phase A2: function vectors (D21) ------------------------------ #
+
+    def _build_function_vectors(self, states: dict[str, TaskState]) -> None:
+        """Rank heads across the tasks that reached extraction, build each task's function vector and
+        make it the control at every candidate layer; apply the stability gate to it."""
+        cfg = self.cfg
+        fvc = cfg.extraction.function_vector
+        effects = {n: st.head_effects for n, st in states.items() if st.head_effects is not None}
+        selection = select_heads(effects, fvc.n_heads, fvc.head_selection)
+        self.metadata["function_vector"] = {
+            "head_selection": fvc.head_selection,
+            "n_heads": fvc.n_heads,
+            "tasks_ranked": sorted(effects),
+            "universal_heads": None if fvc.head_selection != "universal" or not selection else
+            [[l, h, r] for l, h, r, _ in next(iter(selection.values()))],
+        }
+        if fvc.head_selection == "universal" and selection:
+            self.log.info("universal function-vector heads (layer, head, mean effect over %d tasks): %s", len(effects),
+                          [(l, h, round(r, 4)) for l, h, r, _ in next(iter(selection.values()))])
+        for name, sel in selection.items():
+            st = states[name]
+            q = st.qualification
+            assert st.seed_head_means is not None and st.head_effects is not None
+            st.fv = build_function_vector(self.backend, st.seed_head_means, sel)
+            heads = [(h["layer"], h["head"]) for h in st.fv.heads]
+            st.directions = {
+                l: LayerDirection(
+                    layer=l, direction=st.fv.direction, seed_directions=st.fv.seed_directions,
+                    explained_variance_ratio=[], cos_with_mean=[], stability=st.fv.stability,
+                    pooled_explained_variance_ratio=float("nan"), pooled_cos_with_mean=float("nan"),
+                    mean_difference_norm=st.fv.natural_norm, cos_pooled_vs_seeds=st.fv.cos_pooled_vs_seeds,
+                    kind="function_vector",
+                )
+                for l in self.layers
+            }
+            perm = [normalize(compose(self.backend, m, heads)) for m in st.permuted_head_means]
+            st.demo_variation = {l: perm for l in self.layers}
+            cos_pca = {str(l): float(st.fv.direction @ st.pca_directions[l].direction) for l in self.layers}
+            assert st.all_layer_directions is not None
+            cos_pca_all = [float(st.fv.direction @ u) for u in normalize(st.all_layer_directions, axis=1)]
+            info = {
+                "head_selection": fvc.head_selection,
+                "n_heads": fvc.n_heads,
+                **st.fv.summary(),
+                "head_effects": st.head_effects.tolist(),
+                "head_effects_n_prompts": st.head_effects_n_prompts,
+                "cos_with_pca": cos_pca,  # descriptive: the function vector against PC1 at each candidate layer
+                "cos_with_pca_all_layers": cos_pca_all,
+                "demo_variation_cos_with_control": [float(abs(u @ st.fv.direction)) for u in perm],
+            }
+            write_json(self._task_dir(name) / "function_vector.json", info)
+            self._write_directions(st)
+            q["function_vector"] = {k: info[k] for k in ("natural_norm", "heads", "stability", "cos_with_pca")}
+            stable = st.fv.stability >= cfg.qualification.min_stability
+            st.stable_layers = list(self.layers) if stable else []
+            q["stability"] = {str(l): st.fv.stability for l in self.layers}
+            q["stable_layers"] = st.stable_layers
+            q["gates"]["stability"] = stable
+            self.log.info("[%s] function vector: norm %.3f, cross-seed stability %.3f, cos with PC1 per candidate layer %s",
+                          name, st.fv.natural_norm, st.fv.stability, {l: round(c, 3) for l, c in cos_pca.items()})
+            if not stable:
+                self.rejections.add("stability", name, "function_vector_unstable",
+                                    {"stability": st.fv.stability, "min_stability": cfg.qualification.min_stability})
+                if cfg.qualification.enforce:
+                    st.ready = False
+                else:
+                    st.stable_layers = list(self.layers)
 
     # ---- phase B ------------------------------------------------------ #
 
@@ -338,6 +467,13 @@ class Pipeline:
         q["selection"] = {**st.selection.__dict__, "fallback": st.fallback_selection}
         log.info("[%s] selected layer %d, rho %.3g (alpha %.3g)%s", name, st.selection.layer, st.selection.rho,
                  st.selection.alpha, " [FALLBACK]" if st.fallback_selection else "")
+        if st.fv is not None:
+            # The strength the canonical (unscaled) injection would have, in the calibration's units.
+            q["function_vector"]["natural_rho"] = {str(l): st.fv.natural_norm / n for l, n in cal.layer_norms.items()}
+            q["function_vector"]["cos_with_pca_at_selected_layer"] = q["function_vector"]["cos_with_pca"][str(st.selection.layer)]
+            log.info("[%s] function vector's natural rho at the selected layer %.3g (selected rho %.3g); cos with PC1 there %.3f",
+                     name, q["function_vector"]["natural_rho"][str(st.selection.layer)], st.selection.rho,
+                     q["function_vector"]["cos_with_pca_at_selected_layer"])
 
         # 5. held-out steering vs matched controls of every kind ----------
         sel = st.selection
@@ -378,6 +514,8 @@ class Pipeline:
             by_kind_excess[kind] = paired_excess_test(real_diff, mat, brng, n_boot=cfg.calibration.n_boot).__dict__
         ev = {
             "selection": q["selection"],
+            "control": cfg.extraction.control,
+            "function_vector": q.get("function_vector"),
             "baseline": st.base.metrics_dict(),
             "steered": st.steered.metrics_dict(),
             "steering_test": test.__dict__,
@@ -521,12 +659,19 @@ class Pipeline:
             "command": self.command,
             "seed": self.cfg.seed,
             "model": self.metadata.get("model", {}).get("name"),
+            "control": self.cfg.extraction.control,
             "tasks": {
                 n: {
                     "qualified": s.qualified,
                     "gates": s.qualification.get("gates", {}),
                     "selection": s.qualification.get("selection"),
                     "labels": None if s.signature is None else s.signature["labels"],
+                    "function_vector": None if s.fv is None else {
+                        "natural_rho_at_selection": None if s.selection is None else
+                        s.qualification["function_vector"]["natural_rho"][str(s.selection.layer)],
+                        "cos_with_pca_at_selected_layer": s.qualification["function_vector"].get("cos_with_pca_at_selected_layer"),
+                        "stability": s.fv.stability,
+                    },
                 }
                 for n, s in states.items()
             },

@@ -46,6 +46,10 @@ def test_pilot_configs_match_preregistered_sizes():
     assert set(cfg.qualification.gate_control_kinds) == {"isotropic", "orthogonal", "covariance"}
     assert sum(cfg.evaluation.controls[k] for k in cfg.qualification.gate_control_kinds) >= 48  # D20: 16 per kind
     assert cfg.model.batch_size == 128  # D20
+    # D21: the canonical function vector is the control (10 universal heads); PC1 is still extracted
+    assert cfg.extraction.control == "function_vector"
+    assert (cfg.extraction.function_vector.n_heads, cfg.extraction.function_vector.head_selection) == (10, "universal")
+    assert cfg.extraction.function_vector.aie_seeds == 1
     assert cfg.qualification.random_control_max_p <= 0.05 and cfg.calibration.random_screen_max_p <= 0.05
 
 

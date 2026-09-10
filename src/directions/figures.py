@@ -363,7 +363,27 @@ def heatmaps(root: Path, states: dict[str, "TaskState"], cfg: Config) -> None:
         _save(fig, figdir / f"heatmap_{metric}.png", cfg.figures.dpi)
 
 
+def _function_vector_figure(root: Path, st: "TaskState", cfg: Config) -> None:
+    """Average indirect effect of every attention head, with the selected heads marked (D21)."""
+    assert st.head_effects is not None
+    E = st.head_effects
+    fig, ax = plt.subplots(figsize=(max(4.0, 0.22 * E.shape[1] + 1.5), max(3.2, 0.16 * E.shape[0] + 1.2)))
+    lim = float(np.nanmax(np.abs(E))) or 1.0
+    im = ax.imshow(E, aspect="auto", cmap=DIV_CMAP, norm=TwoSlopeNorm(vcenter=0.0, vmin=-lim, vmax=lim), interpolation="nearest")
+    if st.fv is not None:
+        ax.scatter([h["head"] for h in st.fv.heads], [h["layer"] for h in st.fv.heads], marker="s", s=28,
+                   facecolors="none", edgecolors=TEXT, linewidths=1.0, label="selected heads")
+        ax.legend(loc="upper right", fontsize=7)
+    ax.set_xlabel("attention head")
+    ax.set_ylabel("block")
+    ax.set_title(f"{st.name}: head indirect effects on deranged-label prompts (Δ log p / token)", color=TEXT, fontsize=9)
+    fig.colorbar(im, ax=ax, fraction=0.04, pad=0.02)
+    _save(fig, root / "figures" / f"{st.name}_function_vector.png", cfg.figures.dpi)
+
+
 def make_all_figures(root: Path, states: dict[str, "TaskState"], cfg: Config) -> None:
     for st in states.values():
+        if st.head_effects is not None:
+            _function_vector_figure(root, st, cfg)
         task_figures(root, st, cfg)
     heatmaps(root, states, cfg)

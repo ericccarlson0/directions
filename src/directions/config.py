@@ -77,10 +77,31 @@ class QualificationConfig:
 
 
 @dataclass
+class FunctionVectorConfig:
+    """Canonical function-vector extraction after Todd et al. (2024); docs/DECISIONS.md D21.
+
+    n_heads         attention heads summed into the function vector (the paper's default is 10)
+    head_selection  "universal": one head set for all tasks, ranked by the mean indirect effect over the
+                    tasks that reached extraction (the paper's construction); "per_task": each task's own top heads
+    aie_seeds       the indirect effect of a head is measured on the deranged-label prompts of this many
+                    extraction seeds (their positive prompts supply the mean head outputs of every seed)
+    """
+
+    n_heads: int = 10
+    head_selection: str = "universal"
+    aie_seeds: int = 1
+
+
+@dataclass
 class ExtractionConfig:
     n_seeds: int = 3
     center: bool = False  # mean-center differences before PCA (preregistered: off)
     candidate_depth_fractions: list[float] = field(default_factory=lambda: [0.2, 0.3, 0.4, 0.5, 0.6])
+    # The control direction carried into calibration, the gates and the layerwise measurement:
+    #   "pca"              PC1 of the paired few-shot-minus-deranged differences at the layer (D1-D19 protocol)
+    #   "function_vector"  the canonical function vector (D21); the PCA direction is still extracted and reported
+    control: str = "pca"
+    function_vector: FunctionVectorConfig = field(default_factory=FunctionVectorConfig)
 
 
 @dataclass
@@ -234,6 +255,15 @@ def validate_config(cfg: Config) -> None:
         raise ValueError("extraction.candidate_depth_fractions must be non-empty")
     if any(not (0 <= f < 1) for f in cfg.extraction.candidate_depth_fractions):
         raise ValueError("candidate_depth_fractions must lie in [0, 1)")
+    if cfg.extraction.control not in ("pca", "function_vector"):
+        raise ValueError("extraction.control must be 'pca' or 'function_vector'")
+    fv = cfg.extraction.function_vector
+    if fv.n_heads < 1:
+        raise ValueError("extraction.function_vector.n_heads must be >= 1")
+    if fv.head_selection not in ("universal", "per_task"):
+        raise ValueError("extraction.function_vector.head_selection must be 'universal' or 'per_task'")
+    if not (1 <= fv.aie_seeds <= cfg.extraction.n_seeds):
+        raise ValueError("extraction.function_vector.aie_seeds must be between 1 and extraction.n_seeds")
     if not cfg.calibration.rho_grid or any(r <= 0 for r in cfg.calibration.rho_grid):
         raise ValueError("calibration.rho_grid must be non-empty and positive")
     if sorted(cfg.calibration.rho_grid) != list(cfg.calibration.rho_grid):

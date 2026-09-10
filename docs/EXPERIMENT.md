@@ -113,6 +113,17 @@ Normalize \(v_{t,l}\) to unit norm.
 
 Use at least 3 independent extraction seeds (each resamples the demonstrations and the derangement). Report, per seed, the explained-variance ratio and \(\cos(\text{PC1}, \bar d)\), where stability is the minimum pairwise \(|\cos|\) between seed directions. The direction that we carry forward should be PC1 of the pooled differences across seeds.
 
+### Canonical function vector (iteration 4, docs/DECISIONS.md D21)
+
+With `extraction.control: function_vector` the direction carried forward is the function vector of Todd et al. (2024) instead of PC1, built from the same paired prompts:
+
+* for every attention head \((l, j)\), the mean output at the final query token over the positive prompts, \(\bar a_{l,j}\), taken before the attention output projection;
+* the average indirect effect of each head: the mean change of the decision metric (log p per target token) on the deranged-label prompts when the head's output at the query token is replaced by \(\bar a_{l,j}\);
+* one universal head set \(S\): the top \(k = 10\) heads by the mean indirect effect over all tasks that reached extraction;
+* \(\mathrm{FV}_t = \sum_{(l,j) \in S} W_o^{l}[:, j]\, \bar a^{t}_{l,j}\), normalised to unit norm and used at every candidate layer.
+
+Calibration, gates, controls and layerwise measurements are unchanged. Report the natural strength \(\|\mathrm{FV}_t\| / \operatorname{median}\|h_l\|\) at each candidate layer, the cross-seed stability of the per-seed function vectors (the stability gate applies to it), and \(\cos(\mathrm{FV}_t, v_{t,l})\) as a descriptive comparison with PC1. PC1 is still extracted at every read point and remains \(v_{t,l}\) in the direction-specific readouts.
+
 ## Intervention Calibration
 
 Candidate intervention layers:

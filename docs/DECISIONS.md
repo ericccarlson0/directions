@@ -384,3 +384,92 @@ bounded by the control count. Runs from this decision on are not
 control-for-control comparable with iteration 3 (different random control
 draws), but every gate and metric is defined identically. Runs are
 recorded in `STATUS.md` with the control counts they used.
+
+
+## 2026-09-10 — Fourth iteration: the canonical function vector as the control
+
+### D21. The control direction is Todd et al.'s function vector; PC1 stays as the readout direction
+
+`docs/EXPERIMENT.md` names, as the first follow-up after the pilot, replacing
+the PCA construction of the control direction with canonical function-vector
+extraction. The PCA direction (D1–D19) is this project's own construction;
+the function vector of Todd et al. (2024, "Function Vectors in Large Language
+Models", ICLR) is the construction the literature uses for the same object,
+and the question of iteration 4 is whether *that* direction propagates the
+way the PCA direction did. From this decision on, `extraction.control:
+function_vector` in the pilot configs makes the function vector the
+direction that is calibrated, gated, injected and measured layerwise. The
+PCA direction is still extracted at every read point and reported beside it:
+it remains `v_{t,l}` in the `task_alignment` readout `T_l` (D17), which now
+asks how far the function vector's perturbation rotates toward the task's
+contrast direction at each layer (at the injection layer `T_{l*}` is
+`cos(FV, PC1_{l*})` rather than 1 by construction; the exclusion of `l*`
+from the z-mean stays). The PCA direction is **not** used as a null: the
+function vector's controls are the same five kinds as before, and
+`function_vector.json` reports `cos(FV, PC1_l)` as a descriptive number only.
+
+The construction, following the paper, with the choices this pipeline had
+to make:
+
+* **Mean head outputs.** For every attention head, the mean over the
+  *positive* extraction prompts (correct demonstrations, the same prompts
+  the PCA contrast uses) of the head's output at the final query token,
+  taken before the attention output projection (`o_proj`), i.e. the head's
+  own output. One mean per extraction seed, and the pooled mean over seeds.
+* **Head ranking by average indirect effect.** Each head's mean output is
+  patched into the *deranged-label* prompts of the extraction pairs (the
+  paper's shuffled-label corruption; here the permuted prompts of the first
+  `function_vector.aie_seeds` = 1 seed, 64 prompts) at the query token, one
+  head at a time, and the effect is the mean change of the pipeline's
+  decision metric, log p per target token. The paper measures the recovered
+  probability of the correct token; the log-probability is used here so
+  that the ranking speaks the same units as the calibration and the gates.
+  Several heads are patched per forward pass by repeating the prompt list
+  with a per-example patch (`ModelBackend.run(head_patches=...)`);
+  `tests/test_function_vector.py` checks the batched path against one run
+  per head, the per-head decomposition of the attention output against a
+  hook on `o_proj`, and identity patches for exactness.
+* **One universal head set.** `function_vector.head_selection: universal`:
+  the heads are ranked by the mean indirect effect over all tasks that
+  reached extraction and the top `n_heads` = 10 (the paper's default) are
+  used for every task. This is the paper's construction (the heads are a
+  property of the model) and keeps the per-task vectors comparable; the
+  `per_task` alternative is implemented and configurable. The per-task
+  effect of each selected head is reported next to its ranking effect.
+* **The vector.** `FV_t = Σ_{(l,h) ∈ S} W_o^l[:, h] ā^t_{l,h}`, the selected
+  heads' mean outputs mapped into the residual stream through their slices
+  of the output projection (linear, no bias on Qwen3), summed. This is one
+  vector per task, not one per layer; at every candidate layer the control
+  is the same unit direction.
+* **Strength and layer.** The paper adds the raw vector at one layer chosen
+  by a sweep. Here the pipeline's calibration is kept unchanged: the unit
+  direction is injected at the candidate layers with the `ρ` grid in units
+  of the median residual norm, and the selection rule is the preregistered
+  one. The strength the canonical (unscaled) injection would correspond to
+  is reported as `natural_rho` = `||FV|| / median ||h_l||` per candidate
+  layer, so a reader can see whether the calibrated strength is above or
+  below the paper's.
+* **Stability gate.** The cross-seed stability gate (`min_stability` 0.8)
+  is applied to the function vector: the per-seed vectors use each seed's
+  own mean head outputs with the shared head set. The PCA stability is
+  reported (`pca_stability`) but no longer gates.
+* **Structured nulls.** `other_task` controls are the other tasks' function
+  vectors (same construction, same head set). The `demo_variation` null,
+  which for the PCA direction is the same construction without a task
+  contrast, is for the function vector the same construction without a
+  task-correct signal: the function vector of deranged-label prompts (fresh
+  demonstration samples and derangements, one per null seed; same heads).
+  The random kinds are unchanged. No null involves the PCA direction.
+
+Cost: the indirect effects are `L × n_heads` patched passes over 64
+prompts per task (448 head patches on the 0.6B model, packed into ~230
+forward batches of 128), a minute or so per task on the 0.6B model and
+proportionally more on the larger ones; `timings_seconds` records it as
+`head_effects:<task>`. The demonstration-variation null needs one extra
+forward pass per null seed instead of two. Everything else is unchanged.
+
+Consequences: iteration-4 results are not direction-for-direction comparable
+with iteration 3 (a different control), but every gate, metric and null is
+defined identically, and the PCA direction's per-layer readout gives the
+bridge between the two. The change alters the numerical path, so the first
+0.6B run is executed twice and diffed (`directions compare`).

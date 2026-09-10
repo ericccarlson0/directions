@@ -87,6 +87,22 @@ class Intervention:
 
 
 @dataclass
+class HeadPatch:
+    """Replace one attention head's output at each example's query token in block ``layer``.
+
+    The patch applies to the head's slice of the input of the attention output projection
+    (``o_proj``), i.e. the head's output before it is mixed into the residual stream; this is
+    the activation Todd et al. (2024) average and patch for function vectors. ``heads`` is one
+    head index shared by all examples or one per example, shape ``(N,)``; ``values`` is one
+    vector of shape ``(head_dim,)`` or one per example, shape ``(N, head_dim)``.
+    """
+
+    layer: int
+    heads: np.ndarray | int
+    values: np.ndarray
+
+
+@dataclass
 class ForwardResult:
     logprob_sum: np.ndarray  # (N,) teacher-forced log-probability of the target
     logprob_per_token: np.ndarray  # (N,) logprob_sum / n_target_tokens
@@ -94,6 +110,7 @@ class ForwardResult:
     first_token_margin: np.ndarray  # (N,) gold logit minus best competing logit, first target token
     n_target_tokens: np.ndarray  # (N,)
     residuals: np.ndarray | None  # (L+1, N, d) float32 at the final query token, if captured
+    head_outputs: np.ndarray | None = None  # (L, N, n_heads, head_dim) float32 at the query token, if captured
 
     def metrics_dict(self) -> dict[str, float]:
         return {
@@ -142,6 +159,9 @@ class ModelBackend:
         self.blocks = self._find_blocks(self.model)
         self.n_layers = len(self.blocks)
         self.hidden_size = int(self.model.config.hidden_size)
+        self.n_heads = int(self.model.config.num_attention_heads)
+        self.head_dim = int(getattr(self.model.config, "head_dim", self.hidden_size // self.n_heads))
+        self.attn_out = [self._find_attn_out(b) for b in self.blocks]
         self._session: _HookSession | None = None
         self._register_hooks()
 
@@ -188,6 +208,28 @@ class ModelBackend:
                 return obj
         raise ValueError("could not locate the transformer block list on this model")
 
+    @staticmethod
+    def _find_attn_out(block: torch.nn.Module) -> torch.nn.Linear:
+        """The attention output projection of a block (``self_attn.o_proj`` on Qwen/Llama-style models)."""
+        attn = getattr(block, "self_attn", None)
+        proj = getattr(attn, "o_proj", None) if attn is not None else None
+        if not isinstance(proj, torch.nn.Linear):
+            raise ValueError("could not locate the attention output projection (self_attn.o_proj) on this model")
+        return proj
+
+    def head_to_residual(self, layer: int, head: int, z: np.ndarray) -> np.ndarray:
+        """The residual-stream vector head ``head`` of block ``layer`` writes for its output ``z`` (``head_dim``,).
+
+        The output projection is linear (no bias on the supported models), so the attention output is the
+        sum of these per-head terms; a function vector is the sum over its selected heads. float64.
+        """
+        proj = self.attn_out[layer]
+        if proj.bias is not None:
+            raise ValueError("attention output projection with a bias is not supported")
+        W = proj.weight.detach().to(torch.float64).cpu().numpy()  # (d, n_heads * head_dim)
+        s = slice(head * self.head_dim, (head + 1) * self.head_dim)
+        return W[:, s] @ np.asarray(z, dtype=np.float64)
+
     def metadata(self) -> dict[str, Any]:
         n_params = int(sum(p.numel() for p in self.model.parameters()))
         meta = {
@@ -196,6 +238,8 @@ class ModelBackend:
             "architecture": type(self.model).__name__,
             "n_layers": self.n_layers,
             "hidden_size": self.hidden_size,
+            "n_heads": self.n_heads,
+            "head_dim": self.head_dim,
             "vocab_size": int(self.model.config.vocab_size),
             "n_parameters": n_params,
             "dtype": str(self.dtype),
@@ -217,7 +261,18 @@ class ModelBackend:
         L = self.n_layers
         for l, block in enumerate(self.blocks):
             block.register_forward_pre_hook(self._make_pre_hook(l), with_kwargs=True)
+            self.attn_out[l].register_forward_pre_hook(self._make_head_hook(l))
         self.blocks[L - 1].register_forward_hook(self._make_post_hook(L))
+
+    def _make_head_hook(self, layer: int):
+        def hook(module, args):
+            if self._session is None:
+                return None
+            x = args[0]
+            new = self._session.process_heads(layer, x)
+            return None if new is x else (new,) + tuple(args[1:])
+
+        return hook
 
     def _make_pre_hook(self, layer: int):
         def hook(module, args, kwargs):
@@ -275,8 +330,10 @@ class ModelBackend:
         interventions: Sequence[Intervention] = (),
         capture: bool = False,
         batch_size: int | None = None,
+        head_patches: Sequence[HeadPatch] = (),
+        capture_heads: bool = False,
     ) -> ForwardResult:
-        """Teacher-forced forward over ``prompts`` with optional interventions/capture."""
+        """Teacher-forced forward over ``prompts`` with optional interventions/patches/capture."""
         bs = batch_size or self.cfg.batch_size
         outs: list[ForwardResult] = []
         for start in range(0, len(prompts), bs):
@@ -285,7 +342,15 @@ class ModelBackend:
                 Intervention(iv.layer, iv.vectors if iv.vectors.ndim == 1 else iv.vectors[start : start + bs], iv.scale)
                 for iv in interventions
             ]
-            outs.append(self._run_batch(batch, sliced, capture))
+            patches = [
+                HeadPatch(
+                    hp.layer,
+                    hp.heads if np.ndim(hp.heads) == 0 else np.asarray(hp.heads)[start : start + bs],
+                    hp.values if np.ndim(hp.values) == 1 else np.asarray(hp.values)[start : start + bs],
+                )
+                for hp in head_patches
+            ]
+            outs.append(self._run_batch(batch, sliced, capture, patches, capture_heads))
         return _concat_results(outs)
 
     def gradients(self, prompts: Sequence[Prompt], batch_size: int | None = None) -> np.ndarray:
@@ -360,7 +425,14 @@ class ModelBackend:
         margin = gold - masked.max(dim=1).values
         return {"lp_sum": lp_sum, "lp_tok": lp_tok, "em": em, "margin": margin}
 
-    def _run_batch(self, prompts: Sequence[Prompt], interventions: Sequence[Intervention], capture: bool) -> ForwardResult:
+    def _run_batch(
+        self,
+        prompts: Sequence[Prompt],
+        interventions: Sequence[Intervention],
+        capture: bool,
+        head_patches: Sequence[HeadPatch] = (),
+        capture_heads: bool = False,
+    ) -> ForwardResult:
         batch = self._prepare_batch(prompts)
         session = _HookSession(
             n_layers=self.n_layers,
@@ -368,9 +440,14 @@ class ModelBackend:
             interventions=interventions,
             capture=capture,
             device=self.device,
+            head_patches=head_patches,
+            capture_heads=capture_heads,
+            n_heads=self.n_heads,
+            head_dim=self.head_dim,
         )
         sc = self._forward_scores(batch, session)
         residuals = session.stacked() if capture else None
+        heads = session.stacked_heads() if capture_heads else None
         return ForwardResult(
             logprob_sum=sc["lp_sum"].cpu().numpy().astype(np.float64),
             logprob_per_token=sc["lp_tok"].cpu().numpy().astype(np.float64),
@@ -378,6 +455,7 @@ class ModelBackend:
             first_token_margin=sc["margin"].cpu().numpy().astype(np.float64),
             n_target_tokens=batch["n_tgt"].numpy().astype(np.int64),
             residuals=residuals,
+            head_outputs=heads,
         )
 
     def _gradient_batch(self, prompts: Sequence[Prompt]) -> np.ndarray:
@@ -407,6 +485,10 @@ class _HookSession:
         capture: bool,
         device: torch.device,
         grad_capture: bool = False,
+        head_patches: Sequence[HeadPatch] = (),
+        capture_heads: bool = False,
+        n_heads: int = 0,
+        head_dim: int = 0,
     ) -> None:
         self.n_layers = n_layers
         self.query_pos = query_pos
@@ -421,6 +503,40 @@ class _HookSession:
                 raise ValueError(f"intervention layer {iv.layer} outside 0..{n_layers}")
             self.by_layer.setdefault(iv.layer, []).append(iv)
         self.device = device
+        self.n_heads, self.head_dim = n_heads, head_dim
+        self.capture_heads = capture_heads
+        self.captured_heads: dict[int, torch.Tensor] = {}
+        self.patches_by_layer: dict[int, list[HeadPatch]] = {}
+        for hp in head_patches:
+            if not (0 <= hp.layer < n_layers):
+                raise ValueError(f"head patch layer {hp.layer} outside 0..{n_layers - 1}")
+            self.patches_by_layer.setdefault(hp.layer, []).append(hp)
+
+    def process_heads(self, layer: int, x: torch.Tensor) -> torch.Tensor:
+        """Patch/capture per-head outputs (the input of the attention output projection) at the query token."""
+        patches = self.patches_by_layer.get(layer, ())
+        B = self.batch_idx.shape[0]
+        if patches:
+            x = x.clone()
+            cur = x[self.batch_idx, self.query_pos].view(B, self.n_heads, self.head_dim).clone()
+            for hp in patches:
+                heads = torch.as_tensor(np.broadcast_to(np.asarray(hp.heads, dtype=np.int64), (B,)).copy(), device=self.device)
+                vals = np.asarray(hp.values, dtype=np.float32)
+                vals = np.broadcast_to(vals, (B, self.head_dim)).copy()
+                cur[self.batch_idx, heads] = torch.as_tensor(vals, device=self.device).to(cur.dtype)
+            x[self.batch_idx, self.query_pos] = cur.view(B, self.n_heads * self.head_dim)
+        if self.capture_heads:
+            self.captured_heads[layer] = (
+                x[self.batch_idx, self.query_pos].detach().float().cpu().view(B, self.n_heads, self.head_dim)
+            )
+        return x
+
+    def stacked_heads(self) -> np.ndarray:
+        """Per-head outputs at the query token, ``(L, B, n_heads, head_dim)`` float32."""
+        missing = [l for l in range(self.n_layers) if l not in self.captured_heads]
+        if missing:
+            raise RuntimeError(f"head outputs not captured at layers {missing}")
+        return torch.stack([self.captured_heads[l] for l in range(self.n_layers)]).numpy().astype(np.float32)
 
     def process(self, layer: int, hidden: torch.Tensor) -> torch.Tensor:
         ivs = self.by_layer.get(layer, ())
@@ -469,6 +585,7 @@ def _concat_results(parts: list[ForwardResult]) -> ForwardResult:
         first_token_margin=np.concatenate([p.first_token_margin for p in parts]),
         n_target_tokens=np.concatenate([p.n_target_tokens for p in parts]),
         residuals=None if parts[0].residuals is None else np.concatenate([p.residuals for p in parts], axis=1),
+        head_outputs=None if parts[0].head_outputs is None else np.concatenate([p.head_outputs for p in parts], axis=1),
     )
 
 
