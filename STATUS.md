@@ -439,10 +439,14 @@ for antonym.
 The four pilot configs now use 16 isotropic + 16 orthogonal + 16
 covariance-matched controls (48 gate controls, 32 for the primary layerwise
 null; previously 32 + 32 + 32) and `batch_size: 128` (previously 32).
-Everything else is unchanged. Not run yet: the first run is the 0.6B pilot
-through the `run-gpu` workflow on the `fable` branch (see "Next commands"),
-followed by a second run from the same commit for the bit-identity check
-that the batch-size change requires.
+Everything else is unchanged. Runs go through the `run-gpu` workflow, now
+requested by pushing a change to `.github/gpu-run.yaml` (the workflow's
+push trigger; `workflow_dispatch` remains as a manual fallback). First run:
+`pilot3b_qwen3_0.6b_seed20260907` (workflow run 34434269088, commit
+`fbab4d4`, dispatched manually); the request file in this commit asks for
+the replicate `pilot3b_qwen3_0.6b_seed20260907_b` for the bit-identity check
+that the batch-size change requires (same `src/` and configs; only the
+workflow, scripts and docs differ between the two commits).
 
 ## Not yet run / known limitations
 

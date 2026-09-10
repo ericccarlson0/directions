@@ -1,0 +1,13 @@
+# Request a GPU run: change this file, commit, push. The run-gpu workflow triggers on
+# every push that modifies it and runs `command` at the repository root on a RunPod
+# worker (README, "Run on GPUs"; scripts/runpod_request.py validates the fields).
+# Re-requesting an identical command needs a new `request` label, since an unchanged
+# file does not trigger a push run. A manual workflow_dispatch ignores this file.
+request: pilot3b_qwen3_0.6b_seed20260907_b   # label, shown in the workflow summary
+command: uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --run-id pilot3b_qwen3_0.6b_seed20260907_b
+gpu_tier: ADA_24          # memory class (RTX 4090 only); see the Compute section of AGENTS.md
+gpu_type: ""              # exact device name to pin instead of the tier, e.g. "NVIDIA RTX A4500"
+datacenter: EUR-NO-1      # data center of the `directions` network volume
+flash_env: ci             # Flash environment; one run at a time per environment
+timeout_minutes: 300
+max_output_mb: 8

@@ -3,6 +3,11 @@
 # Flow: build + deploy this commit as a Flash app (the private repo's code ships inside the build artifact) ->
 # submit to the `directions-runner` endpoint -> poll -> unpack the results directory into a workflow artifact.
 #
+# Two ways to start a run (scripts/runpod_request.py resolves the parameters either way):
+#   push: commit a change to the request file `.github/gpu-run.yaml` and push it (no Actions write permission
+#         needed, so agents and scripts with git access can request runs; the request is versioned with the code);
+#   workflow_dispatch: the form below; its inputs are used and the request file is ignored.
+#
 # Required secrets: RUNPOD_API_KEY, and RUNPOD_S3_ACCESS_KEY + RUNPOD_S3_SECRET_KEY (S3 API from RunPod) to
 # download results from the worker's network volume.
 # Each dispatch deletes the previous endpoint and creates a fresh one (see scripts/runpod_cleanup.py).
@@ -10,6 +15,9 @@
 name: run-gpu
 
 on:
+  push:
+    paths:
+      - .github/gpu-run.yaml
   workflow_dispatch:
     inputs:
       command:
@@ -37,9 +45,11 @@ on:
         description: "Budget for the base64 results tarball in the job output"
         default: "8"
 
-# Note: one deploy + run at a time.
+# Note: one deploy + run at a time per Flash environment. Push-triggered runs are grouped under `ci`
+# whatever their request file says (the file is only read inside the job), so a push request for
+# another environment still queues behind the `ci` runs.
 concurrency:
-  group: run-gpu-${{ inputs.flash_env }}
+  group: run-gpu-${{ inputs.flash_env || 'ci' }}
   cancel-in-progress: false
 
 env:
@@ -64,7 +74,7 @@ jobs:
       - name: export pinned runtime requirements
         # Flash reads requirements.txt (not pyproject); export the committed lock.
         # --frozen fails if the lock is stale (reproducibility guard).
-        # The worker image has torch + CUDA and Flash auto-excludes torch, but not the nvidia-*/cuda-*/triton 
+        # The worker image has torch + CUDA and Flash auto-excludes torch, but not the nvidia-*/cuda-*/triton
         # wheels the lock pins for Linux; drop them.
         run: |
           uv export --frozen --no-dev --no-hashes --no-emit-project --format requirements-txt \
@@ -79,19 +89,28 @@ jobs:
           uv pip install --python .venv/bin/python --torch-backend cpu \
             -r requirements.txt "runpod-flash==${RUNPOD_FLASH_VERSION}" boto3
 
+      - name: resolve run parameters
+        # workflow_dispatch: the form's inputs; push: the request file. Fails on an invalid request.
+        id: params
+        env:
+          INPUTS_JSON: ${{ toJSON(inputs) }}
+        run: |
+          .venv/bin/python scripts/runpod_request.py --file .github/gpu-run.yaml \
+            --event "${GITHUB_EVENT_NAME}" --inputs-json "${INPUTS_JSON}" >> "$GITHUB_OUTPUT"
+
       - name: remove the previous endpoint
         # flash deploy only knows about endpoints through a .flash pickle, which a fresh runner does not have
         # (a second deploy would fail on the duplicate template name without this).
         env:
-          FLASH_ENV: ${{ inputs.flash_env }}
+          FLASH_ENV: ${{ steps.params.outputs.flash_env }}
         run: .venv/bin/python scripts/runpod_cleanup.py --app directions --env "${FLASH_ENV}" --endpoint-name directions-runner
 
       - name: build and deploy Flash app
         env:
-          DIRECTIONS_GPU_TIER: ${{ inputs.gpu_tier }}
-          DIRECTIONS_GPU_TYPE: ${{ inputs.gpu_type }}
-          DIRECTIONS_DATACENTER: ${{ inputs.datacenter }}
-          FLASH_ENV: ${{ inputs.flash_env }}
+          DIRECTIONS_GPU_TIER: ${{ steps.params.outputs.gpu_tier }}
+          DIRECTIONS_GPU_TYPE: ${{ steps.params.outputs.gpu_type }}
+          DIRECTIONS_DATACENTER: ${{ steps.params.outputs.datacenter }}
+          FLASH_ENV: ${{ steps.params.outputs.flash_env }}
         run: |
           .venv/bin/flash deploy --app directions --env "${FLASH_ENV}" --python-version "${PYTHON_VERSION}"
 
@@ -110,7 +129,7 @@ jobs:
       - name: split command into argv
         id: argv
         env:
-          COMMAND: ${{ inputs.command }}
+          COMMAND: ${{ steps.params.outputs.command }}
         run: |
           argv=$(python -c 'import json, os, shlex; print(json.dumps(shlex.split(os.environ["COMMAND"])))')
           echo "json=$argv" >> "$GITHUB_OUTPUT"
@@ -120,9 +139,9 @@ jobs:
         id: job
         env:
           ARGV_JSON: ${{ steps.argv.outputs.json }}
-          TIMEOUT_MINUTES: ${{ inputs.timeout_minutes }}
-          MAX_OUTPUT_MB: ${{ inputs.max_output_mb }}
-          DATACENTER: ${{ inputs.datacenter }}
+          TIMEOUT_MINUTES: ${{ steps.params.outputs.timeout_minutes }}
+          MAX_OUTPUT_MB: ${{ steps.params.outputs.max_output_mb }}
+          DATACENTER: ${{ steps.params.outputs.datacenter }}
           RUNPOD_S3_ACCESS_KEY: ${{ secrets.RUNPOD_S3_ACCESS_KEY }}
           RUNPOD_S3_SECRET_KEY: ${{ secrets.RUNPOD_S3_SECRET_KEY }}
         run: |
@@ -150,7 +169,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: results-${{ inputs.flash_env }}-${{ github.run_id }}-${{ github.sha }}
+          name: results-${{ steps.params.outputs.flash_env || 'ci' }}-${{ github.run_id }}-${{ github.sha }}
           path: results/remote
           if-no-files-found: warn
 
@@ -158,14 +177,16 @@ jobs:
         if: always()
         env:
           SHA: ${{ github.sha }}
-          GPU_TIER: ${{ inputs.gpu_tier }}
-          GPU_TYPE: ${{ inputs.gpu_type }}
-          DATACENTER: ${{ inputs.datacenter }}
-          COMMAND: ${{ inputs.command }}
+          REQUEST: ${{ steps.params.outputs.request }}
+          GPU_TIER: ${{ steps.params.outputs.gpu_tier }}
+          GPU_TYPE: ${{ steps.params.outputs.gpu_type }}
+          DATACENTER: ${{ steps.params.outputs.datacenter }}
+          COMMAND: ${{ steps.params.outputs.command }}
           ENDPOINT: ${{ steps.endpoint.outputs.url }}
         run: |
           {
             echo "## run-gpu"
+            echo "- trigger: \`${GITHUB_EVENT_NAME}\` (request \`${REQUEST:-unresolved}\`)"
             echo "- commit: \`${SHA}\`"
             echo "- gpu tier: \`${GPU_TIER}\`"
             echo "- gpu type pinned: \`${GPU_TYPE:-none}\`"

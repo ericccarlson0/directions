@@ -4,6 +4,7 @@ Facts about the RunPod path that are perhaps not obvious and perhaps had to be l
 
 ## The flow of a run
 
+0. The workflow starts either from a push that modifies the request file `.github/gpu-run.yaml` (its fields are the run parameters; `scripts/runpod_request.py` validates them inside the job) or from a `workflow_dispatch` form (whose inputs are used instead). The push path exists because a session token with git push access may still lack the Actions write permission that `workflow_dispatch` needs (Claude Code web sessions get a narrowed token: pushes succeed, dispatches return HTTP 403 "Resource not accessible by integration"). The concurrency group of a push run is always `run-gpu-ci`, since the file is only read inside the job.
 1. The workflow builds a `.venv` on the runner with the pipeline's pinned deps (CPU torch) and `runpod-flash`, deletes the previous endpoint in the Flash environment, and runs `flash deploy`, which uploads the repo as an artifact and creates a fresh endpoint attached to the network volume `directions`.
 2. The runner submits one job. The worker unpacks the artifact to `/app`, builds a venv from `uv.lock` (torch from the lock, not from the image), and runs the command with `results/` on local disk.
 3. The child's output streams to the container log, to `results/runner.log`, and to the same file on the volume; the runner tails that file over S3 as it polls (progress shows in the GitHub job log).
