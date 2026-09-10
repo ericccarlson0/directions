@@ -5,7 +5,7 @@ run:
   name: base
   output_root: results
   seed: 0
-  device: auto
+  device: cuda   # fail fast; "auto" silently fell back to the CPU on a worker whose driver could not run the locked torch
   dtype: bfloat16
   notes: "Measurement-validation pilot (docs/EXPERIMENT.md)."
 
