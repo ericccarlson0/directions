@@ -37,14 +37,15 @@ def test_pilot_configs_match_preregistered_sizes():
     names = {t.name for t in cfg.tasks}
     assert {"last_antonym", "arithmetic_words"} <= names and not ({"add_two", "en_fr"} & names)  # D19
     assert cfg.extraction.n_seeds == 3 and not cfg.extraction.center
-    assert sum(cfg.evaluation.controls[k] for k in cfg.evaluation.gate_kinds) >= 64 and cfg.calibration.n_random_screen >= 8
+    assert sum(cfg.evaluation.controls[k] for k in cfg.evaluation.gate_kinds) >= 32 and cfg.calibration.n_random_screen >= 8  # D20
     assert set(cfg.evaluation.controls) == {"isotropic", "orthogonal", "covariance", "other_task", "demo_variation"}
     assert cfg.qualification.enforce
     assert cfg.model.dtype == "bfloat16"
     # D18: paired-excess gate and screen against all three random-direction kinds
     assert cfg.qualification.gate_test == "paired_excess" and cfg.calibration.screen_test == "paired_excess"
     assert set(cfg.qualification.gate_control_kinds) == {"isotropic", "orthogonal", "covariance"}
-    assert sum(cfg.evaluation.controls[k] for k in cfg.qualification.gate_control_kinds) >= 96
+    assert sum(cfg.evaluation.controls[k] for k in cfg.qualification.gate_control_kinds) >= 48  # D20: 16 per kind
+    assert cfg.model.batch_size == 128  # D20
     assert cfg.qualification.random_control_max_p <= 0.05 and cfg.calibration.random_screen_max_p <= 0.05
 
 

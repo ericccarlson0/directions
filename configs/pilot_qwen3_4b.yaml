@@ -1,5 +1,5 @@
 # Measurement-validation pilot, model 3 (docs/EXPERIMENT.md), strengthened
-# protocol (docs/DECISIONS.md D14-D16): 192 held-out examples, ten tasks, 64
+# protocol (docs/DECISIONS.md D14-D16, D20): 192 held-out examples, ten tasks, 32
 # preregistered random controls plus structured nulls.
 # Identical to pilot_qwen3_0.6b.yaml except for `model.name`
 # (enforced by tests/test_configs.py).
@@ -12,7 +12,7 @@ model:
   name: Qwen/Qwen3-4B-Base
   dtype: bfloat16          # model execution; captured activations float32, statistics float64
   device: cuda             # fail fast; "auto" silently fell back to the CPU on a worker whose driver could not run the locked torch
-  batch_size: 32
+  batch_size: 128          # D20: 32 -> 128 for wall time (logits are gathered at the target positions only)
 
 prompt:
   instruction: ""
@@ -55,7 +55,7 @@ qualification:
   min_stability: 0.8                 # min pairwise |cos| of seed PC1s at a candidate layer
   steering_alpha: 0.05               # one-sided paired bootstrap on the evaluation pool
   gate_test: paired_excess           # D18: paired hierarchical bootstrap vs the mean gate control
-  gate_control_kinds: [isotropic, orthogonal, covariance]   # 96 matched random directions
+  gate_control_kinds: [isotropic, orthogonal, covariance]   # 48 matched random directions (D20)
   random_control_max_p: 0.05         # one-sided p of the excess test
 
 extraction:
@@ -80,9 +80,9 @@ evaluation:
   # matched controls on the evaluation pool, by kind (D15); every control is
   # injected at the selected layer with the selected absolute norm
   controls:
-    isotropic: 32                    # preregistered random null (gate), with orthogonal
-    orthogonal: 32
-    covariance: 32                   # random directions from the residual covariance at the layer
+    isotropic: 16                    # preregistered random null (gate), with orthogonal (D20: 32 -> 16)
+    orthogonal: 16
+    covariance: 16                   # random directions from the residual covariance at the layer
     other_task: 9                    # the other tasks' control directions at the same layer
     demo_variation: 8                # PC1 of correct-vs-correct demonstration differences
   gate_kinds: [isotropic, orthogonal]   # primary null of the layerwise metrics (the behavioural gate is qualification.gate_control_kinds)

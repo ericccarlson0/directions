@@ -434,6 +434,16 @@ for antonym.
   again above the other-task null too at +2.8, are the only excesses), as
   in iteration 2.
 
+### Iteration 3b (wall-time reduction; D20; configs changed 2026-09-10)
+
+The four pilot configs now use 16 isotropic + 16 orthogonal + 16
+covariance-matched controls (48 gate controls, 32 for the primary layerwise
+null; previously 32 + 32 + 32) and `batch_size: 128` (previously 32).
+Everything else is unchanged. Not run yet: the first run is the 0.6B pilot
+through the `run-gpu` workflow on the `fable` branch (see "Next commands"),
+followed by a second run from the same commit for the bit-identity check
+that the batch-size change requires.
+
 ## Not yet run / known limitations
 
 - Iteration 3 has one seed per model (run twice for bit-identity); seeds

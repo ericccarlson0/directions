@@ -346,3 +346,41 @@ even on 8B, so it is not in any config (its builder is kept, tested, for
 possible use with longer prompts). The screen looked only at few-shot
 accuracy, never at steering or geometry, so it does not select on the
 outcome variables.
+
+
+## 2026-09-10 — Wall-time reduction of the pilot
+
+### D20. Sixteen controls per random kind, batch size 128
+
+Iteration 3 showed that the paired-excess gate (D18) has far more power than
+the rank gate it replaced: every qualified task/seed pair reached the minimum
+attainable `p = 0.0005` against 96 gate controls, and the gate failed only
+where the excess was essentially zero. The number of random controls no
+longer bounds the attainable p-value (the hierarchical bootstrap resamples
+controls as well as examples, so the null mean is estimated from the pool
+rather than compared with each member), and the wall time of a run is
+dominated by the control profiles (STATUS.md, iteration 2). To shorten runs,
+the three random-direction pools are reduced from 32 to **16 each**
+(`evaluation.controls: isotropic 16, orthogonal 16, covariance 16`), so the
+behavioural gate uses 48 matched directions and the primary layerwise null
+32; the calibration screen (16 controls), the `other_task` (9) and
+`demo_variation` (8) pools are unchanged. The forward-pass `batch_size` goes
+from 32 to **128**: logits are gathered at the target positions only
+(`ModelBackend._forward_scores`), so the batch's memory footprint is
+dominated by the transformer activations, which fit comfortably on a 24 GB
+card for every pilot model. `batch_size` does not enter the numerics of a
+single example beyond the usual kernel-selection effects of a different
+batch shape, so the reproducibility check (two runs of the smallest real
+model from the same commit, `directions compare`) is repeated after this
+change.
+
+Consequences: the per-layer z and empirical p of the layerwise metrics
+against the isotropic+orthogonal null are estimated from 32 rather than 64
+directions (minimum empirical `p` 1/33 instead of 1/65); the per-kind z
+against the covariance-matched null from 16 rather than 32. These are the
+reported, non-gating quantities, and their standard errors grow by about
+√2. The behavioural gate's p-value remains bootstrap-based and is not
+bounded by the control count. Runs from this decision on are not
+control-for-control comparable with iteration 3 (different random control
+draws), but every gate and metric is defined identically. Runs are
+recorded in `STATUS.md` with the control counts they used.
