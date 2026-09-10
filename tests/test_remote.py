@@ -189,3 +189,58 @@ def test_artifact_fingerprints_reads_manifest_and_env(tmp_path: Path, monkeypatc
 def test_artifact_fingerprints_without_manifest_or_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("_FLASH_SOURCE_FINGERPRINT", raising=False)
     assert artifact_fingerprints(tmp_path) == {"code_fingerprint": None, "expected_fingerprint": None}
+
+
+def test_stale_worker_requires_both_fingerprints_to_differ() -> None:
+    from directions.remote import stale_worker
+
+    assert stale_worker({"code_fingerprint": "a", "expected_fingerprint": "b"})
+    assert not stale_worker({"code_fingerprint": "a", "expected_fingerprint": "a"})
+    assert not stale_worker({"code_fingerprint": None, "expected_fingerprint": "b"})
+    assert not stale_worker({"code_fingerprint": "a", "expected_fingerprint": None})
+
+
+def _git_repo(tmp_path: Path) -> Path:
+    import subprocess
+
+    repo = tmp_path / "repo"
+    (repo / "src" / "pkg").mkdir(parents=True)
+    (repo / "src" / "pkg" / "__init__.py").write_text("VALUE = 1\n")
+    (repo / "README.md").write_text("hello\n")
+    env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x",
+           "HOME": str(tmp_path), "PATH": "/usr/bin:/bin:/usr/local/bin"}
+    for cmd in (["git", "init", "-q"], ["git", "add", "."], ["git", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "init"]):
+        subprocess.run(cmd, cwd=repo, check=True, env=env)
+    (repo / "untracked.txt").write_text("not committed\n")
+    return repo
+
+
+def test_pack_source_ships_the_committed_tree_and_unpack_verifies_it(tmp_path: Path) -> None:
+    from directions.remote import pack_source, unpack_source
+
+    repo = _git_repo(tmp_path)
+    shipped = pack_source(repo)
+    assert shipped["source_size_bytes"] > 0 and len(shipped["source_sha256"]) == 64
+    assert pack_source(repo) == shipped  # deterministic (gzip mtime fixed)
+
+    dest = unpack_source(shipped["source_tar_b64"], shipped["source_sha256"], tmp_path / "jobs")
+    assert dest == tmp_path / "jobs" / shipped["source_sha256"][:16]
+    assert (dest / "src" / "pkg" / "__init__.py").read_text() == "VALUE = 1\n"
+    assert not (dest / "untracked.txt").exists()
+
+    (dest / "src" / "pkg" / "__init__.py").write_text("VALUE = 2\n")
+    assert unpack_source(shipped["source_tar_b64"], shipped["source_sha256"], tmp_path / "jobs") == dest
+    assert (dest / "src" / "pkg" / "__init__.py").read_text() == "VALUE = 2\n"  # complete copy is reused as is
+
+    (dest / ".source_sha256").write_text("stale")
+    unpack_source(shipped["source_tar_b64"], shipped["source_sha256"], tmp_path / "jobs")
+    assert (dest / "src" / "pkg" / "__init__.py").read_text() == "VALUE = 1\n"  # incomplete copy is replaced
+
+
+def test_unpack_source_rejects_a_wrong_digest(tmp_path: Path) -> None:
+    from directions.remote import pack_source, unpack_source
+
+    shipped = pack_source(_git_repo(tmp_path))
+    with pytest.raises(ValueError, match="digest mismatch"):
+        unpack_source(shipped["source_tar_b64"], "0" * 64, tmp_path / "jobs")
+    assert not (tmp_path / "jobs").exists()

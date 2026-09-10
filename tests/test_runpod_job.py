@@ -1,3 +1,4 @@
+import json
 import importlib.util
 import itertools
 from pathlib import Path
@@ -194,13 +195,13 @@ def test_collect_downloads_volume_results(tmp_path: Path) -> None:
     assert seen == [("results/r1", tmp_path / "out")]
 
 
-def test_collect_fails_on_a_stale_worker(tmp_path: Path) -> None:
+def test_collect_fails_when_the_worker_reports_no_shipped_source(tmp_path: Path) -> None:
     final = _completed(returncode=0, log_tail="", results_tar_b64=None, code_fingerprint="old", expected_fingerprint="new")
-    assert runpod_job.collect(final, tmp_path / "out") == 1
+    assert runpod_job.collect(final, tmp_path / "out", expected_source="a" * 64) == 1
 
 
-def test_collect_accepts_matching_fingerprints(tmp_path: Path) -> None:
-    final = _completed(returncode=0, log_tail="", results_tar_b64=None, code_fingerprint="same", expected_fingerprint="same")
+def test_collect_without_an_expected_source_does_not_verify(tmp_path: Path) -> None:
+    final = _completed(returncode=0, log_tail="", results_tar_b64=None, code_fingerprint="old", expected_fingerprint="new")
     assert runpod_job.collect(final, tmp_path / "out") == 0
 
 
@@ -216,3 +217,149 @@ def test_main_requires_s3_keys_before_submitting_for_volume_results(monkeypatch:
     monkeypatch.setattr(runpod_job, "submit", lambda *a, **k: pytest.fail("submitted without S3 keys"))
 
     assert runpod_job.main(["--endpoint-url", ENDPOINT, "--argv-json", '["python"]', "--results-name", "r1"]) == 1
+
+
+SHIPPED = "a" * 64
+
+
+def _stale() -> dict:
+    """An old handler that ran (or refused) without reporting the shipped digest."""
+    return _completed(returncode=0, code_fingerprint="old", expected_fingerprint="new")
+
+
+def _patch_run(monkeypatch: pytest.MonkeyPatch, finals: list[dict]) -> tuple[list[str], list[float]]:
+    ids = iter(f"job{i}" for i in itertools.count(1))
+    submitted: list[str] = []
+    slept: list[float] = []
+    finals_iter = iter(finals)
+
+    def fake_submit(endpoint_url, api_key, job_input):
+        submitted.append(next(ids))
+        return submitted[-1]
+
+    monkeypatch.setattr(runpod_job, "submit", fake_submit)
+    monkeypatch.setattr(runpod_job, "wait", lambda *a, **k: next(finals_iter))
+    monkeypatch.setattr(runpod_job.time, "sleep", lambda s: slept.append(s))
+    return submitted, slept
+
+
+def test_run_resubmits_after_a_stale_worker(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    good = _completed(returncode=0, log_tail="", results_tar_b64=None, source_sha256=SHIPPED, handler_stale=True,
+                      code_fingerprint="old", expected_fingerprint="new")
+    submitted, slept = _patch_run(monkeypatch, [_stale(), _stale(), good])
+    job_id_file = tmp_path / "job-id"
+    job = {"source_sha256": SHIPPED}
+
+    final = runpod_job.run(ENDPOINT, API_KEY, job, 100, 0, job_id_file=job_id_file, stale_retries=3, stale_wait_s=7)
+
+    assert final is good
+    assert submitted == ["job1", "job2", "job3"] and slept == [7, 7]
+    assert job_id_file.read_text() == "job3"
+    assert runpod_job.collect(final, tmp_path / "out", expected_source=SHIPPED) == 0  # stale handler, right source
+
+
+def test_run_gives_up_after_the_retries_and_collect_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    submitted, slept = _patch_run(monkeypatch, [_stale()] * 3)
+
+    final = runpod_job.run(ENDPOINT, API_KEY, {"source_sha256": SHIPPED}, 100, 0, stale_retries=2, stale_wait_s=1)
+
+    assert runpod_job.is_stale(final, SHIPPED)
+    assert submitted == ["job1", "job2", "job3"] and slept == [1, 1]
+    assert runpod_job.collect(final, tmp_path / "out", expected_source=SHIPPED) == 1
+
+
+def test_run_does_not_retry_a_failed_or_fresh_job(monkeypatch: pytest.MonkeyPatch) -> None:
+    failed = {"status": "FAILED", "output": {}, "error": "CUDA out of memory"}
+    submitted, slept = _patch_run(monkeypatch, [failed])
+    assert runpod_job.run(ENDPOINT, API_KEY, {"source_sha256": SHIPPED}, 100, 0) is failed
+    assert submitted == ["job1"] and slept == []
+    assert not runpod_job.is_stale(failed, SHIPPED)
+    assert not runpod_job.is_stale(_completed(returncode=0, source_sha256=SHIPPED), SHIPPED)
+    assert not runpod_job.is_stale(_stale(), None)  # no expected digest: nothing to verify
+
+
+def test_is_stale_with_shipped_source_means_the_worker_did_not_run_it() -> None:
+    ran = _completed(returncode=0, source_sha256=SHIPPED, code_fingerprint="old", expected_fingerprint="new")
+    assert not runpod_job.is_stale(ran, SHIPPED)  # a stale handler that ran the shipped tree is fine
+    old_handler = _completed(returncode=0, code_fingerprint="old", expected_fingerprint="new")
+    assert runpod_job.is_stale(old_handler, SHIPPED)
+    assert runpod_job.is_stale(_completed(returncode=0, source_sha256="b" * 64), SHIPPED)
+
+
+def test_collect_with_shipped_source_warns_on_a_stale_handler_but_succeeds(tmp_path: Path, capsys) -> None:
+    final = _completed(returncode=0, log_tail="", results_tar_b64=None, source_sha256=SHIPPED, source_dir="/app/jobs/a",
+                       handler_stale=True, code_fingerprint="old", expected_fingerprint="new")
+    assert runpod_job.collect(final, tmp_path / "out", expected_source=SHIPPED) == 0
+    assert "harmless with shipped source" in capsys.readouterr().err
+
+
+def test_collect_with_shipped_source_fails_when_the_worker_ran_something_else(tmp_path: Path, capsys) -> None:
+    final = _completed(returncode=0, log_tail="", results_tar_b64=None, code_fingerprint="same", expected_fingerprint="same")
+    assert runpod_job.collect(final, tmp_path / "out", expected_source=SHIPPED) == 1
+    assert "did not run the shipped source" in capsys.readouterr().err
+
+
+def test_run_retries_when_an_old_handler_ignores_the_shipped_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    old = _completed(returncode=0, code_fingerprint="old", expected_fingerprint="new")
+    good = _completed(returncode=0, source_sha256=SHIPPED)
+    submitted, slept = _patch_run(monkeypatch, [old, good])
+    assert runpod_job.run(ENDPOINT, API_KEY, {"source_sha256": SHIPPED}, 100, 0, stale_wait_s=3) is good
+    assert submitted == ["job1", "job2"] and slept == [3]
+
+
+def test_main_ships_the_source_tree(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("RUNPOD_API_KEY", API_KEY)
+    seen: dict = {}
+
+    def fake_run(endpoint_url, api_key, job_input, *a, **k):
+        seen.update(job_input)
+        return _completed(returncode=0, log_tail="", results_tar_b64=None, source_sha256=job_input["source_sha256"])
+
+    monkeypatch.setattr(runpod_job, "run", fake_run)
+    monkeypatch.setattr(runpod_job, "pack_source", lambda root, commit: {"source_tar_b64": "x", "source_sha256": SHIPPED, "source_size_bytes": 3})
+
+    assert runpod_job.main(["--endpoint-url", ENDPOINT, "--argv-json", '["python"]', "--out", str(tmp_path)]) == 0
+    assert seen["source_sha256"] == SHIPPED and seen["source_tar_b64"] == "x"  # always shipped, no flag needed
+
+
+def test_is_stale_recognises_an_old_handler_rejecting_shipped_inputs() -> None:
+    failed = {"status": "FAILED", "error": "run_experiment() got an unexpected keyword argument 'source_sha256'", "workerId": "w1"}
+    assert runpod_job.is_stale(failed, SHIPPED)
+    assert not runpod_job.is_stale(failed, None)
+    assert not runpod_job.is_stale({"status": "FAILED", "error": "CUDA out of memory"}, SHIPPED)
+
+
+def test_run_terminates_the_stale_worker_before_resubmitting(monkeypatch: pytest.MonkeyPatch) -> None:
+    failed = {"status": "FAILED", "error": "run_experiment() got an unexpected keyword argument 'source_tar_b64'", "workerId": "w1"}
+    good = _completed(returncode=0, source_sha256=SHIPPED)
+    submitted, slept = _patch_run(monkeypatch, [failed, good])
+    terminated: list[tuple[str, str]] = []
+    monkeypatch.setattr(runpod_job, "terminate_worker", lambda api_key, worker_id: terminated.append((api_key, worker_id)) or True)
+
+    assert runpod_job.run(ENDPOINT, API_KEY, {"source_sha256": SHIPPED}, 100, 0, stale_wait_s=2) is good
+    assert terminated == [(API_KEY, "w1")] and submitted == ["job1", "job2"] and slept == [2]
+
+
+def test_terminate_worker_posts_the_mutation_and_reports_rejections(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    import io
+
+    sent: list[dict] = []
+
+    class FakeResponse(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout=0):
+        sent.append(json.loads(req.data))
+        assert req.get_header("User-agent") == runpod_job.USER_AGENT
+        body = {"errors": [{"message": "no"}]} if len(sent) > 1 else {"data": {"podTerminate": None}}
+        return FakeResponse(json.dumps(body).encode())
+
+    monkeypatch.setattr(runpod_job.urllib.request, "urlopen", fake_urlopen)
+    assert runpod_job.terminate_worker(API_KEY, "w1") is True
+    assert sent[0]["variables"] == {"input": {"podId": "w1"}}
+    assert runpod_job.terminate_worker(API_KEY, "w2") is False
+    assert "rejected" in capsys.readouterr().err

@@ -121,3 +121,22 @@ def test_main_succeeds_with_nothing_to_delete(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setenv("RUNPOD_API_KEY", API_KEY)
     _patch_graphql(monkeypatch, None, None)
     assert runpod_cleanup.main(["--app", APP, "--env", ENV, "--endpoint-name", ENDPOINT_NAME]) == 0
+
+
+ENDPOINTS = [{"id": "e1", "name": "directions-runner"}, {"id": "e2", "name": "other"}]
+
+
+def test_endpoint_exists_matches_id_and_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(runpod_cleanup, "find_endpoints", lambda app, env, key: ENDPOINTS)
+    assert runpod_cleanup.endpoint_exists("directions", "ci", "directions-runner", "e1", "k")
+    assert not runpod_cleanup.endpoint_exists("directions", "ci", "directions-runner", "e2", "k")  # other name
+    assert not runpod_cleanup.endpoint_exists("directions", "ci", "directions-runner", "e3", "k")
+
+
+def test_main_exists_mode_deletes_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("RUNPOD_API_KEY", "k")
+    monkeypatch.setattr(runpod_cleanup, "find_endpoints", lambda app, env, key: ENDPOINTS)
+    monkeypatch.setattr(runpod_cleanup, "delete_endpoints", lambda *a: pytest.fail("deleted in --exists mode"))
+    args = ["--app", "directions", "--env", "ci", "--endpoint-name", "directions-runner"]
+    assert runpod_cleanup.main([*args, "--exists", "e1"]) == 0
+    assert runpod_cleanup.main([*args, "--exists", "e3"]) == 3

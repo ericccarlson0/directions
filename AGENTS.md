@@ -33,7 +33,9 @@ After a successful experimental milestone:
 
 ## Compute
 
-GPU runs go through the `run-gpu` workflow (see `README.md`). Be sure to think through the GPU tier yourself (the following heuristics are standard):
+GPU runs go through the `run-gpu` workflow (see `README.md`): request one by editing `.github/gpu-run.yaml`, committing and pushing (the workflow triggers on pushes that change that file; a manual `workflow_dispatch` is the fallback and needs Actions write permission).
+
+Be sure to think through the GPU tier yourself (the following heuristics are standard):
 
 - Weights: bf16 needs 2 bytes per parameter (e.g. 8B ≈ 16 GB, 32B ≈ 64 GB). Add 25% or so for activations, the KV cache and captured residuals (prompts here are brief and no gradients are stored, so activations should not occupy too much). Pick the smallest tier whose memory exceeds that total. Do not quantize to fit a smaller tier (the spec forbids it, as well).
 - A tier is a memory class, not an architecture: `AMPERE_24` holds the A5000, the L4 and the 3090, for instance (whereas `ADA_24` holds only RTX 4090). Two runs on the same tier can land on different architectures, which can have different numerics. When comparability (bit-identical diff) with earlier runs matters, pin the exact card with the workflow's `gpu_type` input (the device name in the earlier run's `run_metadata.json`) and record it with the run.
