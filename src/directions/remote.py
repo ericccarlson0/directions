@@ -2,9 +2,11 @@
 
 Two halves:
 
-* the worker side (``experiments/remote.py``) calls :func:`execute` to run one command inside the deployed
-  artifact and return the results directory as a base64 tarball in the job output;
-* the runner side (``scripts/runpod_job.py``) calls :func:`unpack_results` to turn that tarball back into files.
+* the worker side (``experiments/remote.py``) calls :func:`unpack_source` to lay out the tree the job ships
+  and :func:`execute` to run one command in it, leaving the results on the network volume (or returning
+  them as a base64 tarball in the job output);
+* the runner side (``scripts/runpod_job.py``) calls :func:`pack_source` to ship the checked-out commit and
+  :func:`unpack_results` to turn a returned tarball back into files.
 
 Everything here is standard-library only (testable without the Flash SDK or a GPU).
 """
@@ -12,6 +14,8 @@ Everything here is standard-library only (testable without the Flash SDK or a GP
 from __future__ import annotations
 
 import base64
+import gzip
+import hashlib
 import io
 import json
 import os
@@ -81,17 +85,56 @@ def pack_results(results_dir: Path, max_output_mb: float) -> dict[str, Any]:
     }
 
 
-def unpack_results(results_tar_b64: str, dest: Path) -> None:
-    """Inverse of :func:`pack_results`; refuses archive members that escape ``dest``."""
+def _safe_extract(raw_tar_gz: bytes, dest: Path) -> None:
+    """Extract a gzipped tar into ``dest``; refuses archive members that escape it."""
     dest = Path(dest).resolve()
     dest.mkdir(parents=True, exist_ok=True)
-    raw = base64.b64decode(results_tar_b64)
-    with tarfile.open(fileobj=io.BytesIO(raw), mode="r:gz") as tar:
+    with tarfile.open(fileobj=io.BytesIO(raw_tar_gz), mode="r:gz") as tar:
         for member in tar.getmembers():
             target = (dest / member.name).resolve()
             if target != dest and dest not in target.parents:
                 raise ValueError(f"archive member escapes destination: {member.name!r}")
         tar.extractall(dest)
+
+
+def unpack_results(results_tar_b64: str, dest: Path) -> None:
+    """Inverse of :func:`pack_results`; refuses archive members that escape ``dest``."""
+    _safe_extract(base64.b64decode(results_tar_b64), Path(dest))
+
+
+SOURCE_JOBS_DIR = "jobs"
+
+
+def pack_source(root: Path, commit: str = "HEAD") -> dict[str, Any]:
+    """The committed tree of ``commit`` (``git archive``), gzipped and base64-encoded, with its SHA-256.
+
+    Shipping the source inside the job makes a run independent of which build the worker unpacked:
+    Flash workers were observed running the *previous* deploy's artifact when a run started within
+    ~15 min of the previous one (docs/INFRA.md), so the deployed artifact only provides the handler.
+    """
+    tar = subprocess.run(
+        ["git", "-C", str(root), "archive", "--format=tar", commit], check=True, capture_output=True
+    ).stdout
+    gz = gzip.compress(tar, mtime=0)
+    digest = hashlib.sha256(gz).hexdigest()
+    return {"source_tar_b64": base64.b64encode(gz).decode("ascii"), "source_sha256": digest, "source_size_bytes": len(gz)}
+
+
+def unpack_source(source_tar_b64: str, source_sha256: str | None, jobs_root: Path) -> Path:
+    """Verify the digest and extract the shipped tree into ``jobs_root/<digest prefix>``; reuse a complete copy."""
+    raw = base64.b64decode(source_tar_b64)
+    digest = hashlib.sha256(raw).hexdigest()
+    if digest != source_sha256:
+        raise ValueError(f"shipped source digest mismatch: got {digest[:12]}, job says {str(source_sha256)[:12]}")
+    dest = Path(jobs_root) / digest[:16]
+    marker = dest / ".source_sha256"
+    if marker.is_file() and marker.read_text().strip() == digest:
+        return dest
+    if dest.exists():
+        shutil.rmtree(dest)
+    _safe_extract(raw, dest)
+    marker.write_text(digest)
+    return dest
 
 
 def _environment_metadata() -> dict[str, Any]:
@@ -126,6 +169,17 @@ def artifact_fingerprints(root: Path) -> dict[str, str | None]:
         except (OSError, ValueError):
             on_disk = None
     return {"code_fingerprint": on_disk, "expected_fingerprint": os.environ.get("_FLASH_SOURCE_FINGERPRINT")}
+
+
+def stale_worker(fingerprints: dict[str, str | None]) -> bool:
+    """True when both fingerprints are known and differ: the worker unpacked a previous build.
+
+    Observed even with FlashBoot off when a run starts seconds after the previous one ended (2026-09-10): the
+    handler must check this *before* running anything, so a stale worker costs seconds rather than a full
+    experiment, and the runner can wait for the worker to scale down and resubmit.
+    """
+    code, expected = fingerprints.get("code_fingerprint"), fingerprints.get("expected_fingerprint")
+    return bool(code and expected and code != expected)
 
 
 def _run_streaming(

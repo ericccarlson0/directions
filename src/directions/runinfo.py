@@ -6,6 +6,7 @@ import datetime as _dt
 import hashlib
 import json
 import logging
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -26,6 +27,9 @@ def git_info(cwd: Path | None = None) -> dict[str, Any]:
 
     commit = run("rev-parse", "HEAD")
     status = run("status", "--porcelain")
+    if commit is None and os.environ.get("DIRECTIONS_GIT_COMMIT"):
+        # A shipped `git archive` tree has no .git; the RunPod handler passes the commit it was given.
+        return {"commit": os.environ["DIRECTIONS_GIT_COMMIT"], "dirty": False, "branch": None, "source": "shipped"}
     return {
         "commit": commit,
         "dirty": None if status is None else bool(status),

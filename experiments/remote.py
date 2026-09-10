@@ -1,7 +1,13 @@
-"""Flash entrypoint: runs an arbitrary command inside the deployed artifact and leaves the results on a network volume.
+"""Flash entrypoint: runs an arbitrary command inside the source tree a job ships and leaves the results on a
+network volume.
 
-Deployed by ``flash deploy`` (see ``.github/workflows/run-gpu.yml``). The artifact root is the repository root;
-``src/`` is put on ``sys.path`` and ``PYTHONPATH`` for the child process; the research CLI never imports Flash.
+Deployed by ``flash deploy`` from a staging directory that holds only this file and the ``directions.remote``
+helpers (``scripts/runpod_stage.py``; see ``.github/workflows/run-gpu.yml``), so the artifact root ``/app``
+contains no experiment code. The research CLI never imports Flash.
+
+The runner ships the checked-out commit inside every job (``source_tar_b64`` + ``source_sha256``,
+``directions.remote.pack_source``); the handler verifies the digest, unpacks it under ``/app/jobs/<digest>`` and
+runs the command there with that tree's ``src/`` on ``PYTHONPATH``.
 
 A network volume (mounted at ``/runpod-volume``) receives ``results/<results_name>`` and holds the Hugging Face
 cache. The runner downloads results through RunPod's S3-compatible API. Without a mounted volume (local or smoke
@@ -55,9 +61,7 @@ VOLUME = NetworkVolume(
     min_cuda_version=os.environ.get("DIRECTIONS_MIN_CUDA", "13.0"),
     idle_timeout=30,  # seconds a warm worker lingers
     execution_timeout_ms=0,  # unlimited; the GitHub job enforces the wall clock
-    # FlashBoot restores workers from a snapshot of an earlier boot on the same image, /app included, so
-    # after a redeploy workers ran the previous build (observed 2026-09-09). Off: every worker unpacks the
-    # current artifact at start.
+    # off: every worker unpacks the current artifact at start
     flashboot=False,
 )
 async def run_experiment(
@@ -66,23 +70,42 @@ async def run_experiment(
     max_output_mb: float = 8.0,
     git_commit: str | None = None,
     results_name: str | None = None,
+    source_tar_b64: str | None = None,
+    source_sha256: str | None = None,
+    **unknown_inputs: object,
 ) -> dict:
-    """Run ``argv`` at the artifact root; results go to the volume: ``results/<results_name>``."""
-    from directions.remote import artifact_fingerprints, execute
+    """Run ``argv`` at the root of the shipped tree (else the artifact); results go to ``results/<results_name>``.
 
-    extra_env = {"PYTHONPATH": str(SRC), "PYTHONUNBUFFERED": "1"}
+    Unknown inputs are reported, not rejected: a worker may hold an older handler than the runner expects
+    (docs/INFRA.md), and a signature error would surface as a FAILED job instead of a diagnosable output.
+    """
+    from directions.remote import SOURCE_JOBS_DIR, artifact_fingerprints, execute, stale_worker, unpack_source
+
+    fingerprints = artifact_fingerprints(ROOT)
+    info: dict = {"handler_stale": stale_worker(fingerprints), **fingerprints}
+    if unknown_inputs:
+        info["unknown_inputs"] = sorted(unknown_inputs)
+        print(f"ignoring unknown job inputs {info['unknown_inputs']} (handler older than the runner?)")
+    if not source_tar_b64:
+        # The artifact holds only this handler; there is nothing else to run.
+        raise ValueError("the job did not ship its source tree (scripts/runpod_job.py always does)")
+    root = unpack_source(source_tar_b64, source_sha256, ROOT / SOURCE_JOBS_DIR)
+    info.update({"source_sha256": source_sha256, "source_dir": str(root)})
+    print(f"running shipped source {str(source_sha256)[:12]} in {root}")
+
+    extra_env = {"PYTHONPATH": str(root / "src"), "PYTHONUNBUFFERED": "1"}
     if git_commit:
         extra_env["DIRECTIONS_GIT_COMMIT"] = git_commit
     if VOLUME_ROOT.is_dir():
         extra_env["HF_HOME"] = str(VOLUME_ROOT / "hf")
     result = execute(
         argv=argv,
-        cwd=ROOT,
+        cwd=root,
         results_dir=results_dir,
         max_output_mb=max_output_mb,
         extra_env=extra_env,
         volume_root=VOLUME_ROOT,
         results_name=results_name,
     )
-    result.update(artifact_fingerprints(ROOT))
+    result.update(info)
     return result

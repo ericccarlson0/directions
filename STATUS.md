@@ -441,12 +441,52 @@ covariance-matched controls (48 gate controls, 32 for the primary layerwise
 null; previously 32 + 32 + 32) and `batch_size: 128` (previously 32).
 Everything else is unchanged. Runs go through the `run-gpu` workflow, now
 requested by pushing a change to `.github/gpu-run.yaml` (the workflow's
-push trigger; `workflow_dispatch` remains as a manual fallback). First run:
-`pilot3b_qwen3_0.6b_seed20260907` (workflow run 34434269088, commit
-`fbab4d4`, dispatched manually); the request file in this commit asks for
-the replicate `pilot3b_qwen3_0.6b_seed20260907_b` for the bit-identity check
-that the batch-size change requires (same `src/` and configs; only the
-workflow, scripts and docs differ between the two commits).
+push trigger; `workflow_dispatch` remains as a manual fallback).
+
+```
+# workflow run 34434269088 (manual dispatch), commit fbab4d4, RTX 4090 (ADA_24), EUR-NO-1
+uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --run-id pilot3b_qwen3_0.6b_seed20260907
+```
+
+Wall time 8.4 min for the pipeline (12.5 min for the GitHub job including the
+deploy), against 41.8 min (46 min) for the same config at 32 + 32 + 32
+controls and batch size 32 the day before (run 34409519341, commit `29a3e01`,
+same card): the per-task measurement stage went from 106–1019 s to a flat
+49–55 s. Same seed, same 8/10 tasks past the few-shot gate (the composites
+fail on 0.6B as before), all 8 qualified with excess p = 0.0005 against the
+48 gate controls:
+
+| task | sel (layer, ρ) | Δ log p/token | excess vs cov / other-task / demo (p) | labels | cum log G (z iso/cov/other) | d_eff |
+|---|---|---|---|---|---|---|
+| antonym | (8, 0.1) | +0.053 | +0.05 (0.04) / +0.12 (0.000) / −0.05 (0.90) | cascade+amp | 2.02 (−0.8/−2.0/−0.8) | 16.5 → 8.3 |
+| arithmetic | (8, 0.4) | +0.067 | +0.11 / +0.04 / +0.08 (all ≤ 0.001) | cascade+amp | 1.61 (−2.0/−2.9/−1.7) | 11.1 → 10.6 |
+| number_to_words | (8, 0.1) | +0.057 | +0.05 / +0.06 / +0.07 (all ≤ 0.001) | cascade+amp | 1.91 (−1.1/−2.0/+0.3) | 21.9 → 12.6 |
+| past_tense | (8, 0.2) | +0.045 | +0.08 (0.000) / −0.00 (0.50) / +0.03 (0.33) | cascade+amp | 2.09 (−0.2/−1.6/+1.4) | 13.4 → 13.0 |
+| plural | (8, 0.5) | +0.182 | +0.31 / +0.19 / +0.36 (all ≤ 0.001) | cascade+amp | 2.09 (−0.2/−1.3/+2.0) | 11.0 → 14.0 |
+| present_participle | (6, 0.1) | +0.057 | +0.09 (0.000) / +0.02 (0.09) / +0.05 (0.01) | cascade+amp | 3.10 (+4.7/+1.9/+0.8) | 23.0 → 11.9 |
+| singular | (8, 1.0) | +0.265 | +0.76 (0.002) / +0.16 (0.06) / −0.00 (0.51) | cascade+amp+expansion | 1.68 (−1.6/−1.6/−1.5) | 11.8 → 22.5 |
+| uppercase | (6, 0.1) | +0.096 | +0.11 / +0.03 / +0.12 (all ≤ 0.001) | cascade+amp | 3.20 (+5.1/+2.1/+1.0) | 15.6 → 11.3 |
+
+Compared with the 96-control run of the previous day, six of eight
+selections are identical; present_participle moved from (8, 0.4) to (6, 0.1)
+and singular from ρ 0.8 to 1.0 (the calibration screen draws new random
+controls, so the first reliable point can move). Every held-out effect,
+every per-kind excess conclusion (the real direction beats covariance-matched
+directions everywhere; other-task directions steer past_tense, singular and
+present_participle as well as their own; demonstration-variation directions
+beat antonym) and every profile label is the same. Cumulative log G and its
+z-scores agree to within 0.1–0.3 z, as expected from the same direction
+against a half-sized null.
+
+Bit-identity check (required after the batch-size change): the replicate
+`pilot3b_qwen3_0.6b_seed20260907_b` was requested through the new push
+trigger (run 34434569577, commit `eb7b605`). The pilot completed on the
+worker in 539 s, but the runner rejected the results because a worker
+holding the *previous* build (fbab4d4, whose `src/` and configs are
+identical) served the job three seconds after run 1 ended (docs/INFRA.md,
+Flash section). The handler now refuses stale workers before running and
+the runner resubmits after they scale down; the replicate is re-requested
+by the request file of the commit that adds this (results below when run).
 
 ## Not yet run / known limitations
 

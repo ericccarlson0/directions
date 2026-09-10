@@ -21,8 +21,10 @@ def _write(tmp_path: Path, text: str) -> Path:
 
 def test_committed_request_file_is_valid() -> None:
     params = runpod_request.load_request(REPO / ".github" / "gpu-run.yaml")
-    assert params["command"].startswith("uv run directions ")
+    assert params["command"]
     assert params["gpu_tier"] in runpod_request.GPU_TIERS
+    assert params["gpu_type"] == ""  # `gpu_type: ""  # comment` must not keep the quotes (run 34491675423)
+    assert params["flash_env"] == "ci" and params["datacenter"] == "EUR-NO-1"
 
 
 def test_push_reads_the_file_and_fills_defaults(tmp_path: Path) -> None:
@@ -66,12 +68,39 @@ def test_dispatch_requires_a_command() -> None:
         (REQUEST + "nonsense: 1\n", "unknown keys"),
         (REQUEST + "gpu_type: [a]\n", "scalar"),
         ("- a\n- b\n", "mapping"),
-        ("request: r\ncommand: |\n  a\n  b\n", "single line"),
+        ("request: r\ncommand: |\n  a\n  b\n", "one line"),
+        ("request: r\nrequest: s\ncommand: x\n", "duplicate key"),
+        ("request: r\ncommand x\n", "expected `key: value`"),
+        ("request: r\n1bad: x\ncommand: x\n", "invalid key"),
+        ("request: r\ncommand: 'unbalanced\n", "unbalanced quote"),
     ],
 )
 def test_invalid_requests_are_rejected(tmp_path: Path, text: str, message: str) -> None:
     with pytest.raises(runpod_request.RequestError, match=message):
         runpod_request.load_request(_write(tmp_path, text))
+
+
+def test_flat_mapping_parser_handles_comments_and_quotes() -> None:
+    text = (
+        "# leading comment\n"
+        "request: r1   # trailing comment\n"
+        "command: \"uv run x --flag '#notacomment'\"\n"
+        "gpu_type: ''\n"
+        'gpu_tier: ""   # quoted empty value with a trailing comment\n'
+        "datacenter: 'EUR-NO-1'\n"
+        "timeout_minutes: 45\n"
+        "\n"
+        "max_output_mb:2.5\n"
+    )
+    assert runpod_request.parse_flat_mapping(text) == {
+        "request": "r1",
+        "command": "uv run x --flag '#notacomment'",
+        "gpu_type": "",
+        "gpu_tier": "",
+        "datacenter": "EUR-NO-1",
+        "timeout_minutes": "45",
+        "max_output_mb": "2.5",
+    }
 
 
 def test_missing_file_is_reported(tmp_path: Path) -> None:

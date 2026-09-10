@@ -8,8 +8,10 @@ A run can be requested in two ways (README, "Run on GPUs"):
   request is version-controlled next to the code it ran.
 * **workflow_dispatch**: the form's inputs are used and the request file is ignored.
 
-Prints ``key=value`` lines for ``$GITHUB_OUTPUT`` and a summary to stderr. Standard
-library plus PyYAML (a pipeline dependency; the workflow runs this from its venv).
+The request file is a flat mapping of scalars, one ``key: value`` per line with ``#``
+comments and optional quotes; that subset is parsed here without PyYAML so the script
+runs with the system interpreter on the CI runner. Prints ``key=value`` lines for
+``$GITHUB_OUTPUT`` and a summary to stderr. Standard library only.
 """
 
 from __future__ import annotations
@@ -19,8 +21,6 @@ import json
 import re
 import sys
 from pathlib import Path
-
-import yaml
 
 REQUEST_FILE = Path(".github/gpu-run.yaml")
 GPU_TIERS = ("AMPERE_16", "AMPERE_24", "ADA_24", "AMPERE_48", "ADA_48_PRO", "AMPERE_80", "ADA_80_PRO")
@@ -34,32 +34,69 @@ DEFAULTS = {
 }
 FIELDS = ("request", "command", *DEFAULTS)
 _FLASH_ENV_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 class RequestError(ValueError):
     pass
 
 
+def _strip_comment(value: str) -> str:
+    """Drop a trailing ``# comment`` that is outside quotes."""
+    quote = None
+    for i, ch in enumerate(value):
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in "'\"":
+            quote = ch
+        elif ch == "#" and (i == 0 or value[i - 1].isspace()):
+            return value[:i].strip()
+    return value.strip()
+
+
+def _unquote(value: str, where: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+        return value[1:-1]
+    if value and value[0] in "'\"":
+        raise RequestError(f"{where}: unbalanced quote in {value!r}")
+    return value
+
+
+def parse_flat_mapping(text: str, where: str = "request file") -> dict[str, str]:
+    """Parse ``key: value`` lines (flat YAML subset: scalars only, ``#`` comments, optional quotes)."""
+    result: dict[str, str] = {}
+    for lineno, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("-"):
+            raise RequestError(f"{where}:{lineno}: must be a mapping of `key: value` lines, not a list")
+        if ":" not in line:
+            raise RequestError(f"{where}:{lineno}: expected `key: value`, got {line!r}")
+        key, value = line.split(":", 1)
+        key = key.strip()
+        if not _KEY_RE.match(key):
+            raise RequestError(f"{where}:{lineno}: invalid key {key!r}")
+        if key in result:
+            raise RequestError(f"{where}:{lineno}: duplicate key {key!r}")
+        value = _unquote(_strip_comment(value), f"{where}:{lineno}")
+        if value[:1] in ("[", "{", "|", ">", "&", "*"):
+            raise RequestError(f"{where}:{lineno}: {key} must be a scalar on one line, got {value!r}")
+        result[key] = value.strip()
+    return result
+
+
 def load_request(path: Path) -> dict[str, str]:
     """Read and validate the request file; every value is returned as a string."""
     try:
-        raw = yaml.safe_load(path.read_text())
+        raw = parse_flat_mapping(path.read_text(), str(path))
     except FileNotFoundError:
         raise RequestError(f"request file {path} not found") from None
-    except yaml.YAMLError as e:
-        raise RequestError(f"request file {path} is not valid YAML: {e}") from None
-    if not isinstance(raw, dict):
-        raise RequestError(f"request file {path} must be a mapping")
     unknown = sorted(set(raw) - set(FIELDS))
     if unknown:
         raise RequestError(f"request file {path}: unknown keys {unknown}; allowed: {list(FIELDS)}")
-    params = dict(DEFAULTS)
-    for key, value in raw.items():
-        if value is None:
-            value = ""
-        if isinstance(value, bool) or not isinstance(value, (str, int, float)):
-            raise RequestError(f"request file {path}: {key} must be a scalar, got {type(value).__name__}")
-        params[key] = str(value).strip()
+    params = {**DEFAULTS, **raw}
     for key in ("request", "command"):
         if not params.get(key):
             raise RequestError(f"request file {path}: `{key}` is required and must be non-empty")

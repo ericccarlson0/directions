@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-from directions.remote import unpack_results  # noqa: E402
+from directions.remote import pack_source, unpack_results  # noqa: E402
 
 TERMINAL = {"COMPLETED", "FAILED", "CANCELLED", "TIMED_OUT"}
 USER_AGENT = "directions-runpod-job/1.0"  # RunPod's edge rejects the default urllib agent with HTTP 403
@@ -99,6 +99,94 @@ def wait(
         time.sleep(poll_s)
 
 
+def is_stale(final: dict, expected_source: str | None) -> bool:
+    """The job was answered by a worker that did not run the shipped source ``expected_source``.
+
+    Either the worker completed without reporting that digest, or its handler predates shipped source and
+    rejected the inputs (the platform reports that as FAILED). ``expected_source`` None disables the check
+    (tests, ad-hoc use); the CLI always ships source. The artifact's own fingerprint is only reported.
+    """
+    if not expected_source:
+        return False
+    if final.get("status") == "FAILED":
+        return "unexpected keyword argument 'source_" in str(final.get("error", ""))
+    if final.get("status") != "COMPLETED":
+        return False
+    return (final.get("output") or {}).get("source_sha256") != expected_source
+
+
+GRAPHQL_URL = "https://api.runpod.io/graphql"
+TERMINATE_MUTATION = "mutation podTerminate($input: PodTerminateInput!) { podTerminate(input: $input) }"
+
+
+def terminate_worker(api_key: str, worker_id: str) -> bool:
+    """Best-effort: terminate a serverless worker (a pod) so the next job gets a fresh container.
+
+    Stale containers were seen answering jobs for 25+ min despite the 30 s idle timeout (docs/INFRA.md); RunPod
+    reuses the stopped container, /app included. Returns True when the API accepted the request.
+    """
+    req = urllib.request.Request(
+        GRAPHQL_URL,
+        data=json.dumps({"query": TERMINATE_MUTATION, "variables": {"input": {"podId": worker_id}}}).encode(),
+        method="POST",
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json", "User-Agent": USER_AGENT},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            body = json.loads(resp.read().decode())
+    except (urllib.error.URLError, ValueError, OSError) as exc:
+        print(f"::warning::terminating worker {worker_id} failed: {exc}", file=sys.stderr)
+        return False
+    if body.get("errors"):
+        print(f"::warning::terminating worker {worker_id} rejected: {body['errors']}", file=sys.stderr)
+        return False
+    print(f"terminated stale worker {worker_id}", flush=True)
+    return True
+
+
+def run(
+    endpoint_url: str,
+    api_key: str,
+    job_input: dict,
+    deadline_s: float,
+    poll_s: float,
+    progress: Callable[[], None] | None = None,
+    job_id_file: Path | None = None,
+    stale_retries: int = 3,
+    stale_wait_s: float = 90,
+) -> dict:
+    """Submit and wait; when a stale worker answers, let it scale down and resubmit (up to ``stale_retries``).
+
+    A worker that unpacked the previous build refuses the job at once (``experiments/remote.py``), so a retry
+    costs ``stale_wait_s`` (longer than the endpoint's idle timeout, after which the stale worker is gone) plus
+    a cold start. Observed when a run starts seconds after the previous one ended (docs/INFRA.md).
+    """
+    start = time.time()
+    final: dict = {}
+    expected_source = job_input.get("source_sha256")
+    for attempt in range(stale_retries + 1):
+        job_id = submit(endpoint_url, api_key, job_input)
+        print(f"submitted job {job_id}" + (f" (resubmission {attempt} of {stale_retries})" if attempt else ""), flush=True)
+        if job_id_file:
+            job_id_file.write_text(job_id)
+        final = wait(endpoint_url, api_key, job_id, deadline_s - (time.time() - start), poll_s, progress)
+        if not is_stale(final, expected_source) or attempt == stale_retries:
+            return final
+        output = final.get("output") or {}
+        print(
+            f"::warning::stale worker answered job {job_id} (status {final.get('status')}, code "
+            f"{str(output.get('code_fingerprint'))[:12]}, deploy {str(output.get('expected_fingerprint'))[:12]}, shipped "
+            f"source {str(output.get('source_sha256'))[:12]}, error {str(final.get('error', ''))[:80]!r}); "
+            f"terminating it if known, waiting {stale_wait_s:.0f}s, then resubmitting",
+            file=sys.stderr,
+            flush=True,
+        )
+        if final.get("workerId"):
+            terminate_worker(api_key, str(final["workerId"]))
+        time.sleep(stale_wait_s)
+    return final
+
+
 def resolve_volume_id(volumes: list[dict], name: str, datacenter: str) -> str:
     """Id of the network volume called ``name`` in ``datacenter``."""
     for volume in volumes:
@@ -161,11 +249,12 @@ class LogTail:
             self.offset += len(body)
 
 
-def collect(final: dict, out: Path, download: Downloader | None = None) -> int:
-    """Write logs/results; return the process exit code."""
+def collect(final: dict, out: Path, download: Downloader | None = None, expected_source: str | None = None) -> int:
+    """Write logs/results; return the process exit code. ``expected_source`` is the shipped tree's digest."""
     status = final.get("status")
     if status != "COMPLETED":
-        print(f"job ended with status {status}: {final.get('error')}", file=sys.stderr)
+        hint = " (a worker holding a handler from before shipped source; see docs/INFRA.md)" if is_stale(final, expected_source) else ""
+        print(f"job ended with status {status}: {final.get('error')}{hint}", file=sys.stderr)
         return 1
     output = final.get("output") or {}
     if output.get("success") is False:  # Flash handler wrapper caught an exception
@@ -176,9 +265,19 @@ def collect(final: dict, out: Path, download: Downloader | None = None) -> int:
     print(output.get("log_tail", ""))
     print("---------------------------")
     code, expected = output.get("code_fingerprint"), output.get("expected_fingerprint")
-    if code and expected and code != expected:
-        print(f"::error::stale worker: ran code {code[:12]} but the deploy was {expected[:12]}", file=sys.stderr)
+    if is_stale(final, expected_source):
+        print(
+            f"::error::the worker did not run the shipped source {str(expected_source)[:12]} (it reported "
+            f"{str(output.get('source_sha256'))[:12]}; its handler predates shipped source or is stale: code "
+            f"{str(code)[:12]}, deploy {str(expected)[:12]})",
+            file=sys.stderr,
+        )
         return 1
+    if expected_source:
+        print(f"worker ran the shipped source {expected_source[:12]} in {output.get('source_dir')}")
+    if output.get("handler_stale"):
+        print(f"::warning::the worker's handler is from a previous build (code {str(code)[:12]}, deploy {str(expected)[:12]}); "
+              "harmless with shipped source", file=sys.stderr)
     returncode = int(output.get("returncode", 1))
     if output.get("results_error"):
         print(f"::error::{output['results_error']}", file=sys.stderr)
@@ -209,6 +308,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--timeout-minutes", type=float, default=300)
     parser.add_argument("--poll-seconds", type=float, default=30)
     parser.add_argument("--job-id-file", type=Path, default=None, help="write the job id here right after submit")
+    parser.add_argument("--stale-retries", type=int, default=3, help="resubmissions after a stale worker answers")
+    parser.add_argument("--stale-wait-seconds", type=float, default=90, help="pause before each resubmission")
+    parser.add_argument("--source-root", type=Path, default=Path("."),
+                        help="repository whose --git-commit (default HEAD) is shipped inside the job as `git archive`; "
+                             "the worker runs that tree (the deployed artifact only holds the handler)")
     args = parser.parse_args(argv)
 
     api_key = os.environ.get("RUNPOD_API_KEY")
@@ -239,14 +343,22 @@ def main(argv: list[str] | None = None) -> int:
         "git_commit": args.git_commit,
         "results_name": args.results_name,
     }
-    endpoint_url = args.endpoint_url.rstrip("/")
-    job_id = submit(endpoint_url, api_key, job_input)
-    print(f"submitted job {job_id}")
-    if args.job_id_file:
-        args.job_id_file.write_text(job_id)
-
-    final = wait(endpoint_url, api_key, job_id, args.timeout_minutes * 60, args.poll_seconds, progress)
-    return collect(final, args.out, download)
+    source = pack_source(args.source_root, args.git_commit or "HEAD")
+    job_input.update(source)
+    print(f"shipping source {source['source_sha256'][:12]} ({source['source_size_bytes'] / 1e6:.2f} MB gzipped) of "
+          f"{args.git_commit or 'HEAD'}")
+    final = run(
+        args.endpoint_url.rstrip("/"),
+        api_key,
+        job_input,
+        args.timeout_minutes * 60,
+        args.poll_seconds,
+        progress,
+        job_id_file=args.job_id_file,
+        stale_retries=args.stale_retries,
+        stale_wait_s=args.stale_wait_seconds,
+    )
+    return collect(final, args.out, download, expected_source=source["source_sha256"])
 
 
 if __name__ == "__main__":

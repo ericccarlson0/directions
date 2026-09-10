@@ -1,16 +1,16 @@
 # Run a command on a RunPod GPU worker via Runpod Flash.
 #
-# Flow: build + deploy this commit as a Flash app (the private repo's code ships inside the build artifact) ->
-# submit to the `directions-runner` endpoint -> poll -> unpack the results directory into a workflow artifact.
+# Flow: stage the handler-only Flash app -> reuse the live endpoint when its handler digest is unchanged, else
+# delete the previous endpoint and `flash deploy` a fresh one -> submit a job carrying `git archive` of this commit
+# (the worker runs that tree) -> poll -> download the results from the network volume into a workflow artifact.
+# docs/INFRA.md has the operational facts.
 #
-# Two ways to start a run (scripts/runpod_request.py resolves the parameters either way):
-#   push: commit a change to the request file `.github/gpu-run.yaml` and push it (no Actions write permission
-#         needed, so agents and scripts with git access can request runs; the request is versioned with the code);
+# Two ways to trigger a run:
+#   push: commit a change to the request file `.github/gpu-run.yaml` + push (no Actions write permission needed)
 #   workflow_dispatch: the form below; its inputs are used and the request file is ignored.
 #
 # Required secrets: RUNPOD_API_KEY, and RUNPOD_S3_ACCESS_KEY + RUNPOD_S3_SECRET_KEY (S3 API from RunPod) to
 # download results from the worker's network volume.
-# Each dispatch deletes the previous endpoint and creates a fresh one (see scripts/runpod_cleanup.py).
 
 name: run-gpu
 
@@ -45,9 +45,8 @@ on:
         description: "Budget for the base64 results tarball in the job output"
         default: "8"
 
-# Note: one deploy + run at a time per Flash environment. Push-triggered runs are grouped under `ci`
-# whatever their request file says (the file is only read inside the job), so a push request for
-# another environment still queues behind the `ci` runs.
+# Note: one deploy + run at a time per Flash environment.
+# Runs which were triggered by push are grouped under `ci` whatever their request file says.
 concurrency:
   group: run-gpu-${{ inputs.flash_env || 'ci' }}
   cancel-in-progress: false
@@ -55,9 +54,41 @@ concurrency:
 env:
   RUNPOD_FLASH_VERSION: "1.19.0"
   PYTHON_VERSION: "3.11"
+  FLASH_APP: directions
+  ENDPOINT_NAME: directions-runner
 
 jobs:
+  gate:
+    # A force-push or rewrite whose request file is unchanged still matches the `paths` filter (GitHub treats a
+    # non-fast-forward push as touching every file); compare the file's blob at the push's old and new commits.
+    # Manual dispatches pass.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      proceed: ${{ steps.check.outputs.proceed }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" != "push" ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          blob() { local s; s=$(gh api "repos/${GITHUB_REPOSITORY}/contents/.github/gpu-run.yaml?ref=$1" -q .sha 2>/dev/null) || s="unknown-$1"; echo "$s"; }
+          old=$(blob "$BEFORE"); new=$(blob "$AFTER")
+          echo "request file blob: before=$old after=$new"
+          if [ "$old" = "$new" ]; then
+            echo "request file unchanged by this push (force-push or rewrite); not running"
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          fi
+
   run:
+    needs: gate
+    if: needs.gate.outputs.proceed == 'true'
     runs-on: ubuntu-latest
     # Hosted-runner ceiling.
     timeout-minutes: 360
@@ -71,23 +102,9 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           enable-cache: true
 
-      - name: export pinned runtime requirements
-        # Flash reads requirements.txt (not pyproject); export the committed lock.
-        # --frozen fails if the lock is stale (reproducibility guard).
-        # The worker image has torch + CUDA and Flash auto-excludes torch, but not the nvidia-*/cuda-*/triton
-        # wheels the lock pins for Linux; drop them.
-        run: |
-          uv export --frozen --no-dev --no-hashes --no-emit-project --format requirements-txt \
-            | grep -v -E '^(nvidia-|cuda-|triton)' > requirements.txt
-
-      - name: build the deploy environment
-        # Flash's build imports every module to discover endpoints, so the pipeline's deps must be importable
-        # where `flash deploy` runs. CPU torch keeps that small.
-        # `.venv` is on Flash's built-in ignore list, so it never enters the artifact.
-        run: |
-          uv venv --python ${{ env.PYTHON_VERSION }} .venv
-          uv pip install --python .venv/bin/python --torch-backend cpu \
-            -r requirements.txt "runpod-flash==${RUNPOD_FLASH_VERSION}" boto3
+      - name: check that the lock file is current
+        # For reproducibility.
+        run: uv lock --check
 
       - name: resolve run parameters
         # workflow_dispatch: the form's inputs; push: the request file. Fails on an invalid request.
@@ -95,34 +112,104 @@ jobs:
         env:
           INPUTS_JSON: ${{ toJSON(inputs) }}
         run: |
-          .venv/bin/python scripts/runpod_request.py --file .github/gpu-run.yaml \
+          python3 scripts/runpod_request.py --file .github/gpu-run.yaml \
             --event "${GITHUB_EVENT_NAME}" --inputs-json "${INPUTS_JSON}" >> "$GITHUB_OUTPUT"
+
+      - name: build the deploy environment
+        # The Flash app (stage next) imports only the standard library and runpod_flash; the runner needs no
+        # pipeline deps.
+        run: |
+          uv venv --python ${{ env.PYTHON_VERSION }} .venv
+          uv pip install --python .venv/bin/python "runpod-flash==${RUNPOD_FLASH_VERSION}" boto3
+
+      - name: stage the handler-only Flash app
+        # Copy the handler and its helpers into .flash-app and print a digest of them and of the endpoint config; the
+        # digest decides whether the live endpoint can be reused.
+        id: stage
+        env:
+          GPU_TIER: ${{ steps.params.outputs.gpu_tier }}
+          GPU_TYPE: ${{ steps.params.outputs.gpu_type }}
+          DATACENTER: ${{ steps.params.outputs.datacenter }}
+          FLASH_ENV: ${{ steps.params.outputs.flash_env }}
+        run: |
+          digest=$(python3 scripts/runpod_stage.py --dest .flash-app \
+            --param "flash_version=${RUNPOD_FLASH_VERSION}" --param "python_version=${PYTHON_VERSION}" \
+            --param "gpu_tier=${GPU_TIER}" --param "gpu_type=${GPU_TYPE}" --param "datacenter=${DATACENTER}" \
+            --param "flash_env=${FLASH_ENV}" --param "app=${FLASH_APP}" --param "endpoint_name=${ENDPOINT_NAME}")
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "handler digest: $digest"
+
+      - name: restore the endpoint record
+        # The record of the last deploy with this handler digest (endpoint id + URL), kept in the Actions cache.
+        id: record
+        uses: actions/cache/restore@v4
+        with:
+          path: .runpod-endpoint.json
+          key: runpod-endpoint-${{ steps.params.outputs.flash_env }}-${{ steps.stage.outputs.digest }}-${{ github.run_id }}
+          restore-keys: |
+            runpod-endpoint-${{ steps.params.outputs.flash_env }}-${{ steps.stage.outputs.digest }}-
+
+      - name: reuse the live endpoint if its handler digest matches
+        id: reuse
+        env:
+          FLASH_ENV: ${{ steps.params.outputs.flash_env }}
+          DIGEST: ${{ steps.stage.outputs.digest }}
+        run: |
+          reuse=false
+          if [ -f .runpod-endpoint.json ]; then
+            id=$(python3 -c 'import json; r=json.load(open(".runpod-endpoint.json")); print(r["id"] if r.get("digest")==__import__("os").environ["DIGEST"] else "")')
+            if [ -n "$id" ] && .venv/bin/python scripts/runpod_cleanup.py --app "${FLASH_APP}" --env "${FLASH_ENV}" \
+                 --endpoint-name "${ENDPOINT_NAME}" --exists "$id"; then
+              reuse=true
+              echo "reusing endpoint $id (handler digest ${DIGEST:0:12} unchanged; no redeploy)"
+            else
+              echo "recorded endpoint not present or its digest differs; redeploying"
+            fi
+          else
+            echo "no endpoint record for this handler digest; deploying"
+          fi
+          echo "reuse=$reuse" >> "$GITHUB_OUTPUT"
 
       - name: remove the previous endpoint
         # flash deploy only knows about endpoints through a .flash pickle, which a fresh runner does not have
         # (a second deploy would fail on the duplicate template name without this).
+        if: steps.reuse.outputs.reuse != 'true'
         env:
           FLASH_ENV: ${{ steps.params.outputs.flash_env }}
-        run: .venv/bin/python scripts/runpod_cleanup.py --app directions --env "${FLASH_ENV}" --endpoint-name directions-runner
+        run: .venv/bin/python scripts/runpod_cleanup.py --app "${FLASH_APP}" --env "${FLASH_ENV}" --endpoint-name "${ENDPOINT_NAME}"
 
-      - name: build and deploy Flash app
+      - name: deploy the handler-only Flash app
+        if: steps.reuse.outputs.reuse != 'true'
         env:
           DIRECTIONS_GPU_TIER: ${{ steps.params.outputs.gpu_tier }}
           DIRECTIONS_GPU_TYPE: ${{ steps.params.outputs.gpu_type }}
           DIRECTIONS_DATACENTER: ${{ steps.params.outputs.datacenter }}
           FLASH_ENV: ${{ steps.params.outputs.flash_env }}
+          DIGEST: ${{ steps.stage.outputs.digest }}
         run: |
-          .venv/bin/flash deploy --app directions --env "${FLASH_ENV}" --python-version "${PYTHON_VERSION}"
+          (cd .flash-app && ../.venv/bin/flash deploy --app "${FLASH_APP}" --env "${FLASH_ENV}" --python-version "${PYTHON_VERSION}")
+          python3 - <<'PY'
+          import json, os, time
+          m = json.load(open(".flash-app/.flash/flash_manifest.json"))
+          url = m["resources_endpoints"][os.environ["ENDPOINT_NAME"]].rstrip("/")
+          record = {"id": url.rsplit("/", 1)[-1], "url": url, "digest": os.environ["DIGEST"],
+                    "flash_env": os.environ["FLASH_ENV"], "run_id": os.environ["GITHUB_RUN_ID"],
+                    "deployed_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+          json.dump(record, open(".runpod-endpoint.json", "w"), indent=2)
+          print("deployed", record)
+          PY
+
+      - name: save the endpoint record
+        if: steps.reuse.outputs.reuse != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .runpod-endpoint.json
+          key: runpod-endpoint-${{ steps.params.outputs.flash_env }}-${{ steps.stage.outputs.digest }}-${{ github.run_id }}
 
       - name: resolve endpoint URL
         id: endpoint
         run: |
-          url=$(python - <<'PY'
-          import json
-          m = json.load(open(".flash/flash_manifest.json"))
-          print(m["resources_endpoints"]["directions-runner"])
-          PY
-          )
+          url=$(python3 -c 'import json; print(json.load(open(".runpod-endpoint.json"))["url"])')
           echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "endpoint: $url"
 
@@ -131,11 +218,12 @@ jobs:
         env:
           COMMAND: ${{ steps.params.outputs.command }}
         run: |
-          argv=$(python -c 'import json, os, shlex; print(json.dumps(shlex.split(os.environ["COMMAND"])))')
+          argv=$(python3 -c 'import json, os, shlex; print(json.dumps(shlex.split(os.environ["COMMAND"])))')
           echo "json=$argv" >> "$GITHUB_OUTPUT"
           echo "argv: $argv"
 
       - name: run on RunPod
+        # The job has a `git archive` of this commit; the worker verifies its digest and runs the command.
         id: job
         env:
           ARGV_JSON: ${{ steps.argv.outputs.json }}
@@ -183,6 +271,8 @@ jobs:
           DATACENTER: ${{ steps.params.outputs.datacenter }}
           COMMAND: ${{ steps.params.outputs.command }}
           ENDPOINT: ${{ steps.endpoint.outputs.url }}
+          REUSED: ${{ steps.reuse.outputs.reuse }}
+          DIGEST: ${{ steps.stage.outputs.digest }}
         run: |
           {
             echo "## run-gpu"
@@ -192,7 +282,7 @@ jobs:
             echo "- gpu type pinned: \`${GPU_TYPE:-none}\`"
             echo "- data center / volume: \`${DATACENTER}\` / \`directions\`, results under \`results/run-${{ github.run_id }}\`"
             echo "- command: \`${COMMAND}\`"
-            echo "- endpoint: \`${ENDPOINT}\`"
+            echo "- endpoint: \`${ENDPOINT}\` (handler digest \`${DIGEST:0:12}\`, reused: \`${REUSED:-unknown}\`)"
             if [ -f results/remote/run_metadata.json ]; then
               echo '```json'; cat results/remote/run_metadata.json; echo '```'
             fi
