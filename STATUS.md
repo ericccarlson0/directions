@@ -609,32 +609,120 @@ Its wall time was 84 min against 34 min for the first run, entirely in the
 CPU-side control profiles (70–836 s per task against 29–863 s the first
 time, for identical work; see "known limitations").
 
-### Iteration 4b (D22; implemented, first run requested)
+### Iteration 4b (D22: the answer probability, the canonical strength, device-side profiles, a run profile; commit `9e82c9b`)
 
-Four changes after the iteration-4 reading, all in D22: the head ranking
-uses the whole-target probability (arithmetic's first target token is a
-lone space, so its first-token effects were saturated at zero); the
-function-vector calibration is in units of the vector's norm with the
-canonical injection (ρ = 1) as the reference strength instead of the
-weakest reliable one (the weakest is still profiled in strength
-robustness); the profile spectra run batched on the GPU
-(`geometry.spectra`), with the NumPy path kept for CPU runs and tested
-against it; and every stage is instrumented by `directions.profiling`
-(`metadata.json/profile`: per-stage wall and CPU seconds, forward counts,
-peak GPU memory; `timings_seconds` keeps the old flat keys). 147 tests
-pass; the toy smoke run of the function-vector config is reproducible
-(`directions compare`). Results of the 0.6B run and its replicate: pending.
+```
+# workflow run 34624145202 (push-triggered request), commit 9e82c9b, RTX 4090 (ADA_24), EUR-NO-1
+uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --run-id pilot4b_qwen3_0.6b_seed20260907
+```
+
+Iteration 4 with the four D22 changes: heads ranked by the recovered
+probability of the whole target (`aie_metric: target_probability`); the
+function-vector calibration in units of the vector's own norm
+(`strength_unit: natural`, grid 0.05–2.0 extended to 4.0) with the
+canonical injection ρ = 1 as the reference strength (`reference_rho: 1.0`,
+earliest reliable layer as before); the whole layerwise profile computed in
+float64 torch on the GPU; and every stage instrumented
+(`metadata.json/profile`). Wall time **11.3 min** (iteration 4: 34 and 84
+min): the control profiles take 6–7 s per task, the head effects 33–62 s
+per task, the largest stages are now the extraction passes. An earlier run
+of the same protocol with only the spectra on the GPU (run 34615062827,
+commit `53541ac`) agrees with this run within 1e-6 in every result file
+(`directions compare --atol 1e-6`: only the commit and the host kernel
+differ) and took 56 min, 2600 s of them in the control profiles with CPU
+seconds equal to wall seconds; `scripts/profile_bench.py` on the same
+worker class (run 34623168957) then measured 0.6 s per full profile in
+NumPy and 0.2 s with the spectra on the GPU, on synthetic and on real
+residuals alike, and the host's load average during this run was 168 on
+120 CPUs: the slow phases were host contention, not the decompositions
+(D22). The container's cgroup CPU statistics are not readable on the
+worker (`throttled_seconds` absent), so the profiler cannot yet say
+whether a quota was binding.
+
+Universal heads: the same ten as iteration 4, in the same order but for
+the 4th/5th (block, head; mean whole-target effect): (15, 6; 0.130),
+(18, 5; 0.038), (16, 11; 0.027), (19, 6; 0.020), (18, 4; 0.020),
+(18, 1; 0.015), (19, 2; 0.010), (18, 13; 0.008), (16, 10; 0.008),
+(16, 7; 0.007). The whole-target metric equals the first-token one for the
+one-token targets (antonym, plural, singular, past_tense, uppercase,
+present_participle; deranged baselines identical to four decimals) and
+changes arithmetic's picture only in what it measures: the deranged-prompt
+baseline is now 0.007 instead of 0.991, and the largest effect of *any*
+head on arithmetic is 0.0002 (the selected heads: 0.000). So the
+iteration-4 zero was a saturated metric, but the answer is the same: no
+single head restores arithmetic on deranged prompts in this model, and its
+"function vector" is the selected heads' mean outputs on arithmetic
+prompts (norm 42, in the range of the others' 34–49).
+
+Selection: **layer 6, ρ = 1 (natural units) for every task**, i.e. the
+paper's unscaled injection, α = 34–49 = 1.7–2.5 × the median residual norm
+at layer 6 (iteration 4 had selected 0.05–0.4 × that norm). The reliable
+range at layer 6 is 0.05–2.0 (extended to 2.5 for plural, present_participle,
+singular and to 3.9 for number_to_words; arithmetic from 0.2), and the best
+grid point sits at 0.75–3.9, so ρ = 1 is inside the reliable range for
+all tasks and near the peak for most.
+
+| task | Δ log p/token (held-out) | acc base → steered | gap recovered | excess vs cov / other-task / demo (p) | cum log G (z iso/cov/other) | d_eff | T_L final | ρ_S(log G) weakest / middle / strongest |
+|---|---|---|---|---|---|---|---|---|
+| antonym | +0.75 | 0.00 → 0.00 | 0.12 | +2.51 (0.000) / +0.14 (0.39) / −0.87 (1.00) | 2.17 (0.0/−0.1/+1.0) | 24 → 7 | +0.42 | 0.66 / 0.86 / 0.88 |
+| arithmetic | +0.77 | 0.00 → 0.00 | 0.43 | +0.93 (0.000) / +0.75 (0.000) / +0.29 (0.000) | 1.52 (−1.2/−1.4/−0.9) | 14 → 6 | −0.08 | 0.75 / 0.96 / 0.79 |
+| number_to_words | +0.69 | 0.00 → 0.00 | 0.21 | +1.37 (0.000) / +0.21 (0.22) / +0.57 (0.000) | 2.21 (+1.4/+1.0/+1.0) | 15 → 9 | +0.77 | 0.68 / 0.96 / 0.49 |
+| past_tense | +2.15 | 0.01 → 0.07 | 0.31 | +5.05 (0.000) / +2.48 (0.000) / +0.65 (0.000) | 1.52 (−1.8/−1.1/−1.1) | 39 → 12 | −0.31 | 0.66 / 0.85 / 0.79 |
+| plural | +2.46 | 0.00 → 0.04 | 0.45 | +6.24 (0.000) / +4.02 (0.000) / +1.89 (0.000) | 1.52 (−2.2/−2.6/−1.0) | 31 → 8 | +0.03 | 0.72 / 0.91 / 0.75 |
+| present_participle | +1.84 | 0.00 → 0.01 | 0.31 | +6.12 (0.000) / +2.68 (0.000) / +1.08 (0.000) | 1.43 (−2.2/−2.5/−1.5) | 38 → 8 | +0.26 | 0.79 / 0.89 / 0.78 |
+| singular | +3.43 | 0.01 → 0.84 | 0.71 | +6.20 (0.000) / +3.26 (0.000) / +2.60 (0.000) | 2.15 (+0.3/+0.3/+0.7) | 39 → 17 | +0.59 | 0.84 / 0.94 / 0.86 |
+| uppercase | +1.96 | 0.00 → 0.00 | 0.39 | +4.08 (0.000) / +2.02 (0.000) / −0.18 (0.99) | 2.36 (+1.4/+0.8/+1.5) | 35 → 20 | +0.76 | 0.72 / 0.84 / 0.85 |
+
+("gap recovered": the steered improvement over the zero-shot baseline as a
+fraction of the few-shot-minus-zero-shot gap in log p per token; ρ_S: the
+Spearman rank correlation of the selected profile's log G curve with the
+profile at the weakest (0.05), middle and strongest reliable strengths.)
+
+What the run says, against iteration 4 (same directions, 5–50 × weaker):
+
+- **At the canonical strength the function vector does a large part of
+  the task.** Held-out improvements are 0.7–3.4 nats per token (iteration
+  4: 0.04–0.09), recovering 12–71 % of the few-shot-minus-zero-shot gap;
+  the improvement is in probability mass rather than argmax except for
+  singular, whose accuracy goes from 0.01 to 0.84. 8 of 8 tasks qualify
+  (excess over the 48 gate controls p = 0.0005).
+- **Task specificity appears at this strength.** The task's own vector
+  beats the other tasks' vectors by +0.75 to +4.0 nats for six tasks
+  (iteration 4: +0.01 to +0.09), not for antonym and number_to_words,
+  and beats the deranged-prompt vectors by +0.3 to +2.6 for six; for
+  antonym the deranged-prompt vector is *better* than the task's own by
+  0.87 nats and for uppercase the two are equal. The vectors themselves
+  are unchanged (pairwise |cos| 0.30–0.83, median 0.58; 0.5–0.8 aligned
+  with the deranged-prompt vectors), so the shared component still carries
+  a large part of every task's effect, and for antonym all of it.
+- **The geometric profile is the same as at the weak strength.** Every
+  task is cascade + amplification; cumulative log G 1.4–2.4 with |z| ≤ 2.6
+  against every null (negative for five tasks against the covariance
+  null: the canonical injection amplifies *less* than in-distribution
+  random directions of the same norm); `d_eff` contracts (14–39 → 6–20; z
+  against covariance −1.0 to +0.8) and `N_l` sits inside the nulls (z −0.3
+  to −1.8). The perturbation ends aligned with PC1 at the final layer for
+  five tasks (`T_L` 0.42–0.77; at the weak strength: −0.22 to +0.37), the
+  gradient readout `Γ_l` is 0.02–0.05 at `l*` and 0.05–0.13 downstream.
+  Against the profile at the weakest reliable strength (0.05, close to
+  iteration 4's selections) the log G curve rank-correlates 0.66–0.84 and
+  the `d_eff` curve −0.02 to 0.70 (five tasks below 0.15: the
+  dimensionality curve of a barely-effective injection is not the
+  canonical one), while the middle strength (0.3–0.75) correlates 0.84–0.96
+  and 0.61–0.96 with the selected profile.
 
 ## Not yet run / known limitations
 
-- Iteration 4b has not run on a GPU yet. The bit-identity of the batched
-  GPU decompositions (a replicate diff) and the wall time of the control
-  profiles on the GPU (iteration 4 on the CPU: 30–860 s per task for
-  identical work, host contention) are what the first run and its
-  replicate establish.
-- Iteration 4 (weakest-reliable calibration, first-token ranking) has run
-  only on 0.6B, seed 20260907, and is superseded by 4b for the head ranking
-  and the strength.
+- Iteration 4b has run only on 0.6B, seed 20260907. The 1.7B/4B/8B
+  configs carry the same protocol but have not been run with it. Iteration
+  4 (weakest-reliable calibration, first-token ranking) is superseded by 4b
+  for the head ranking and the strength.
+- The worker's host was heavily loaded during every iteration-4/4b run
+  (load average 168 on 120 CPUs in the last one); the device-side profile
+  keeps the pipeline's host arithmetic small, but a stage that is still
+  host-bound (figures, bootstraps) can slow down again. The container's
+  cgroup CPU statistics are not readable there, so `throttled_seconds`
+  is absent from the profile.
 - Iteration 3b (D20: 16 controls per random kind, batch 128) has run only
   on 0.6B, seed 20260907 (twice, bit-identical). The 1.7B/4B/8B configs
   carry the same change but have not been run with it; 8B at batch 128 has
@@ -662,17 +750,14 @@ pass; the toy smoke run of the function-vector config is reproducible
 ## Next commands
 
 ```bash
-uv run pytest                                                           # 147 tests
+uv run pytest                                                           # 148 tests
 # GPU runs: edit .github/gpu-run.yaml (command + a new `request` label), commit, push; the run-gpu
 # workflow triggers on the push (README, "Run on GPUs"). One run per push; the ci environment runs
 # them one at a time. Then:
 gh run list --workflow=run-gpu.yml --branch fable --limit 1 && gh run watch <RUN_ID>
 gh run download <RUN_ID> --dir results/remote/<name>
-# iteration 4b (D21 + D22: function-vector control at the canonical strength; the configs default to it),
-# first on 0.6B twice (bit-identity of the GPU path), then the other models and seeds, as request-file
-# commands (the PCA-control protocol is `extraction.control: pca` with `calibration.strength_unit: layer_norm`):
-uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --run-id pilot4b_qwen3_0.6b_seed20260907   # ADA_24, requested
-uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --run-id pilot4b_qwen3_0.6b_seed20260907_b # replicate
+# iteration 4b (D21 + D22: function-vector control at the canonical strength; the configs default to it)
+# on the other models and seeds, as request-file commands (the PCA-control protocol is `extraction.control: pca` with `calibration.strength_unit: layer_norm`):
 uv run directions pilot --config configs/pilot_qwen3_1.7b.yaml --run-id pilot4b_qwen3_1.7b_seed20260907   # ADA_24
 uv run directions pilot --config configs/pilot_qwen3_4b.yaml   --run-id pilot4b_qwen3_4b_seed20260907     # ADA_24
 uv run directions pilot --config configs/pilot_qwen3_8b.yaml   --run-id pilot4b_qwen3_8b_seed20260907     # ADA_24 (18.8 GB at batch 32; check `profile.totals` at 128)
