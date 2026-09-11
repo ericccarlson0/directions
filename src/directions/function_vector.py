@@ -46,23 +46,35 @@ def mean_head_outputs(result: ForwardResult) -> np.ndarray:
     return result.head_outputs.astype(np.float64).mean(axis=1)
 
 
+def effect_values(result: ForwardResult, metric: str) -> np.ndarray:
+    """Per-prompt values of the indirect-effect metric."""
+    if metric == "first_token_probability":
+        assert result.first_token_logprob is not None
+        return np.exp(result.first_token_logprob)
+    if metric == "logprob_per_token":
+        return result.logprob_per_token
+    raise ValueError(f"unknown indirect-effect metric {metric!r}")
+
+
 def head_effects(
     backend: ModelBackend,
     prompts: list[Prompt],
-    baseline_logprob_per_token: np.ndarray,
+    baseline: np.ndarray,
     head_means: np.ndarray,
+    metric: str = "first_token_probability",
     progress: Callable[[int, int], None] | None = None,
 ) -> np.ndarray:
-    """Average indirect effect of every head: ``(L, n_heads)`` mean change of log p per target token on
-    ``prompts`` (deranged-label prompts) when the head's output at the query token is replaced by its mean
-    output ``head_means[layer, head]`` from positive prompts.
+    """Average indirect effect of every head: ``(L, n_heads)`` mean change of ``metric`` on ``prompts``
+    (deranged-label prompts; ``baseline`` holds their unpatched per-prompt values) when the head's output at
+    the query token is replaced by its mean output ``head_means[layer, head]`` from positive prompts.
 
+    ``first_token_probability`` is the paper's recovered probability of the correct first answer token.
     Several heads are patched per forward pass by repeating the prompt list once per head with a
     per-example patch; ``tests/test_function_vector.py`` checks this against one run per head.
     """
     L, H, _ = head_means.shape
     n = len(prompts)
-    if baseline_logprob_per_token.shape != (n,):
+    if baseline.shape != (n,):
         raise ValueError("baseline must have one value per prompt")
     per_pass = max(1, backend.cfg.batch_size // n)
     aie = np.zeros((L, H), dtype=np.float64)
@@ -74,7 +86,7 @@ def head_effects(
             heads = np.repeat(np.array(chunk, dtype=np.int64), n)
             values = head_means[layer][heads].astype(np.float32)  # (k*n, head_dim)
             r = backend.run(prompts * k, head_patches=[HeadPatch(layer, heads, values)])
-            diffs = (r.logprob_per_token - np.tile(baseline_logprob_per_token, k)).reshape(k, n).mean(axis=1)
+            diffs = (effect_values(r, metric) - np.tile(baseline, k)).reshape(k, n).mean(axis=1)
             aie[layer, chunk] = diffs
             done += k
             if progress is not None:

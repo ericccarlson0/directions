@@ -279,19 +279,24 @@ class Pipeline:
         if fv_mode:
             # Function-vector inputs (D21): mean head outputs per seed, and each head's indirect effect
             # on the deranged-label prompts of the first `aie_seeds` seeds (the same demonstrations).
-            k = cfg.extraction.function_vector.aie_seeds
+            fvc = cfg.extraction.function_vector
+            k = fvc.aie_seeds
             st.seed_head_means = np.stack([s.head_means for s in seeds])
             neg = [p for s in seeds[:k] for p in s.permuted_prompts]
-            base_lp = np.concatenate([s.permuted_logprob_per_token for s in seeds[:k]])
+            if fvc.aie_metric == "first_token_probability":
+                base = np.exp(np.concatenate([s.permuted_first_token_logprob for s in seeds[:k]]))
+            else:
+                base = np.concatenate([s.permuted_logprob_per_token for s in seeds[:k]])
             t2 = time.time()
-            st.head_effects = head_effects(self.backend, neg, base_lp, st.seed_head_means.mean(axis=0))
+            st.head_effects = head_effects(self.backend, neg, base, st.seed_head_means.mean(axis=0), metric=fvc.aie_metric)
             st.head_effects_n_prompts = len(neg)
             self.timings[f"head_effects:{name}"] = time.time() - t2
             top = np.dstack(np.unravel_index(np.argsort(-st.head_effects, axis=None)[:5], st.head_effects.shape))[0]
-            log.info("[%s] head effects over %d deranged prompts in %.0fs: max %.4f, top (layer, head) %s", name,
-                     len(neg), self.timings[f"head_effects:{name}"], float(st.head_effects.max()),
-                     [(int(l), int(h)) for l, h in top])
-            ext["function_vector"] = {"aie_seeds": k, "aie_n_prompts": len(neg)}
+            log.info("[%s] head effects (%s) over %d deranged prompts in %.0fs: baseline mean %.4f, max effect %.4f, "
+                     "top (layer, head) %s", name, fvc.aie_metric, len(neg), self.timings[f"head_effects:{name}"],
+                     float(base.mean()), float(st.head_effects.max()), [(int(l), int(h)) for l, h in top])
+            ext["function_vector"] = {"aie_seeds": k, "aie_n_prompts": len(neg), "aie_metric": fvc.aie_metric,
+                                      "aie_baseline_mean": float(base.mean())}
             if n_dv > 0:
                 st.permuted_head_means = permuted_head_means(self.backend, cfg.prompt, splits.extraction, cfg.seed, name, n_dv)
                 ext["demo_variation"] = {"n": n_dv, "construction": "function vector of deranged-label prompts (D21)"}
@@ -479,6 +484,7 @@ class Pipeline:
         sel = st.selection
         v = st.directions[sel.layer].direction
         do_layerwise = self.stop_after in ("layerwise", "exploratory", "figures")
+        t_stage = time.time()
         st.steered = self.backend.run(zs_prompts, interventions=[Intervention(sel.layer, v, sel.alpha)], capture=True)
         brng = rng_for(cfg.seed, "bootstrap", name)
         prng = rng_for(cfg.seed, "profile_bootstrap", name)
@@ -488,16 +494,27 @@ class Pipeline:
             st.gradients = self.backend.gradients(zs_prompts)
         readout_kw = {"task_directions": st.all_layer_directions, "gradients": st.gradients}
         test = paired_bootstrap_test(st.steered.logprob_per_token, st.base.logprob_per_token, brng, n_boot=cfg.calibration.n_boot)
+        t_setup = time.time() - t_stage
+        t_forward = t_profile = 0.0
         for kind, label, u in self._build_controls(st, states, sel.layer, v):
+            t3 = time.time()
             r = self.backend.run(zs_prompts, interventions=[Intervention(sel.layer, u, sel.alpha)], capture=do_layerwise)
             rt = paired_bootstrap_test(r.logprob_per_token, st.base.logprob_per_token, brng, n_boot=cfg.calibration.n_boot)
+            t_forward += time.time() - t3
             prof = None
             if do_layerwise:
                 assert r.residuals is not None
+                t3 = time.time()
                 prof = compute_profile(st.base.residuals, r.residuals, u, sel.layer, cfg.evaluation, prng, with_ci=False,
                                        **readout_kw)
+                t_profile += time.time() - t3
             st.controls.append(ControlResult(kind, label, rt.mean_diff, rt.p_value, r.metrics_dict(), prof,
                                              r.logprob_per_token - st.base.logprob_per_token))
+        self.timings[f"controls_setup:{name}"] = t_setup
+        self.timings[f"controls_forward:{name}"] = t_forward
+        self.timings[f"controls_profiles:{name}"] = t_profile
+        log.info("[%s] %d controls: steered run + gradients %.0fs, control forwards %.0fs, control profiles %.0fs", name,
+                 len(st.controls), t_setup, t_forward, t_profile)
         gate_kinds = list(cfg.evaluation.gate_kinds)  # primary null of the layerwise metrics
         behav_gate_kinds = list(cfg.qualification.gate_control_kinds)  # behavioural gate (D18)
         real_diff = st.steered.logprob_per_token - st.base.logprob_per_token

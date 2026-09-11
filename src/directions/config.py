@@ -85,11 +85,15 @@ class FunctionVectorConfig:
                     tasks that reached extraction (the paper's construction); "per_task": each task's own top heads
     aie_seeds       the indirect effect of a head is measured on the deranged-label prompts of this many
                     extraction seeds (their positive prompts supply the mean head outputs of every seed)
+    aie_metric      what the indirect effect is measured in: "first_token_probability" (the paper's recovered
+                    probability of the correct first answer token, bounded and comparable across tasks) or
+                    "logprob_per_token" (the pipeline's decision metric; its scale differs by task)
     """
 
     n_heads: int = 10
     head_selection: str = "universal"
     aie_seeds: int = 1
+    aie_metric: str = "first_token_probability"
 
 
 @dataclass
@@ -264,6 +268,8 @@ def validate_config(cfg: Config) -> None:
         raise ValueError("extraction.function_vector.head_selection must be 'universal' or 'per_task'")
     if not (1 <= fv.aie_seeds <= cfg.extraction.n_seeds):
         raise ValueError("extraction.function_vector.aie_seeds must be between 1 and extraction.n_seeds")
+    if fv.aie_metric not in ("first_token_probability", "logprob_per_token"):
+        raise ValueError("extraction.function_vector.aie_metric must be 'first_token_probability' or 'logprob_per_token'")
     if not cfg.calibration.rho_grid or any(r <= 0 for r in cfg.calibration.rho_grid):
         raise ValueError("calibration.rho_grid must be non-empty and positive")
     if sorted(cfg.calibration.rho_grid) != list(cfg.calibration.rho_grid):

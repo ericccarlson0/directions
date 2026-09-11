@@ -111,6 +111,7 @@ class ForwardResult:
     n_target_tokens: np.ndarray  # (N,)
     residuals: np.ndarray | None  # (L+1, N, d) float32 at the final query token, if captured
     head_outputs: np.ndarray | None = None  # (L, N, n_heads, head_dim) float32 at the query token, if captured
+    first_token_logprob: np.ndarray | None = None  # (N,) log p of the first target token (D21 head ranking)
 
     def metrics_dict(self) -> dict[str, float]:
         return {
@@ -423,7 +424,7 @@ class ModelBackend:
         masked = first.detach().clone()
         masked.scatter_(1, tgt_dev[:, :1], float("-inf"))
         margin = gold - masked.max(dim=1).values
-        return {"lp_sum": lp_sum, "lp_tok": lp_tok, "em": em, "margin": margin}
+        return {"lp_sum": lp_sum, "lp_tok": lp_tok, "em": em, "margin": margin, "first_lp": tok_lp[:, 0]}
 
     def _run_batch(
         self,
@@ -456,6 +457,7 @@ class ModelBackend:
             n_target_tokens=batch["n_tgt"].numpy().astype(np.int64),
             residuals=residuals,
             head_outputs=heads,
+            first_token_logprob=sc["first_lp"].cpu().numpy().astype(np.float64),
         )
 
     def _gradient_batch(self, prompts: Sequence[Prompt]) -> np.ndarray:
@@ -586,6 +588,7 @@ def _concat_results(parts: list[ForwardResult]) -> ForwardResult:
         n_target_tokens=np.concatenate([p.n_target_tokens for p in parts]),
         residuals=None if parts[0].residuals is None else np.concatenate([p.residuals for p in parts], axis=1),
         head_outputs=None if parts[0].head_outputs is None else np.concatenate([p.head_outputs for p in parts], axis=1),
+        first_token_logprob=None if parts[0].first_token_logprob is None else np.concatenate([p.first_token_logprob for p in parts]),
     )
 
 

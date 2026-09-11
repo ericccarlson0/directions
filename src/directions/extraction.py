@@ -25,6 +25,7 @@ class SeedExtraction:
     head_means: np.ndarray | None = None  # (L, n_heads, head_dim) mean head outputs over the positive prompts
     permuted_prompts: list[Prompt] = field(default_factory=list)  # the deranged-label prompts of this seed
     permuted_logprob_per_token: np.ndarray | None = None  # (n,) their unpatched decision metric
+    permuted_first_token_logprob: np.ndarray | None = None  # (n,) their unpatched first-target-token log p
 
 
 @dataclass
@@ -97,6 +98,7 @@ def extract_differences(
                 head_means=rp.head_outputs.astype(np.float64).mean(axis=1) if capture_heads else None,
                 permuted_prompts=neg if capture_heads else [],
                 permuted_logprob_per_token=rn.logprob_per_token.copy() if capture_heads else None,
+                permuted_first_token_logprob=rn.first_token_logprob.copy() if capture_heads else None,
             )
         )
     return out

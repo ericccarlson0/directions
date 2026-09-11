@@ -77,15 +77,21 @@ def test_head_effects_batched_equals_one_run_per_head(backend, prompts):
     assert means.shape == (4, backend.n_heads, backend.head_dim)
     neg = [zero_shot_prompt(PromptConfig(), p.query) for p in prompts]
     base = backend.run(neg)
-    aie = head_effects(backend, neg, base.logprob_per_token, means)
-    assert aie.shape == (4, backend.n_heads)
+    assert base.first_token_logprob.shape == (5,) and np.all(base.first_token_logprob <= 0)
     assert backend.cfg.batch_size // len(neg) > 1  # the batched path really packs several heads per pass
-    for layer in range(4):
-        for head in range(backend.n_heads):
-            r = backend.run(neg, head_patches=[HeadPatch(layer, head, means[layer, head].astype(np.float32))])
-            assert aie[layer, head] == pytest.approx(float(np.mean(r.logprob_per_token - base.logprob_per_token)), abs=1e-6)
+    for metric, values in (("first_token_probability", lambda r: np.exp(r.first_token_logprob)),
+                           ("logprob_per_token", lambda r: r.logprob_per_token)):
+        aie = head_effects(backend, neg, values(base), means, metric=metric)
+        assert aie.shape == (4, backend.n_heads)
+        for layer in range(4):
+            for head in range(backend.n_heads):
+                r = backend.run(neg, head_patches=[HeadPatch(layer, head, means[layer, head].astype(np.float32))])
+                assert aie[layer, head] == pytest.approx(float(np.mean(values(r) - values(base))), abs=1e-6), metric
+    assert np.all(np.abs(head_effects(backend, neg, np.exp(base.first_token_logprob), means)) <= 1.0)  # a probability difference
     with pytest.raises(ValueError):
         head_effects(backend, neg, base.logprob_per_token[:-1], means)
+    with pytest.raises(ValueError):
+        head_effects(backend, neg, base.logprob_per_token, means, metric="accuracy")
 
 
 def test_select_heads_universal_and_per_task():

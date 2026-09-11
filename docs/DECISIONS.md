@@ -420,15 +420,22 @@ to make:
   patched into the *deranged-label* prompts of the extraction pairs (the
   paper's shuffled-label corruption; here the permuted prompts of the first
   `function_vector.aie_seeds` = 1 seed, 64 prompts) at the query token, one
-  head at a time, and the effect is the mean change of the pipeline's
-  decision metric, log p per target token. The paper measures the recovered
-  probability of the correct token; the log-probability is used here so
-  that the ranking speaks the same units as the calibration and the gates.
-  Several heads are patched per forward pass by repeating the prompt list
-  with a per-example patch (`ModelBackend.run(head_patches=...)`);
-  `tests/test_function_vector.py` checks the batched path against one run
-  per head, the per-head decomposition of the attention output against a
-  hook on `o_proj`, and identity patches for exactness.
+  head at a time, and the effect is the mean change of the **probability of
+  the correct first target token**, the paper's recovered probability
+  (`aie_metric: first_token_probability`). A first run ranked heads by the
+  change of log p per target token instead (run 34541635889, superseded):
+  that scale differs by task, so the lexical tasks, where the best head
+  moves the deranged prompts by ~3 nats, dictated the universal set while
+  arithmetic's own effects for the chosen heads were ~0.01 nats and its
+  vector was 77 % aligned with the deranged-prompt null vector. The
+  probability is bounded, so tasks contribute on a comparable scale, as in
+  the paper; the log-probability ranking remains available as
+  `aie_metric: logprob_per_token`. Several heads are patched per forward
+  pass by repeating the prompt list with a per-example patch
+  (`ModelBackend.run(head_patches=...)`); `tests/test_function_vector.py`
+  checks the batched path against one run per head for both metrics, the
+  per-head decomposition of the attention output against a hook on
+  `o_proj`, and identity patches for exactness.
 * **One universal head set.** `function_vector.head_selection: universal`:
   the heads are ranked by the mean indirect effect over all tasks that
   reached extraction and the top `n_heads` = 10 (the paper's default) are

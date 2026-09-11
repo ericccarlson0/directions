@@ -118,7 +118,7 @@ Use at least 3 independent extraction seeds (each resamples the demonstrations a
 With `extraction.control: function_vector` the direction carried forward is the function vector of Todd et al. (2024) instead of PC1, built from the same paired prompts:
 
 * for every attention head \((l, j)\), the mean output at the final query token over the positive prompts, \(\bar a_{l,j}\), taken before the attention output projection;
-* the average indirect effect of each head: the mean change of the decision metric (log p per target token) on the deranged-label prompts when the head's output at the query token is replaced by \(\bar a_{l,j}\);
+* the average indirect effect of each head: the mean change of the probability of the correct first target token on the deranged-label prompts when the head's output at the query token is replaced by \(\bar a_{l,j}\) (the paper's recovered probability; configurable);
 * one universal head set \(S\): the top \(k = 10\) heads by the mean indirect effect over all tasks that reached extraction;
 * \(\mathrm{FV}_t = \sum_{(l,j) \in S} W_o^{l}[:, j]\, \bar a^{t}_{l,j}\), normalised to unit norm and used at every candidate layer.
 
