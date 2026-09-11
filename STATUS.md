@@ -541,9 +541,12 @@ Universal heads (block, head; mean effect over tasks): (15, 6; 0.134),
 (16, 7; 0.009): all in blocks 15–19 of 28, dominated by one head. Per task
 the effects of these heads are 0.16–0.33 (best head) for antonym,
 number_to_words, past_tense and present_participle, 0.05–0.07 for plural,
-singular and uppercase, and 0.000 for arithmetic: no head moves the
-arithmetic prompts' recovered probability, so its "function vector" is
-those heads' mean outputs on arithmetic prompts with no causal support.
+singular and uppercase, and 0.000 for arithmetic. The arithmetic zero is a
+tokenisation artefact of the metric, not a causal fact (found afterwards,
+D22): its targets tokenise as `' '`, `'4'`, `'5'`, so the "first answer
+token" is a lone space that the deranged prompts already predict with
+probability 0.991, and the first-token probability cannot move. Iteration
+4b ranks heads by the whole-target probability instead.
 
 8 of 8 few-shot-passing tasks qualify (excess p = 0.0005 against 48 gate
 controls). Every function vector has cross-seed stability ≥ 0.999 and a
@@ -583,8 +586,9 @@ What the run says, against the iteration-3b PCA run of the same seed:
   the deranged-prompt vectors by −0.01 to +0.04 (not at all for
   arithmetic, past_tense). This is the iteration-3 picture (a shared
   in-context/answer component carries most of the behavioural effect) seen
-  from the head-level construction, and for arithmetic the vector has no
-  causal support at all yet steers by +0.064.
+  from the head-level construction. (Arithmetic's vector steers by +0.064
+  although its head effects were all zero under the first-token metric;
+  see the tokenisation note above.)
 - **Geometric profile.** Every task is cascade + amplification (cumulative
   log G 1.8–2.4), and `d_eff` *contracts* (17–28 → 8–16) where the PCA
   direction expanded for plural and singular. Against the nulls the
@@ -605,19 +609,32 @@ Its wall time was 84 min against 34 min for the first run, entirely in the
 CPU-side control profiles (70–836 s per task against 29–863 s the first
 time, for identical work; see "known limitations").
 
+### Iteration 4b (D22; implemented, first run requested)
+
+Four changes after the iteration-4 reading, all in D22: the head ranking
+uses the whole-target probability (arithmetic's first target token is a
+lone space, so its first-token effects were saturated at zero); the
+function-vector calibration is in units of the vector's norm with the
+canonical injection (ρ = 1) as the reference strength instead of the
+weakest reliable one (the weakest is still profiled in strength
+robustness); the profile spectra run batched on the GPU
+(`geometry.spectra`), with the NumPy path kept for CPU runs and tested
+against it; and every stage is instrumented by `directions.profiling`
+(`metadata.json/profile`: per-stage wall and CPU seconds, forward counts,
+peak GPU memory; `timings_seconds` keeps the old flat keys). 147 tests
+pass; the toy smoke run of the function-vector config is reproducible
+(`directions compare`). Results of the 0.6B run and its replicate: pending.
+
 ## Not yet run / known limitations
 
-- The CPU-side control profiles (65 per task, an SVD per layer each) take
-  30–60 s per task on the RunPod worker most of the time, but 300–900 s
-  for one or two tasks per run (iteration 4: antonym 293 s, plural 863 s;
-  the earliest batch-32 run: antonym 1019 s) with identical work: thread
-  contention on the shared host, most likely (the BLAS cap of 4 threads is
-  in place; `controls_profiles:<task>` in `timings_seconds` records it).
-  Moving the profile SVDs to the GPU would remove the dependence.
-- Iteration 4 has run only on 0.6B, seed 20260907. Whether the canonical
-  strength (natural ρ ≈ 2, ~20 × the calibrated one) changes the profile is
-  untested: the calibration rule selects the weakest reliable point, and
-  the strength-robustness stage covers only the reliable range at layer 6.
+- Iteration 4b has not run on a GPU yet. The bit-identity of the batched
+  GPU decompositions (a replicate diff) and the wall time of the control
+  profiles on the GPU (iteration 4 on the CPU: 30–860 s per task for
+  identical work, host contention) are what the first run and its
+  replicate establish.
+- Iteration 4 (weakest-reliable calibration, first-token ranking) has run
+  only on 0.6B, seed 20260907, and is superseded by 4b for the head ranking
+  and the strength.
 - Iteration 3b (D20: 16 controls per random kind, batch 128) has run only
   on 0.6B, seed 20260907 (twice, bit-identical). The 1.7B/4B/8B configs
   carry the same change but have not been run with it; 8B at batch 128 has
@@ -645,19 +662,22 @@ time, for identical work; see "known limitations").
 ## Next commands
 
 ```bash
-uv run pytest                                                           # 122 tests
+uv run pytest                                                           # 147 tests
 # GPU runs: edit .github/gpu-run.yaml (command + a new `request` label), commit, push; the run-gpu
 # workflow triggers on the push (README, "Run on GPUs"). One run per push; the ci environment runs
 # them one at a time. Then:
 gh run list --workflow=run-gpu.yml --branch fable --limit 1 && gh run watch <RUN_ID>
 gh run download <RUN_ID> --dir results/remote/<name>
-# iteration 4 (D21: function-vector control; the configs now default to it) on the other models and seeds,
-# as request-file commands (the PCA-control protocol is `extraction.control: pca`, D20 counts):
-uv run directions pilot --config configs/pilot_qwen3_1.7b.yaml --run-id pilot4_qwen3_1.7b_seed20260907   # ADA_24
-uv run directions pilot --config configs/pilot_qwen3_4b.yaml   --run-id pilot4_qwen3_4b_seed20260907     # ADA_24
-uv run directions pilot --config configs/pilot_qwen3_8b.yaml   --run-id pilot4_qwen3_8b_seed20260907     # ADA_24 (18.8 GB at batch 32; check memory at 128)
-uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --seed 1 --run-id pilot4_qwen3_0.6b_seed1
-uv run directions aggregate results/remote/<a>/... results/remote/<b>/... --out results/aggregate4_qwen3_0.6b.json
+# iteration 4b (D21 + D22: function-vector control at the canonical strength; the configs default to it),
+# first on 0.6B twice (bit-identity of the GPU path), then the other models and seeds, as request-file
+# commands (the PCA-control protocol is `extraction.control: pca` with `calibration.strength_unit: layer_norm`):
+uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --run-id pilot4b_qwen3_0.6b_seed20260907   # ADA_24, requested
+uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --run-id pilot4b_qwen3_0.6b_seed20260907_b # replicate
+uv run directions pilot --config configs/pilot_qwen3_1.7b.yaml --run-id pilot4b_qwen3_1.7b_seed20260907   # ADA_24
+uv run directions pilot --config configs/pilot_qwen3_4b.yaml   --run-id pilot4b_qwen3_4b_seed20260907     # ADA_24
+uv run directions pilot --config configs/pilot_qwen3_8b.yaml   --run-id pilot4b_qwen3_8b_seed20260907     # ADA_24 (18.8 GB at batch 32; check `profile.totals` at 128)
+uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --seed 1 --run-id pilot4b_qwen3_0.6b_seed1
+uv run directions aggregate results/remote/<a>/... results/remote/<b>/... --out results/aggregate4b_qwen3_0.6b.json
 uv run directions compare results/<run_a> results/<run_b>                # reproducibility diff
 ```
 

@@ -48,6 +48,9 @@ class CharTokenizer:
     def encode(self, text: str, add_special_tokens: bool = False) -> list[int]:
         return [self._stoi.get(c, self.unk_token_id) for c in text]
 
+    def decode(self, ids: list[int]) -> str:
+        return "".join(self._itos[i] for i in ids)
+
 
 class HFTokenizer:
     def __init__(self, name: str) -> None:
@@ -65,6 +68,9 @@ class HFTokenizer:
 
     def encode(self, text: str, add_special_tokens: bool = False) -> list[int]:
         return list(self._tok.encode(text, add_special_tokens=add_special_tokens))
+
+    def decode(self, ids: list[int]) -> str:
+        return self._tok.decode(ids)
 
 
 # --------------------------------------------------------------------------- #
@@ -148,6 +154,8 @@ class ModelBackend:
         self.cfg = cfg
         self.device = _resolve_device(cfg.device)
         self.dtype = _resolve_dtype(cfg.dtype)
+        # examples/batches through run() and gradients(); read per stage by directions.profiling.Profiler
+        self.counters: dict[str, int] = {"forward_examples": 0, "forward_batches": 0, "gradient_examples": 0, "gradient_batches": 0}
         if cfg.backend == "hf":
             self.model, self.tokenizer = self._load_hf(cfg.name)
         elif cfg.backend == "toy":
@@ -315,6 +323,11 @@ class ModelBackend:
     def target_token_count(self, target_text: str) -> int:
         return len(self.tokenizer.encode(target_text, add_special_tokens=False))
 
+    def target_tokens(self, target_text: str) -> list[str]:
+        """The target's tokens as text pieces (the way the target is scored)."""
+        ids = self.tokenizer.encode(target_text, add_special_tokens=False)
+        return [self.tokenizer.decode([i]) for i in ids]
+
     def _encode_prompt(self, p: Prompt) -> tuple[list[int], list[int]]:
         prompt_ids = self.tokenizer.encode(p.prompt, add_special_tokens=True)
         target_ids = self.tokenizer.encode(p.target, add_special_tokens=False)
@@ -339,6 +352,8 @@ class ModelBackend:
         outs: list[ForwardResult] = []
         for start in range(0, len(prompts), bs):
             batch = prompts[start : start + bs]
+            self.counters["forward_examples"] += len(batch)
+            self.counters["forward_batches"] += 1
             sliced = [
                 Intervention(iv.layer, iv.vectors if iv.vectors.ndim == 1 else iv.vectors[start : start + bs], iv.scale)
                 for iv in interventions
@@ -363,7 +378,12 @@ class ModelBackend:
         forward pass is the unsteered teacher-forced pass used everywhere else.
         """
         bs = batch_size or self.cfg.batch_size
-        parts = [self._gradient_batch(prompts[start : start + bs]) for start in range(0, len(prompts), bs)]
+        parts = []
+        for start in range(0, len(prompts), bs):
+            batch = prompts[start : start + bs]
+            self.counters["gradient_examples"] += len(batch)
+            self.counters["gradient_batches"] += 1
+            parts.append(self._gradient_batch(batch))
         return np.concatenate(parts, axis=1)
 
     def _prepare_batch(self, prompts: Sequence[Prompt]) -> dict[str, Any]:

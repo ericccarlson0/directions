@@ -70,10 +70,14 @@ extraction:
     aie_seeds: 1                     # indirect effects measured on the deranged prompts of seed 0 (64 prompts)
 
 calibration:
-  rho_grid: [0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0]
+  strength_unit: natural             # D22: rho multiplies the direction's natural norm (||FV||), so rho 1 is the
+                                     # canonical unscaled injection of Todd et al. (layer_norm: the D1-D21 unit)
+  rho_grid: [0.05, 0.1, 0.2, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0]
+  reference_rho: 1.0                 # D22: select the reliable strength nearest the canonical one (null: the weakest)
+  layer_rule: earliest               # the earliest candidate layer with a reliable strength (best: largest improvement)
   extend_grid: true                  # extend geometrically while the best point is at the upper edge
   extension_factor: 1.25
-  max_rho: 2.0
+  max_rho: 4.0
   bootstrap_alpha: 0.05
   min_improvement: 0.05              # nats per target token
   n_random_screen: 16

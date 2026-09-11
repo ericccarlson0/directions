@@ -21,7 +21,7 @@ from .geometry import (
     effective_rank,
     layerwise_example_metrics,
     new_subspace_fraction,
-    spectrum,
+    spectra,
 )
 from .stats import bootstrap_median_ci, bootstrap_median_ci_rows, compare_to_null
 
@@ -164,10 +164,12 @@ def compute_profile(
     N_unc = np.full(L, np.nan)
     b = block_responses(delta)
     observed_at_ls: dict[str, float | None] = {"d_eff": None, "total_centered_variance": None, "d90": None}
+    # One batched decomposition per centring over the read points from the intervention layer on.
+    spectra_c = spectra(delta[ls:], frac=cfg.variance_fraction, center=True)
+    spectra_u = spectra(delta[ls:], frac=cfg.variance_fraction, center=False)
     for l in range(ls, L1):
-        D = delta[l]
-        spec_c = spectrum(D, frac=cfg.variance_fraction, center=True)
-        spec_u = spectrum(D, frac=cfg.variance_fraction, center=False)
+        spec_c = spectra_c[l - ls]
+        spec_u = spectra_u[l - ls]
         d_eff_unc[l] = spec_u.effective_rank
         if l == ls:
             # exact arithmetic: centered D is zero; the observed value is the bf16 noise floor

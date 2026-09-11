@@ -30,7 +30,8 @@ writes a uniquely named directory under `results/`:
 
 ```
 results/<run_id>/
-  metadata.json            run id, command, git commit, model, environment, seed table, timings
+  metadata.json            run id, command, git commit, model, environment, seed table, timings and
+                           the run profile (per-stage seconds, forward counts, peak memory)
   config.resolved.yaml     the exact configuration used
   rejections.jsonl         every automatic filtering decision, with the numbers behind it
   log.txt
@@ -51,7 +52,8 @@ results/<run_id>/
                            (covariance, other_task, demo_variation)
       layerwise_arrays.npz per-example arrays
   exploratory/tasks/<task>/
-      strength_robustness.json   profiles at stronger reliable strengths + rank correlations
+      strength_robustness.json   profiles at the other reliable strengths (weakest / middle / strongest)
+                                 + rank correlations with the selected one
       block_ablation.json        necessity / sufficiency of the largest-conversion blocks
   figures/                 per-task primary figures, diagnostics, cross-task heatmaps
 ```

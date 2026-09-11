@@ -44,10 +44,17 @@ from .extraction import (
     extract_differences,
     permuted_head_means,
 )
-from .function_vector import FunctionVector, build_function_vector, compose, head_effects, select_heads
-from .geometry import covariance_matched_unit_vector, normalize, random_orthogonal_unit_vector, random_unit_vector
+from .function_vector import FunctionVector, build_function_vector, compose, effect_values, head_effects, select_heads
+from .geometry import (
+    covariance_matched_unit_vector,
+    normalize,
+    random_orthogonal_unit_vector,
+    random_unit_vector,
+    set_linalg_device,
+)
 from .layerwise import LayerwiseProfile, compare_by_kind, compute_profile, metric_curves, null_summary, profile_arrays
 from .model import ForwardResult, Intervention, ModelBackend, environment_metadata, set_torch_determinism
+from .profiling import Profiler
 from .prompts import Prompt, few_shot_prompt, zero_shot_prompt
 from .runinfo import RejectionLog, git_info, make_run_dir, setup_logging, write_json, write_resolved_config
 from .seeds import derive_seed, rng_for
@@ -104,7 +111,7 @@ class Pipeline:
         self.root = make_run_dir(cfg, command, run_id)
         self.log = setup_logging(self.root / "log.txt")
         self.rejections = RejectionLog(self.root / "rejections.jsonl")
-        self.timings: dict[str, float] = {}
+        self.prof = Profiler()
         self.stop_after = "steering" if command == "validate" else "figures"
         write_resolved_config(self.root / "config.resolved.yaml", cfg)
         self.metadata: dict[str, Any] = {
@@ -126,10 +133,28 @@ class Pipeline:
     def run(self) -> Path:
         cfg = self.cfg
         set_torch_determinism(derive_seed(cfg.seed, "torch"))
-        t0 = time.time()
-        self.backend = ModelBackend(cfg.model, run_seed=cfg.seed)
-        self.timings["model_load"] = time.time() - t0
+        try:
+            with self.prof.section("total"):
+                self._run()
+        finally:
+            set_linalg_device(None)
+        self.metadata["timings_seconds"] = self.prof.timings()
+        self.metadata["profile"] = self.prof.report()
+        self.metadata["finished_utc"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        write_json(self.root / "metadata.json", self.metadata)
+        self.log.info("profile (sections >= 1 s):\n%s", self.prof.table())
+        self.log.info("done in %.1fs -> %s", self.metadata["timings_seconds"]["total"], self.root)
+        return self.root
+
+    def _run(self) -> None:
+        cfg = self.cfg
+        with self.prof.section("model_load"):
+            self.backend = ModelBackend(cfg.model, run_seed=cfg.seed)
+        self.prof.backend = self.backend  # forward/gradient counters and GPU memory from here on
+        # The profile decompositions run on the model's device (docs/DECISIONS.md D22: GPU SVDs).
+        set_linalg_device(self.backend.device if self.backend.device.type == "cuda" else None)
         self.metadata["model"] = self.backend.metadata()
+        self.metadata["linalg_device"] = str(self.backend.device) if self.backend.device.type == "cuda" else "numpy"
         self.layers = candidate_layers(self.backend.n_layers, cfg.extraction.candidate_depth_fractions)
         self.metadata["candidate_layers"] = self.layers
         self.metadata["control"] = cfg.extraction.control
@@ -141,46 +166,36 @@ class Pipeline:
 
         states: dict[str, TaskState] = {}
         for tcfg in cfg.tasks:
-            t1 = time.time()
-            try:
-                states[tcfg.name] = self._prepare_task(tcfg.name, tcfg.params, tcfg.max_target_tokens)
-            except Exception as e:
-                self.log.error("task %s failed in phase A: %s", tcfg.name, e)
-                self.rejections.add("error", tcfg.name, f"{type(e).__name__}: {e}", {"traceback": traceback.format_exc()})
-            self.timings[f"prepare:{tcfg.name}"] = time.time() - t1
-        if cfg.extraction.control == "function_vector":
-            t1 = time.time()
-            self._build_function_vectors(states)
-            self.timings["function_vectors"] = time.time() - t1
-        for name, st in states.items():
-            t1 = time.time()
-            if st.ready and self.stop_after not in ("fewshot", "extraction"):
+            with self.prof.section("prepare", tcfg.name):
                 try:
-                    self._measure_task(st, states)
+                    states[tcfg.name] = self._prepare_task(tcfg.name, tcfg.params, tcfg.max_target_tokens)
                 except Exception as e:
-                    self.log.error("task %s failed in phase B: %s", name, e)
-                    self.rejections.add("error", name, f"{type(e).__name__}: {e}", {"traceback": traceback.format_exc()})
-            self._finish_task(st)
-            self.timings[f"measure:{name}"] = time.time() - t1
+                    self.log.error("task %s failed in phase A: %s", tcfg.name, e)
+                    self.rejections.add("error", tcfg.name, f"{type(e).__name__}: {e}", {"traceback": traceback.format_exc()})
+        if cfg.extraction.control == "function_vector":
+            with self.prof.section("function_vectors"):
+                self._build_function_vectors(states)
+        for name, st in states.items():
+            with self.prof.section("measure", name):
+                if st.ready and self.stop_after not in ("fewshot", "extraction"):
+                    try:
+                        self._measure_task(st, states)
+                    except Exception as e:
+                        self.log.error("task %s failed in phase B: %s", name, e)
+                        self.rejections.add("error", name, f"{type(e).__name__}: {e}", {"traceback": traceback.format_exc()})
+                self._finish_task(st)
 
         summary = self._summarise(states)
         if self.stop_after == "figures" and cfg.figures.enabled:
-            t2 = time.time()
-            try:
-                from .figures import make_all_figures
+            with self.prof.section("figures"):
+                try:
+                    from .figures import make_all_figures
 
-                make_all_figures(self.root, states, cfg)
-            except Exception as e:
-                self.log.error("figure generation failed: %s", e)
-                self.rejections.add("error", "*", f"figures: {type(e).__name__}: {e}", {"traceback": traceback.format_exc()})
-            self.timings["figures"] = time.time() - t2
-        self.timings["total"] = time.time() - t0
-        self.metadata["timings_seconds"] = self.timings
-        self.metadata["finished_utc"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        write_json(self.root / "metadata.json", self.metadata)
+                    make_all_figures(self.root, states, cfg)
+                except Exception as e:
+                    self.log.error("figure generation failed: %s", e)
+                    self.rejections.add("error", "*", f"figures: {type(e).__name__}: {e}", {"traceback": traceback.format_exc()})
         write_json(self.root / "core" / "summary.json", summary)
-        self.log.info("done in %.1fs -> %s", self.timings["total"], self.root)
-        return self.root
 
     def _seed_table(self) -> dict[str, Any]:
         s = self.cfg.seed
@@ -217,31 +232,37 @@ class Pipeline:
         q: dict[str, Any] = {"task": name, "gates": {}}
 
         # 1. data --------------------------------------------------------
-        task = build_task(name, params)
-        max_tok = max_target_tokens if max_target_tokens is not None else cfg.data.max_target_tokens
-        kept, rejected = filter_items(task, self.backend.target_token_count, cfg.prompt.target_template, max_tok)
-        for r in rejected:
-            self.rejections.add(r.stage, r.task, r.reason, r.details)
-        splits = make_splits(kept, cfg.seed, name, cfg.data.n_extraction, cfg.data.n_calibration,
-                             cfg.data.n_evaluation, allow_reduced=cfg.data.allow_reduced_splits)
+        with self.prof.section("data", name):
+            task = build_task(name, params)
+            max_tok = max_target_tokens if max_target_tokens is not None else cfg.data.max_target_tokens
+            kept, rejected = filter_items(task, self.backend.target_token_count, cfg.prompt.target_template, max_tok)
+            for r in rejected:
+                self.rejections.add(r.stage, r.task, r.reason, r.details)
+            splits = make_splits(kept, cfg.seed, name, cfg.data.n_extraction, cfg.data.n_calibration,
+                                 cfg.data.n_evaluation, allow_reduced=cfg.data.allow_reduced_splits)
         if splits.reduced:
             self.rejections.add("data", name, "pools_reduced", {"n_items": len(kept), "sizes": {
                 "extraction": len(splits.extraction), "calibration": len(splits.calibration), "evaluation": len(splits.evaluation)}})
         st = TaskState(name=name, splits=splits)
         st.qualification = q
+        # How the formatted targets tokenise: the first token of a multi-token target may carry no answer
+        # (a lone space before digits), which matters for first-token metrics (docs/DECISIONS.md D22).
+        tok = self._target_tokenisation(kept, cfg.prompt.target_template)
         write_json(out / "splits.json", {"n_items_total": len(task.items), "n_items_kept": len(kept),
                                          "n_items_rejected": len(rejected), "max_target_tokens": max_tok,
-                                         "params": task.params, **splits.as_dict()})
-        log.info("[%s] %d items kept (%d rejected); pools %d/%d/%d", name, len(kept), len(rejected),
-                 len(splits.extraction), len(splits.calibration), len(splits.evaluation))
+                                         "params": task.params, "target_tokenisation": tok, **splits.as_dict()})
+        log.info("[%s] %d items kept (%d rejected); pools %d/%d/%d; target tokens: mean %.2f, first-token share of "
+                 "single-space %.2f", name, len(kept), len(rejected), len(splits.extraction), len(splits.calibration),
+                 len(splits.evaluation), tok["n_tokens_mean"], tok["first_token_is_space_fraction"])
 
         # 2. few-shot qualification -------------------------------------
-        rng = rng_for(cfg.seed, "fewshot_eval", name)
-        fs_prompts = [few_shot_prompt(cfg.prompt, splits.evaluation, x, rng) for x in splits.evaluation]
-        fs = self.backend.run(fs_prompts)
-        zs_prompts = [zero_shot_prompt(cfg.prompt, x) for x in splits.evaluation]
-        st.eval_prompts = zs_prompts
-        st.base = self.backend.run(zs_prompts, capture=True)
+        with self.prof.section("fewshot", name):
+            rng = rng_for(cfg.seed, "fewshot_eval", name)
+            fs_prompts = [few_shot_prompt(cfg.prompt, splits.evaluation, x, rng) for x in splits.evaluation]
+            fs = self.backend.run(fs_prompts)
+            zs_prompts = [zero_shot_prompt(cfg.prompt, x) for x in splits.evaluation]
+            st.eval_prompts = zs_prompts
+            st.base = self.backend.run(zs_prompts, capture=True)
         q["fewshot"] = fs.metrics_dict()
         q["zeroshot_baseline"] = st.base.metrics_dict()
         q["example_prompt"] = {"fewshot": fs_prompts[0].prompt, "zeroshot": zs_prompts[0].prompt, "target": zs_prompts[0].target}
@@ -262,12 +283,13 @@ class Pipeline:
 
         # 3. extraction --------------------------------------------------
         fv_mode = cfg.extraction.control == "function_vector"
-        seeds = extract_differences(self.backend, cfg.prompt, splits.extraction, cfg.seed, name, cfg.extraction.n_seeds,
-                                    capture_heads=fv_mode)
-        st.pca_directions = directions_from_differences(seeds, self.layers, cfg.extraction)
-        st.directions = st.pca_directions
-        all_dirs = directions_from_differences(seeds, list(range(self.backend.n_layers + 1)), cfg.extraction)
-        st.all_layer_directions = np.stack([all_dirs[l].direction for l in range(self.backend.n_layers + 1)])
+        with self.prof.section("extraction", name):
+            seeds = extract_differences(self.backend, cfg.prompt, splits.extraction, cfg.seed, name, cfg.extraction.n_seeds,
+                                        capture_heads=fv_mode)
+            st.pca_directions = directions_from_differences(seeds, self.layers, cfg.extraction)
+            st.directions = st.pca_directions
+            all_dirs = directions_from_differences(seeds, list(range(self.backend.n_layers + 1)), cfg.extraction)
+            st.all_layer_directions = np.stack([all_dirs[l].direction for l in range(self.backend.n_layers + 1)])
         ext = {
             "control": cfg.extraction.control,
             "seeds": [{"seed_index": s.seed_index, "seed": s.seed, "metrics": s.metrics} for s in seeds],
@@ -283,25 +305,25 @@ class Pipeline:
             k = fvc.aie_seeds
             st.seed_head_means = np.stack([s.head_means for s in seeds])
             neg = [p for s in seeds[:k] for p in s.permuted_prompts]
-            if fvc.aie_metric == "first_token_probability":
-                base = np.exp(np.concatenate([s.permuted_first_token_logprob for s in seeds[:k]]))
-            else:
-                base = np.concatenate([s.permuted_logprob_per_token for s in seeds[:k]])
-            t2 = time.time()
-            st.head_effects = head_effects(self.backend, neg, base, st.seed_head_means.mean(axis=0), metric=fvc.aie_metric)
+            base = np.concatenate([effect_values(s.permuted_result, fvc.aie_metric) for s in seeds[:k]])
+            with self.prof.section("head_effects", name):
+                st.head_effects = head_effects(self.backend, neg, base, st.seed_head_means.mean(axis=0), metric=fvc.aie_metric)
             st.head_effects_n_prompts = len(neg)
-            self.timings[f"head_effects:{name}"] = time.time() - t2
             top = np.dstack(np.unravel_index(np.argsort(-st.head_effects, axis=None)[:5], st.head_effects.shape))[0]
             log.info("[%s] head effects (%s) over %d deranged prompts in %.0fs: baseline mean %.4f, max effect %.4f, "
-                     "top (layer, head) %s", name, fvc.aie_metric, len(neg), self.timings[f"head_effects:{name}"],
+                     "top (layer, head) %s", name, fvc.aie_metric, len(neg), self.prof.sections[f"head_effects:{name}"]["seconds"],
                      float(base.mean()), float(st.head_effects.max()), [(int(l), int(h)) for l, h in top])
             ext["function_vector"] = {"aie_seeds": k, "aie_n_prompts": len(neg), "aie_metric": fvc.aie_metric,
-                                      "aie_baseline_mean": float(base.mean())}
+                                      "aie_baseline_mean": float(base.mean()),
+                                      "aie_baseline_first_token_probability_mean":
+                                      float(np.mean(np.concatenate([np.exp(s.permuted_result.first_token_logprob) for s in seeds[:k]])))}
             if n_dv > 0:
-                st.permuted_head_means = permuted_head_means(self.backend, cfg.prompt, splits.extraction, cfg.seed, name, n_dv)
+                with self.prof.section("demo_variation", name):
+                    st.permuted_head_means = permuted_head_means(self.backend, cfg.prompt, splits.extraction, cfg.seed, name, n_dv)
                 ext["demo_variation"] = {"n": n_dv, "construction": "function vector of deranged-label prompts (D21)"}
         elif n_dv > 0:
-            dv = extract_demo_variation(self.backend, cfg.prompt, splits.extraction, cfg.seed, name, n_dv)
+            with self.prof.section("demo_variation", name):
+                dv = extract_demo_variation(self.backend, cfg.prompt, splits.extraction, cfg.seed, name, n_dv)
             st.demo_variation = demo_variation_directions(dv, self.layers, cfg.extraction)
             ext["demo_variation"] = {
                 "n": n_dv,
@@ -329,6 +351,25 @@ class Pipeline:
             st.stable_layers = list(self.layers)
         st.ready = True
         return st
+
+    def _target_tokenisation(self, items: list[Any], target_template: str) -> dict[str, Any]:
+        """How the kept items' formatted targets tokenise (counts, and what the first token is)."""
+        n_tokens = []
+        first_space = 0
+        examples: list[list[str]] = []
+        for it in items:
+            pieces = self.backend.target_tokens(target_template.format(output=it.output))
+            n_tokens.append(len(pieces))
+            first_space += pieces[0].strip() == ""
+            if len(examples) < 3:
+                examples.append(pieces)
+        n = max(1, len(items))
+        return {
+            "n_tokens_mean": float(np.mean(n_tokens)) if n_tokens else 0.0,
+            "n_tokens_histogram": {str(k): int(v) for k, v in sorted(zip(*np.unique(n_tokens, return_counts=True)))} if n_tokens else {},
+            "first_token_is_space_fraction": first_space / n,
+            "examples": examples,
+        }
 
     def _write_directions(self, st: TaskState) -> None:
         arrays: dict[str, np.ndarray] = {
@@ -454,8 +495,9 @@ class Pipeline:
         assert st.base is not None and st.base.residuals is not None
 
         # 4. calibration -------------------------------------------------
-        cal = calibrate(self.backend, cfg.prompt, cfg.calibration, cfg.evaluation,
-                        {l: st.directions[l] for l in st.stable_layers}, splits.calibration, cfg.seed, name)
+        with self.prof.section("calibration", name):
+            cal = calibrate(self.backend, cfg.prompt, cfg.calibration, cfg.evaluation,
+                            {l: st.directions[l] for l in st.stable_layers}, splits.calibration, cfg.seed, name)
         st.calibration = cal
         write_json(out / "calibration.json", cal.as_dict())
         q["gates"]["calibration"] = cal.selected is not None
@@ -464,57 +506,59 @@ class Pipeline:
             if cfg.qualification.enforce:
                 return
             best = max(cal.grid, key=lambda g: g.test.mean_diff)
-            st.selection = Selection(best.layer, best.rho, best.alpha)
+            st.selection = best.selection()
             st.fallback_selection = True
             log.warning("[%s] gates not enforced: falling back to best grid point layer %d rho %.3g", name, best.layer, best.rho)
         else:
             st.selection = cal.selected
-        q["selection"] = {**st.selection.__dict__, "fallback": st.fallback_selection}
-        log.info("[%s] selected layer %d, rho %.3g (alpha %.3g)%s", name, st.selection.layer, st.selection.rho,
-                 st.selection.alpha, " [FALLBACK]" if st.fallback_selection else "")
+        q["selection"] = {**st.selection.__dict__, "fallback": st.fallback_selection, "strength_unit": cal.strength_unit,
+                          "reference_rho": cal.reference_rho, "layer_rule": cal.layer_rule,
+                          "weakest_rho": None if cal.weakest is None else cal.weakest.rho,
+                          "strongest_rho": None if cal.strongest is None else cal.strongest.rho}
+        log.info("[%s] selected layer %d, rho %.3g in %s units (alpha %.3g, %.3g x median residual norm; reliable rho %s-%s)%s",
+                 name, st.selection.layer, st.selection.rho, cal.strength_unit, st.selection.alpha,
+                 st.selection.rho_layer_norm or float("nan"), q["selection"]["weakest_rho"], q["selection"]["strongest_rho"],
+                 " [FALLBACK]" if st.fallback_selection else "")
         if st.fv is not None:
-            # The strength the canonical (unscaled) injection would have, in the calibration's units.
+            # The strength the canonical (unscaled) injection would have, in units of the median residual norm,
+            # and the selected strength in units of the natural norm (1 = the canonical injection).
             q["function_vector"]["natural_rho"] = {str(l): st.fv.natural_norm / n for l, n in cal.layer_norms.items()}
+            q["function_vector"]["alpha_over_natural_norm"] = st.selection.alpha / st.fv.natural_norm
             q["function_vector"]["cos_with_pca_at_selected_layer"] = q["function_vector"]["cos_with_pca"][str(st.selection.layer)]
-            log.info("[%s] function vector's natural rho at the selected layer %.3g (selected rho %.3g); cos with PC1 there %.3f",
-                     name, q["function_vector"]["natural_rho"][str(st.selection.layer)], st.selection.rho,
-                     q["function_vector"]["cos_with_pca_at_selected_layer"])
+            log.info("[%s] function vector: natural rho at the selected layer %.3g; selected alpha / natural norm %.3g; "
+                     "cos with PC1 there %.3f", name, q["function_vector"]["natural_rho"][str(st.selection.layer)],
+                     q["function_vector"]["alpha_over_natural_norm"], q["function_vector"]["cos_with_pca_at_selected_layer"])
 
         # 5. held-out steering vs matched controls of every kind ----------
         sel = st.selection
         v = st.directions[sel.layer].direction
         do_layerwise = self.stop_after in ("layerwise", "exploratory", "figures")
-        t_stage = time.time()
-        st.steered = self.backend.run(zs_prompts, interventions=[Intervention(sel.layer, v, sel.alpha)], capture=True)
-        brng = rng_for(cfg.seed, "bootstrap", name)
-        prng = rng_for(cfg.seed, "profile_bootstrap", name)
-        if do_layerwise:
-            # Direction-specific readouts (D17): the baseline target-log-prob gradient at every
-            # read point, computed once per task and shared by the real and every control profile.
-            st.gradients = self.backend.gradients(zs_prompts)
-        readout_kw = {"task_directions": st.all_layer_directions, "gradients": st.gradients}
-        test = paired_bootstrap_test(st.steered.logprob_per_token, st.base.logprob_per_token, brng, n_boot=cfg.calibration.n_boot)
-        t_setup = time.time() - t_stage
-        t_forward = t_profile = 0.0
+        with self.prof.section("controls_setup", name):
+            st.steered = self.backend.run(zs_prompts, interventions=[Intervention(sel.layer, v, sel.alpha)], capture=True)
+            brng = rng_for(cfg.seed, "bootstrap", name)
+            prng = rng_for(cfg.seed, "profile_bootstrap", name)
+            if do_layerwise:
+                # Direction-specific readouts (D17): the baseline target-log-prob gradient at every
+                # read point, computed once per task and shared by the real and every control profile.
+                st.gradients = self.backend.gradients(zs_prompts)
+            readout_kw = {"task_directions": st.all_layer_directions, "gradients": st.gradients}
+            test = paired_bootstrap_test(st.steered.logprob_per_token, st.base.logprob_per_token, brng, n_boot=cfg.calibration.n_boot)
         for kind, label, u in self._build_controls(st, states, sel.layer, v):
-            t3 = time.time()
-            r = self.backend.run(zs_prompts, interventions=[Intervention(sel.layer, u, sel.alpha)], capture=do_layerwise)
-            rt = paired_bootstrap_test(r.logprob_per_token, st.base.logprob_per_token, brng, n_boot=cfg.calibration.n_boot)
-            t_forward += time.time() - t3
+            with self.prof.section("controls_forward", name):
+                r = self.backend.run(zs_prompts, interventions=[Intervention(sel.layer, u, sel.alpha)], capture=do_layerwise)
+                rt = paired_bootstrap_test(r.logprob_per_token, st.base.logprob_per_token, brng, n_boot=cfg.calibration.n_boot)
             prof = None
             if do_layerwise:
                 assert r.residuals is not None
-                t3 = time.time()
-                prof = compute_profile(st.base.residuals, r.residuals, u, sel.layer, cfg.evaluation, prng, with_ci=False,
-                                       **readout_kw)
-                t_profile += time.time() - t3
+                with self.prof.section("controls_profiles", name):
+                    prof = compute_profile(st.base.residuals, r.residuals, u, sel.layer, cfg.evaluation, prng, with_ci=False,
+                                           **readout_kw)
             st.controls.append(ControlResult(kind, label, rt.mean_diff, rt.p_value, r.metrics_dict(), prof,
                                              r.logprob_per_token - st.base.logprob_per_token))
-        self.timings[f"controls_setup:{name}"] = t_setup
-        self.timings[f"controls_forward:{name}"] = t_forward
-        self.timings[f"controls_profiles:{name}"] = t_profile
+        sec = self.prof.sections
         log.info("[%s] %d controls: steered run + gradients %.0fs, control forwards %.0fs, control profiles %.0fs", name,
-                 len(st.controls), t_setup, t_forward, t_profile)
+                 len(st.controls), sec[f"controls_setup:{name}"]["seconds"], sec.get(f"controls_forward:{name}", {}).get("seconds", 0.0),
+                 sec.get(f"controls_profiles:{name}", {}).get("seconds", 0.0))
         gate_kinds = list(cfg.evaluation.gate_kinds)  # primary null of the layerwise metrics
         behav_gate_kinds = list(cfg.qualification.gate_control_kinds)  # behavioural gate (D18)
         real_diff = st.steered.logprob_per_token - st.base.logprob_per_token
@@ -579,25 +623,26 @@ class Pipeline:
 
         # 6. layerwise ---------------------------------------------------
         assert st.steered.residuals is not None
-        st.profile = compute_profile(st.base.residuals, st.steered.residuals, v, sel.layer, cfg.evaluation, prng, **readout_kw)
-        by_kind: dict[str, list[LayerwiseProfile]] = {}
-        for c in st.controls:
-            if c.profile is not None:
-                by_kind.setdefault(c.kind, []).append(c.profile)
-        st.comparison = compare_by_kind(st.profile, by_kind, gate_kinds)
-        st.signature = profile_signature(st.profile, st.comparison["primary"], cfg.analysis,
-                                         by_kind=st.comparison["by_kind"])
-        pooled = [p for k in gate_kinds for p in by_kind.get(k, [])]
-        write_json(out / "layerwise.json", {
-            "real": st.profile.as_dict(),
-            "gate_kinds": gate_kinds,
-            "controls": [{"kind": c.kind, "label": c.label, "curves": metric_curves(c.profile)}
-                         for c in st.controls if c.profile is not None],
-            "null_summaries": {"primary": null_summary(pooled), **{k: null_summary(ps) for k, ps in by_kind.items()}},
-            "comparison": st.comparison,
-            "signature": st.signature,
-        })
-        np.savez_compressed(out / "layerwise_arrays.npz", **profile_arrays(st.profile))
+        with self.prof.section("layerwise", name):
+            st.profile = compute_profile(st.base.residuals, st.steered.residuals, v, sel.layer, cfg.evaluation, prng, **readout_kw)
+            by_kind: dict[str, list[LayerwiseProfile]] = {}
+            for c in st.controls:
+                if c.profile is not None:
+                    by_kind.setdefault(c.kind, []).append(c.profile)
+            st.comparison = compare_by_kind(st.profile, by_kind, gate_kinds)
+            st.signature = profile_signature(st.profile, st.comparison["primary"], cfg.analysis,
+                                             by_kind=st.comparison["by_kind"])
+            pooled = [p for k in gate_kinds for p in by_kind.get(k, [])]
+            write_json(out / "layerwise.json", {
+                "real": st.profile.as_dict(),
+                "gate_kinds": gate_kinds,
+                "controls": [{"kind": c.kind, "label": c.label, "curves": metric_curves(c.profile)}
+                             for c in st.controls if c.profile is not None],
+                "null_summaries": {"primary": null_summary(pooled), **{k: null_summary(ps) for k, ps in by_kind.items()}},
+                "comparison": st.comparison,
+                "signature": st.signature,
+            })
+            np.savez_compressed(out / "layerwise_arrays.npz", **profile_arrays(st.profile))
         zk = {k: round(d.get("new_subspace_uncentered_z_mean") or float("nan"), 2) for k, d in st.signature["by_kind"].items()}
         log.info("[%s] profile: cum log G %.3f, final alignment %.3f, d_eff %.1f->%.1f, labels %s; N_unc z by kind %s", name,
                  st.signature["cumulative_log_gain"], st.signature["alignment_final"] or float("nan"),
@@ -615,7 +660,8 @@ class Pipeline:
 
         # 7. exploratory -------------------------------------------------
         try:
-            self._exploratory(st, v, prng)
+            with self.prof.section("exploratory", name):
+                self._exploratory(st, v, prng)
         except Exception as e:
             log.error("[%s] exploratory stage failed: %s", name, e)
             self.rejections.add("error", name, f"exploratory: {type(e).__name__}: {e}", {"traceback": traceback.format_exc()})
@@ -637,28 +683,33 @@ class Pipeline:
         sel = st.selection
 
         if cfg.exploratory.strength_robustness:
-            rob: dict[str, Any] = {"weakest": sel.__dict__, "profiles": {}, "rank_correlations": {}}
-            for label, alt in (("strongest", st.calibration.strongest), ("middle", st.calibration.middle)):
-                if alt is None or alt.rho == sel.rho:
-                    rob["profiles"][label] = None
-                    continue
-                r = self.backend.run(st.eval_prompts, interventions=[Intervention(alt.layer, v, alt.alpha)], capture=True)
-                assert r.residuals is not None
-                p = compute_profile(st.base.residuals, r.residuals, v, alt.layer, cfg.evaluation, prng,
-                                    task_directions=st.all_layer_directions, gradients=st.gradients)
-                rob["profiles"][label] = {"selection": alt.__dict__, "metrics": r.metrics_dict(), "profile": p.as_dict()}
-                rob["rank_correlations"][label] = {
-                    m: spearman(st.profile.metric_curve(m), p.metric_curve(m))
-                    for m in ("log_gain", "d_eff", "new_subspace", "new_subspace_uncentered", "conversion", "magnitude",
-                              "task_alignment", "gradient_alignment")
-                }
+            # The profile at the other reliable strengths of the selected layer (weakest/middle/strongest),
+            # against the selected one; a strength equal to the selected one is skipped (recorded as null).
+            rob: dict[str, Any] = {"selected": sel.__dict__, "profiles": {}, "rank_correlations": {}}
+            with self.prof.section("strength_robustness", st.name):
+                for label, alt in (("weakest", st.calibration.weakest), ("middle", st.calibration.middle),
+                                   ("strongest", st.calibration.strongest)):
+                    if alt is None or alt.rho == sel.rho:
+                        rob["profiles"][label] = None
+                        continue
+                    r = self.backend.run(st.eval_prompts, interventions=[Intervention(alt.layer, v, alt.alpha)], capture=True)
+                    assert r.residuals is not None
+                    p = compute_profile(st.base.residuals, r.residuals, v, alt.layer, cfg.evaluation, prng,
+                                        task_directions=st.all_layer_directions, gradients=st.gradients)
+                    rob["profiles"][label] = {"selection": alt.__dict__, "metrics": r.metrics_dict(), "profile": p.as_dict()}
+                    rob["rank_correlations"][label] = {
+                        m: spearman(st.profile.metric_curve(m), p.metric_curve(m))
+                        for m in ("log_gain", "d_eff", "new_subspace", "new_subspace_uncentered", "conversion", "magnitude",
+                                  "task_alignment", "gradient_alignment")
+                    }
             write_json(out / "strength_robustness.json", rob)
 
         if cfg.exploratory.block_ablation.enabled:
-            blocks = select_blocks(st.profile, cfg.exploratory.block_ablation, st.comparison["primary"])
-            delta = st.steered.residuals.astype(np.float64) - st.base.residuals.astype(np.float64)
-            abl = block_ablation(self.backend, st.eval_prompts, st.base, st.steered, delta, sel.layer, v, sel.alpha,
-                                 blocks, prng, n_boot=cfg.evaluation.n_boot)
+            with self.prof.section("block_ablation", st.name):
+                blocks = select_blocks(st.profile, cfg.exploratory.block_ablation, st.comparison["primary"])
+                delta = st.steered.residuals.astype(np.float64) - st.base.residuals.astype(np.float64)
+                abl = block_ablation(self.backend, st.eval_prompts, st.base, st.steered, delta, sel.layer, v, sel.alpha,
+                                     blocks, prng, n_boot=cfg.evaluation.n_boot)
             abl["criterion"] = cfg.exploratory.block_ablation.criterion
             abl["rank_by"] = cfg.exploratory.block_ablation.rank_by
             write_json(out / "block_ablation.json", abl)

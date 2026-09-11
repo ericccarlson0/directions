@@ -47,7 +47,14 @@ def mean_head_outputs(result: ForwardResult) -> np.ndarray:
 
 
 def effect_values(result: ForwardResult, metric: str) -> np.ndarray:
-    """Per-prompt values of the indirect-effect metric."""
+    """Per-prompt values of the indirect-effect metric.
+
+    ``target_probability`` is the teacher-forced probability of the whole target (the product of the
+    per-token probabilities), which equals the first-token probability for one-token targets and
+    stays informative when the target starts with a token that carries no answer (a lone space).
+    """
+    if metric == "target_probability":
+        return np.exp(result.logprob_sum)
     if metric == "first_token_probability":
         assert result.first_token_logprob is not None
         return np.exp(result.first_token_logprob)
@@ -61,16 +68,17 @@ def head_effects(
     prompts: list[Prompt],
     baseline: np.ndarray,
     head_means: np.ndarray,
-    metric: str = "first_token_probability",
+    metric: str = "target_probability",
     progress: Callable[[int, int], None] | None = None,
 ) -> np.ndarray:
     """Average indirect effect of every head: ``(L, n_heads)`` mean change of ``metric`` on ``prompts``
     (deranged-label prompts; ``baseline`` holds their unpatched per-prompt values) when the head's output at
     the query token is replaced by its mean output ``head_means[layer, head]`` from positive prompts.
 
-    ``first_token_probability`` is the paper's recovered probability of the correct first answer token.
-    Several heads are patched per forward pass by repeating the prompt list once per head with a
-    per-example patch; ``tests/test_function_vector.py`` checks this against one run per head.
+    ``target_probability`` is the recovered probability of the correct answer (the paper's metric, taken
+    over the whole target rather than its first token; see :func:`effect_values`). Several heads are
+    patched per forward pass by repeating the prompt list once per head with a per-example patch;
+    ``tests/test_function_vector.py`` checks this against one run per head.
     """
     L, H, _ = head_means.shape
     n = len(prompts)

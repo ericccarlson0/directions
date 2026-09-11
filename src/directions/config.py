@@ -85,15 +85,17 @@ class FunctionVectorConfig:
                     tasks that reached extraction (the paper's construction); "per_task": each task's own top heads
     aie_seeds       the indirect effect of a head is measured on the deranged-label prompts of this many
                     extraction seeds (their positive prompts supply the mean head outputs of every seed)
-    aie_metric      what the indirect effect is measured in: "first_token_probability" (the paper's recovered
-                    probability of the correct first answer token, bounded and comparable across tasks) or
+    aie_metric      what the indirect effect is measured in: "target_probability" (the recovered probability of
+                    the correct answer, teacher-forced over the whole target; bounded and comparable across
+                    tasks), "first_token_probability" (the paper's first-token version, which is degenerate when
+                    a target starts with a token that carries no answer, e.g. a lone space before digits) or
                     "logprob_per_token" (the pipeline's decision metric; its scale differs by task)
     """
 
     n_heads: int = 10
     head_selection: str = "universal"
     aie_seeds: int = 1
-    aie_metric: str = "first_token_probability"
+    aie_metric: str = "target_probability"
 
 
 @dataclass
@@ -110,7 +112,22 @@ class ExtractionConfig:
 
 @dataclass
 class CalibrationConfig:
+    """Layer x strength sweep on the calibration pool (docs/EXPERIMENT.md; docs/DECISIONS.md D22).
+
+    strength_unit   what rho multiplies: "layer_norm", the median residual norm at the layer (alpha = rho *
+                    median ||h_l||, the D1-D21 protocol), or "natural", the direction's own natural norm
+                    (||FV|| for the function vector, the mean-difference norm for PC1), so rho = 1 is the
+                    canonical unscaled injection of Todd et al. (2024)
+    reference_rho   select, at the chosen layer, the reliable strength nearest this rho (in log distance;
+                    ties to the weaker one); None selects the weakest reliable strength (the D1-D21 rule)
+    layer_rule      "earliest": the earliest candidate layer with a reliable strength (preregistered);
+                    "best": the layer whose selected strength improves the decision metric most
+    """
+
+    strength_unit: str = "layer_norm"
     rho_grid: list[float] = field(default_factory=lambda: [0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0])
+    reference_rho: float | None = None
+    layer_rule: str = "earliest"
     extend_grid: bool = True  # extend when the best point sits at the upper grid edge
     extension_factor: float = 1.25
     max_rho: float = 2.0
@@ -268,14 +285,21 @@ def validate_config(cfg: Config) -> None:
         raise ValueError("extraction.function_vector.head_selection must be 'universal' or 'per_task'")
     if not (1 <= fv.aie_seeds <= cfg.extraction.n_seeds):
         raise ValueError("extraction.function_vector.aie_seeds must be between 1 and extraction.n_seeds")
-    if fv.aie_metric not in ("first_token_probability", "logprob_per_token"):
-        raise ValueError("extraction.function_vector.aie_metric must be 'first_token_probability' or 'logprob_per_token'")
+    if fv.aie_metric not in ("target_probability", "first_token_probability", "logprob_per_token"):
+        raise ValueError("extraction.function_vector.aie_metric must be 'target_probability', 'first_token_probability' "
+                         "or 'logprob_per_token'")
     if not cfg.calibration.rho_grid or any(r <= 0 for r in cfg.calibration.rho_grid):
         raise ValueError("calibration.rho_grid must be non-empty and positive")
     if sorted(cfg.calibration.rho_grid) != list(cfg.calibration.rho_grid):
         raise ValueError("calibration.rho_grid must be ascending")
     if cfg.calibration.extension_factor <= 1.0:
         raise ValueError("calibration.extension_factor must be > 1")
+    if cfg.calibration.strength_unit not in ("layer_norm", "natural"):
+        raise ValueError("calibration.strength_unit must be 'layer_norm' or 'natural'")
+    if cfg.calibration.reference_rho is not None and cfg.calibration.reference_rho <= 0:
+        raise ValueError("calibration.reference_rho must be positive (or null for the weakest reliable strength)")
+    if cfg.calibration.layer_rule not in ("earliest", "best"):
+        raise ValueError("calibration.layer_rule must be 'earliest' or 'best'")
     for k, n in cfg.evaluation.controls.items():
         if k not in CONTROL_KINDS:
             raise ValueError(f"unknown control kind {k!r}; choose from {CONTROL_KINDS}")

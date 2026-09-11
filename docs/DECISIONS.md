@@ -422,7 +422,9 @@ to make:
   `function_vector.aie_seeds` = 1 seed, 64 prompts) at the query token, one
   head at a time, and the effect is the mean change of the **probability of
   the correct first target token**, the paper's recovered probability
-  (`aie_metric: first_token_probability`). A first run ranked heads by the
+  (`aie_metric: first_token_probability`; superseded by the whole-target
+  probability in D22, because a target that starts with a lone space makes
+  the first-token probability saturate). A first run ranked heads by the
   change of log p per target token instead (run 34541635889, superseded):
   that scale differs by task, so the lexical tasks, where the best head
   moves the deranged prompts by ~3 nats, dictated the universal set while
@@ -480,3 +482,104 @@ with iteration 3 (a different control), but every gate, metric and null is
 defined identically, and the PCA direction's per-layer readout gives the
 bridge between the two. The change alters the numerical path, so the first
 0.6B run is executed twice and diffed (`directions compare`).
+
+## 2026-09-11 — Iteration 4b: the answer probability, the canonical strength, GPU spectra, a run profile
+
+### D22. Whole-target indirect effects; strength in units of the vector's norm with the canonical injection as the reference; batched spectra on the GPU; standard run instrumentation
+
+Context (the iteration-4 0.6B run, `STATUS.md`): three things in that run
+were properties of the pipeline rather than of the model.
+
+1. **Arithmetic's head effects were all 0.000** under the first-token
+   metric, and the run was read as "no head moves arithmetic". The cause is
+   the tokenisation of its targets: Qwen3 tokenises ` 45` as `' '`, `'4'`,
+   `'5'`, so the "first answer token" of every arithmetic target is a lone
+   space, which the deranged prompts already predict with probability
+   0.991. A saturated metric cannot move, whatever the heads do. (Targets
+   of the lexical tasks are one token, ` cats`; `arithmetic_words` targets
+   split at words, ` forty`, ` five`.)
+2. **Calibration selected 5–50 × below the paper's strength.** The weakest
+   reliable rule (D1) chose ρ 0.05–0.4 in units of the median residual norm
+   while the canonical injection corresponds to ρ 1.7–2.5 there, and every
+   grid point up to the grid's ceiling (ρ ≈ 2) was reliable with the effect
+   still growing. The paper adds the raw vector; the profile the run
+   measured was that of a barely-effective injection of it.
+3. **The control profiles' wall time varied 30-fold** for identical work
+   (30–860 s per task, 84 min for a replicate whose results were
+   bit-identical): the per-layer SVDs ran in NumPy on a shared host.
+
+Decisions:
+
+* **Indirect-effect metric `target_probability`** (the new default of
+  `extraction.function_vector.aie_metric`): the teacher-forced probability
+  of the whole target, `exp Σ_j log p(y_j | ...)`. It is exactly the paper's
+  first-token probability whenever the target is one token (the lexical
+  tasks) and the probability of the answer, rather than of a space, when it
+  is not. It stays bounded in [0, 1], so tasks contribute on a comparable
+  scale to the universal ranking, which is why D21 chose a probability.
+  `first_token_probability` and `logprob_per_token` remain configurable.
+  Each task's `splits.json` now records how its targets tokenise
+  (`target_tokenisation`: token counts, the share whose first token is
+  whitespace, examples), and `extraction.json` records the deranged-prompt
+  baseline of both probabilities, so the artefact is visible in the outputs
+  rather than in a footnote. Consequence: the universal head set can change,
+  because arithmetic now contributes to the ranking; the head ranking of
+  iteration 4 is superseded.
+* **Strength in units of the vector's norm, canonical reference.** For the
+  function-vector configs, `calibration.strength_unit: natural` makes ρ
+  multiply the direction's own norm (`‖FV_t‖`; for a PCA control it would
+  be the mean-difference norm), so ρ = 1 is the paper's unscaled injection,
+  with the grid 0.05, 0.1, 0.2, 0.3, 0.5, 0.75, 1, 1.5, 2 (extended up to 4
+  while the best point is at the edge). Within the selected layer the rule
+  selects the reliable point nearest ρ = 1 in log distance
+  (`calibration.reference_rho: 1.0`) instead of the weakest one: the
+  canonical strength whenever it passes the same bootstrap, minimum-
+  improvement and matched-random screen, and the nearest reliable strength
+  otherwise. The layer rule stays the preregistered earliest reliable layer
+  (`layer_rule: earliest`; `best`, the layer whose selected point improves
+  most, is implemented for a paper-style layer sweep but not used). Every
+  grid point and the selection also record `rho_layer_norm` = α / median
+  ‖h_l‖, the D1 unit, and `qualification.json` records
+  `alpha_over_natural_norm` next to `natural_rho`, so the two protocols stay
+  comparable. The strength-robustness stage now profiles the **weakest**
+  reliable strength beside the middle and strongest ones, so the profile at
+  the D1-style strength is still measured, as an exploratory output. The
+  PCA-control configs and the defaults are unchanged (`layer_norm`, weakest
+  reliable), so iteration-3 runs are reproducible as they were.
+* **Spectra on the model's device.** `geometry.spectra` decomposes the
+  perturbation matrices of all read points from the intervention layer on
+  in one batched float64 `torch.linalg.eigh` of their Gram matrices on the
+  CUDA device (the same Gram construction as the NumPy path; right singular
+  vectors recovered from the eigenvectors), and `compute_profile` calls it
+  once per centring instead of two SVDs per layer. With no CUDA device the
+  NumPy path runs unchanged, which keeps the tests and CPU runs as they
+  were; `tests/test_geometry.py` checks the two paths agree (effective
+  rank, d90, total variance, the projector onto the top subspace). The
+  `new_subspace_fraction` projections stay in NumPy (one small matmul per
+  layer). `metadata.json/linalg_device` records which path ran.
+  Determinism on the GPU is verified the usual way: the first run is
+  replicated and diffed.
+* **Run instrumentation.** `directions.profiling.Profiler` replaces the
+  ad-hoc timers: every stage of every task runs inside a named section
+  (`model_load`, `data`/`fewshot`/`extraction`/`head_effects`/
+  `demo_variation`/`prepare` per task, `function_vectors`, `calibration`/
+  `controls_setup`/`controls_forward`/`controls_profiles`/`layerwise`/
+  `strength_robustness`/`block_ablation`/`exploratory`/`measure` per task,
+  `figures`, `total`) that records wall and process-CPU seconds, the number
+  of examples and batches through the forward and gradient passes (counted
+  in `ModelBackend`) and, on CUDA, the peak allocated memory during the
+  stage. `metadata.json/timings_seconds` keeps the flat `{section: seconds}`
+  table with the same keys as before, `metadata.json/profile` holds the
+  structured version plus totals (forward counts, max RSS, peak/reserved
+  GPU memory against the device's total), and the log ends with a table of
+  the sections over one second. CPU seconds against wall seconds separate
+  host contention (wall ≫ CPU) from compute; the forward counts make the
+  stage costs comparable across models and batch sizes. Both fields are
+  volatile for `directions compare`. The cost is a few counters per forward
+  call and one CUDA memory query per section.
+
+Consequences: iteration-4b results are not strength-for-strength comparable
+with iteration 4 (a different calibration rule and possibly a different head
+set); the gates, the nulls and the layerwise metrics are unchanged. The
+change alters the numerical path (GPU decompositions), so the first 0.6B run
+is executed twice and diffed (`directions compare`).

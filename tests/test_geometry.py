@@ -128,6 +128,40 @@ def test_block_responses_and_new_subspace_fraction():
     assert new_subspace_fraction(mixed, np.zeros((0, 6))) == 1.0
 
 
+def test_torch_spectra_match_numpy_path():
+    """The batched torch decomposition (the GPU path of the profiles) against the per-matrix NumPy path."""
+    from directions.geometry import linalg_device, set_linalg_device, spectra
+
+    rng = np.random.default_rng(5)
+    wide = rng.standard_normal((3, 12, 40)) * np.array([3.0, 1.0, 0.1])[:, None, None]  # n < d (Gram trick)
+    tall = rng.standard_normal((2, 40, 12))  # n >= d
+    wide[1] += 5.0  # a large mean, so centred and uncentred spectra differ
+    zero = np.zeros((1, 12, 40))
+    assert linalg_device() is None
+    try:
+        for X in (wide, tall, zero):
+            for center in (True, False):
+                ref = spectra(X, frac=0.9, center=center)
+                set_linalg_device("cpu")
+                got = spectra(X, frac=0.9, center=center)
+                set_linalg_device(None)
+                for a, b in zip(ref, got):
+                    assert (a.d90 == b.d90) and a.total_variance == pytest.approx(b.total_variance, rel=1e-10)
+                    if a.d90 is None:
+                        assert np.isnan(a.effective_rank) and np.isnan(b.effective_rank)
+                        continue
+                    assert a.effective_rank == pytest.approx(b.effective_rank, rel=1e-10)
+                    # the same subspace (projectors agree), whatever the basis
+                    assert np.allclose(a.top_subspace.T @ a.top_subspace, b.top_subspace.T @ b.top_subspace, atol=1e-8)
+                    assert np.allclose(b.top_subspace @ b.top_subspace.T, np.eye(b.d90), atol=1e-10)
+                    B = rng.standard_normal((5, X.shape[2]))
+                    assert new_subspace_fraction(B, a.top_subspace) == pytest.approx(new_subspace_fraction(B, b.top_subspace), rel=1e-8)
+    finally:
+        set_linalg_device(None)
+    with pytest.raises(ValueError):
+        spectra(wide[0])
+
+
 def test_layerwise_gain_conversion_hand_computed():
     # one example, d = 2, three read points
     v = np.array([1.0, 0.0])

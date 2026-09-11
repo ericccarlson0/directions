@@ -79,7 +79,8 @@ def test_head_effects_batched_equals_one_run_per_head(backend, prompts):
     base = backend.run(neg)
     assert base.first_token_logprob.shape == (5,) and np.all(base.first_token_logprob <= 0)
     assert backend.cfg.batch_size // len(neg) > 1  # the batched path really packs several heads per pass
-    for metric, values in (("first_token_probability", lambda r: np.exp(r.first_token_logprob)),
+    for metric, values in (("target_probability", lambda r: np.exp(r.logprob_sum)),
+                           ("first_token_probability", lambda r: np.exp(r.first_token_logprob)),
                            ("logprob_per_token", lambda r: r.logprob_per_token)):
         aie = head_effects(backend, neg, values(base), means, metric=metric)
         assert aie.shape == (4, backend.n_heads)
@@ -87,7 +88,12 @@ def test_head_effects_batched_equals_one_run_per_head(backend, prompts):
             for head in range(backend.n_heads):
                 r = backend.run(neg, head_patches=[HeadPatch(layer, head, means[layer, head].astype(np.float32))])
                 assert aie[layer, head] == pytest.approx(float(np.mean(values(r) - values(base))), abs=1e-6), metric
-    assert np.all(np.abs(head_effects(backend, neg, np.exp(base.first_token_logprob), means)) <= 1.0)  # a probability difference
+    assert np.all(np.abs(head_effects(backend, neg, np.exp(base.logprob_sum), means)) <= 1.0)  # a probability difference
+    # the whole-target probability equals the first-token probability exactly for one-token targets
+    one = [p for p in neg if backend.target_token_count(p.target) == 1]
+    if one:
+        r = backend.run(one)
+        assert np.allclose(np.exp(r.logprob_sum), np.exp(r.first_token_logprob))
     with pytest.raises(ValueError):
         head_effects(backend, neg, base.logprob_per_token[:-1], means)
     with pytest.raises(ValueError):
@@ -135,11 +141,32 @@ def test_smoke_function_vector_outputs(smoke_fv_run):
     meta = json.loads((root / "metadata.json").read_text())
     assert meta["control"] == "function_vector"
     assert len(meta["function_vector"]["universal_heads"]) == 3 and meta["function_vector"]["head_selection"] == "universal"
+    # the run profile (D22): every stage of every task, with forward counts; the flat timings mirror it
+    prof = meta["profile"]
+    for key in ("model_load", "function_vectors", "figures", "total", "prepare:antonym", "extraction:antonym", "head_effects:antonym",
+                "demo_variation:antonym", "calibration:antonym", "controls_forward:antonym", "controls_profiles:antonym",
+                "layerwise:antonym", "strength_robustness:antonym", "block_ablation:antonym"):
+        assert key in prof["sections"] and key in meta["timings_seconds"], key
+    assert prof["sections"]["head_effects:antonym"]["forward_examples"] > 0 and prof["totals"]["forward_examples"] > 0
+    assert prof["sections"]["controls_setup:antonym"]["gradient_examples"] == 6 and meta["linalg_device"] == "numpy"
     summary = json.loads((root / "core" / "summary.json").read_text())
     assert summary["control"] == "function_vector"
     heads = None
     for task in ("antonym", "arithmetic", "number_to_words"):
         d = root / "core" / "tasks" / task
+        splits = json.loads((d / "splits.json").read_text())
+        tok = splits["target_tokenisation"]
+        assert tok["n_tokens_mean"] > 1 and tok["first_token_is_space_fraction"] == 1.0 and tok["examples"][0][0] == " "  # char tokens
+        ext = json.loads((d / "extraction.json").read_text())["function_vector"]
+        assert ext["aie_metric"] == "target_probability" and 0 <= ext["aie_baseline_mean"] <= ext["aie_baseline_first_token_probability_mean"] <= 1
+        cal = json.loads((d / "calibration.json").read_text())
+        assert cal["strength_unit"] == "natural" and cal["reference_rho"] == 4.0 and cal["layer_rule"] == "earliest"
+        assert set(cal) >= {"weakest", "strongest", "middle", "strength_units"} and all("rho_layer_norm" in g for g in cal["grid"])
+        for g in cal["grid"]:
+            assert g["alpha"] == pytest.approx(g["rho"] * cal["strength_units"][str(g["layer"])])
+            assert g["rho_layer_norm"] == pytest.approx(g["alpha"] / cal["layer_norms"][str(g["layer"])])
+        rob = json.loads((root / "exploratory" / "tasks" / task / "strength_robustness.json").read_text())
+        assert set(rob["profiles"]) == {"weakest", "middle", "strongest"} and rob["selected"]["rho"] == cal["selected"]["rho"] if cal["selected"] else True
         fv = json.loads((d / "function_vector.json").read_text())
         assert len(fv["heads"]) == 3 and np.array(fv["head_effects"]).shape == (4, 4) and fv["head_effects_n_prompts"] == 6
         assert set(fv["cos_with_pca"]) == {"1", "2"} and len(fv["cos_with_pca_all_layers"]) == 5
@@ -155,6 +182,8 @@ def test_smoke_function_vector_outputs(smoke_fv_run):
         assert set(q["gates"]) == {"fewshot", "stability", "calibration", "steering", "random_controls"}
         assert "pca_stability" in q and q["stability"]["1"] == q["stability"]["2"] == q["function_vector"]["stability"]
         assert set(q["function_vector"]["natural_rho"]) == {"1", "2"} and "cos_with_pca_at_selected_layer" in q["function_vector"]
+        assert q["function_vector"]["alpha_over_natural_norm"] == pytest.approx(q["selection"]["rho"])  # natural units
+        assert q["selection"]["strength_unit"] == "natural" and "rho_layer_norm" in q["selection"]
         ev = json.loads((d / "evaluation.json").read_text())
         assert ev["control"] == "function_vector" and ev["function_vector"]["natural_norm"] > 0
         lw = json.loads((d / "layerwise.json").read_text())

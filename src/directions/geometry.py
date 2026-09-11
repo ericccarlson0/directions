@@ -6,15 +6,36 @@ All functions operate on NumPy arrays and compute in float64. Conventions follow
 * residual read points are indexed ``0..L`` (``L`` transformer blocks);
 * ``delta[l]`` is the steering-induced perturbation at read point ``l``;
 * ``b[l] = delta[l+1] - delta[l]`` is block ``l``'s response.
+
+The spectral decompositions behind the layerwise profiles (:func:`spectra`) run
+on the torch device chosen with :func:`set_linalg_device` (float64, batched over
+read points); with no device set they run in NumPy.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
 _EPS = 1e-30
+_LINALG_DEVICE: Any = None  # a torch.device, or None for the NumPy path
+
+
+def set_linalg_device(device: Any) -> None:
+    """Route :func:`spectra` through torch on ``device`` (``None`` restores the NumPy path)."""
+    global _LINALG_DEVICE
+    if device is None:
+        _LINALG_DEVICE = None
+        return
+    import torch
+
+    _LINALG_DEVICE = torch.device(device)
+
+
+def linalg_device() -> Any:
+    return _LINALG_DEVICE
 
 
 # --------------------------------------------------------------------------- #
@@ -245,6 +266,57 @@ def spectrum(X: np.ndarray, frac: float = 0.9, center: bool = True) -> Spectrum:
     eff = float(total**2 / np.sum(s2**2))
     _, top = _top_right_singular_vectors(X, k)
     return Spectrum(eff, k, total, top)
+
+
+def spectra(X: np.ndarray, frac: float = 0.9, center: bool = True) -> list[Spectrum]:
+    """:func:`spectrum` of every matrix in ``X`` shaped (m, n, d).
+
+    On the NumPy path this is one :func:`spectrum` per matrix. With a linalg device set
+    (:func:`set_linalg_device`) the ``m`` Gram matrices are decomposed in one batched float64
+    ``torch.linalg.eigh`` on that device; ``tests/test_geometry.py`` checks the two paths agree.
+    """
+    X = np.asarray(X, dtype=np.float64)
+    if X.ndim != 3:
+        raise ValueError("X must be shaped (m, n, d)")
+    if _LINALG_DEVICE is None:
+        return [spectrum(x, frac=frac, center=center) for x in X]
+    return _torch_spectra(X, frac, center)
+
+
+def _torch_spectra(X: np.ndarray, frac: float, center: bool) -> list[Spectrum]:
+    import torch
+
+    m, n, d = X.shape
+    T = torch.as_tensor(X, dtype=torch.float64, device=_LINALG_DEVICE)
+    if center:
+        T = T - T.mean(dim=1, keepdim=True)
+    # Eigendecomposition of the smaller Gram matrix: s^2 are its eigenvalues (descending) and the
+    # right singular vectors follow from the eigenvectors (V = X^T U / s when n < d, V = U otherwise).
+    gram_small = n < d
+    G = T @ T.transpose(1, 2) if gram_small else T.transpose(1, 2) @ T
+    w, U = torch.linalg.eigh(G)
+    w = torch.flip(w, dims=(1,)).clamp_min(0.0)
+    U = torch.flip(U, dims=(2,))
+    w_cpu = w.cpu().numpy()
+    out: list[Spectrum] = []
+    for i in range(m):
+        s2 = w_cpu[i]
+        total = float(np.sum(s2))
+        if total == 0.0:
+            out.append(Spectrum(float("nan"), None, 0.0, np.zeros((0, d))))
+            continue
+        cum = np.cumsum(s2) / total
+        k = int(np.searchsorted(cum, frac - 1e-12) + 1)
+        eff = float(total**2 / np.sum(s2**2))
+        if gram_small:
+            s = torch.sqrt(w[i, :k])
+            keep = s > 0
+            V = (T[i].transpose(0, 1) @ U[i, :, :k])[:, keep] / s[keep]
+            top = V.transpose(0, 1)
+        else:
+            top = U[i, :, :k].transpose(0, 1)
+        out.append(Spectrum(eff, k, total, top.cpu().numpy()))
+    return out
 
 
 def new_subspace_fraction(B: np.ndarray, top_subspace: np.ndarray) -> float:

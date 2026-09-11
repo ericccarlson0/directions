@@ -27,7 +27,7 @@ for _var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
 from .config import config_to_dict, load_config  # noqa: E402
 
 # top-level fields that legitimately differ between two otherwise identical runs
-_VOLATILE = {"run_id", "argv", "started_utc", "finished_utc", "timings_seconds", "config_path"}
+_VOLATILE = {"run_id", "argv", "started_utc", "finished_utc", "timings_seconds", "profile", "config_path"}
 
 
 def _cmd_run(args: argparse.Namespace, command: str) -> int:

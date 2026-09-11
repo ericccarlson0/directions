@@ -49,7 +49,7 @@ def test_pilot_configs_match_preregistered_sizes():
     # D21: the canonical function vector is the control (10 universal heads); PC1 is still extracted
     assert cfg.extraction.control == "function_vector"
     assert (cfg.extraction.function_vector.n_heads, cfg.extraction.function_vector.head_selection) == (10, "universal")
-    assert cfg.extraction.function_vector.aie_seeds == 1 and cfg.extraction.function_vector.aie_metric == "first_token_probability"
+    assert cfg.extraction.function_vector.aie_seeds == 1 and cfg.extraction.function_vector.aie_metric == "target_probability"
     assert cfg.qualification.random_control_max_p <= 0.05 and cfg.calibration.random_screen_max_p <= 0.05
 
 

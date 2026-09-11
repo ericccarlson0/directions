@@ -60,10 +60,13 @@ extraction:
   function_vector: {n_heads: 3, head_selection: universal, aie_seeds: 1}
 
 calibration:
-  rho_grid: [0.1, 0.5, 1.0]
+  strength_unit: natural      # D22 path: rho in units of the function vector's norm, which is tiny on the
+  rho_grid: [1.0, 4.0, 8.0]   # random toy model (~1/8 of the residual norm), hence the large grid
+  reference_rho: 4.0
+  layer_rule: earliest
   extend_grid: true
   extension_factor: 1.5
-  max_rho: 2.0
+  max_rho: 16.0
   bootstrap_alpha: 1.0        # smoke: every grid point passes, so the random screen is exercised
   min_improvement: -1.0
   n_random_screen: 2

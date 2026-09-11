@@ -1,17 +1,24 @@
 """Intervention calibration: layer x strength sweep on the calibration pool.
 
-Selection rule (docs/EXPERIMENT.md): the earliest candidate layer and, within
-it, the smallest relative strength that *reliably* improves the decision metric
-(target log-probability per token), where reliable means
+A grid point injects the unit direction at a candidate layer with absolute
+strength ``alpha = rho * unit(layer)``, where the unit is the median residual
+norm at the layer (``strength_unit: layer_norm``) or the direction's own
+natural norm (``natural``; docs/DECISIONS.md D22). A point is *reliable* when
 
-* one-sided paired bootstrap p <= ``bootstrap_alpha``;
-* mean improvement >= ``min_improvement`` (nats per token);
-* its improvement exceeds that of ``n_random_screen`` matched random directions
-  (same layer, same norm) on the calibration pool: by default the paired
-  excess test of docs/DECISIONS.md D18 (``screen_test: paired_excess``,
+* its one-sided paired bootstrap p <= ``bootstrap_alpha``;
+* its mean improvement of the decision metric (target log-probability per
+  token) >= ``min_improvement`` (nats per token);
+* its improvement exceeds that of ``n_random_screen`` matched random
+  directions (same layer, same norm) on the calibration pool: by default the
+  paired excess test of docs/DECISIONS.md D18 (``screen_test: paired_excess``,
   p <= ``random_screen_max_p``), or the iteration-2 rank rule (``rank``).
 
-The grid is extended geometrically when the best point sits at its upper edge.
+Selection (docs/EXPERIMENT.md): the layer is the earliest candidate layer with
+a reliable point (``layer_rule: earliest``) or the one whose selected point
+improves most (``best``); within it, the reliable strength nearest
+``reference_rho`` in log distance, or the weakest reliable strength when no
+reference is set. The grid is extended geometrically when the best point sits
+at its upper edge.
 """
 
 from __future__ import annotations
@@ -34,8 +41,9 @@ from .tasks import Item
 @dataclass
 class GridPoint:
     layer: int
-    rho: float
-    alpha: float
+    rho: float  # in the configured strength unit
+    alpha: float  # absolute injected norm
+    rho_layer_norm: float  # alpha / median ||h_l||, the D1-D21 unit (for comparison across protocols)
     extended: bool
     metrics: dict[str, float]
     test: PairedTest
@@ -50,6 +58,7 @@ class GridPoint:
             "layer": self.layer,
             "rho": self.rho,
             "alpha": self.alpha,
+            "rho_layer_norm": self.rho_layer_norm,
             "extended": self.extended,
             "metrics": self.metrics,
             "test": self.test.__dict__,
@@ -61,33 +70,50 @@ class GridPoint:
         }
         return d
 
+    def selection(self) -> Selection:
+        return Selection(self.layer, self.rho, self.alpha, self.rho_layer_norm)
+
 
 @dataclass
 class Selection:
     layer: int
     rho: float
     alpha: float
+    rho_layer_norm: float | None = None
 
 
 @dataclass
 class CalibrationResult:
     baseline_metrics: dict[str, float]
     layer_norms: dict[int, float]  # median ||h_l(x)|| over the calibration pool
+    strength_unit: str
+    strength_units: dict[int, float]  # what rho multiplies at each layer
     grid: list[GridPoint]
     selected: Selection | None
+    weakest: Selection | None  # weakest reliable strength at the selected layer (exploratory unless selected)
     strongest: Selection | None  # strongest reliable strength at the selected layer (exploratory)
     middle: Selection | None  # a reliable strength between weakest and strongest (exploratory)
+    reference_rho: float | None = None
+    layer_rule: str = "earliest"
     reason: str | None = None  # why nothing was selected
     per_example: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
+        def sel(s: Selection | None) -> dict[str, Any] | None:
+            return None if s is None else s.__dict__
+
         return {
             "baseline_metrics": self.baseline_metrics,
             "layer_norms": {str(k): v for k, v in self.layer_norms.items()},
+            "strength_unit": self.strength_unit,
+            "strength_units": {str(k): v for k, v in self.strength_units.items()},
+            "reference_rho": self.reference_rho,
+            "layer_rule": self.layer_rule,
             "grid": [g.as_dict() for g in self.grid],
-            "selected": None if self.selected is None else self.selected.__dict__,
-            "strongest": None if self.strongest is None else self.strongest.__dict__,
-            "middle": None if self.middle is None else self.middle.__dict__,
+            "selected": sel(self.selected),
+            "weakest": sel(self.weakest),
+            "strongest": sel(self.strongest),
+            "middle": sel(self.middle),
             "reason": self.reason,
         }
 
@@ -124,6 +150,47 @@ def random_screen(
     return {"controls": diffs, "comparison": comp.__dict__, "excess_test": excess.__dict__}
 
 
+def pick_strength(reliable: list[GridPoint], reference_rho: float | None) -> GridPoint:
+    """The reliable point to select at a layer: the weakest, or the one nearest ``reference_rho`` in
+    log distance (ties go to the weaker point)."""
+    if not reliable:
+        raise ValueError("no reliable grid point")
+    if reference_rho is None:
+        return min(reliable, key=lambda g: g.rho)
+    return min(reliable, key=lambda g: (abs(np.log(g.rho) - np.log(reference_rho)), g.rho))
+
+
+def select_from_grid(
+    grid: list[GridPoint], cfg: CalibrationConfig
+) -> tuple[Selection | None, Selection | None, Selection | None, Selection | None]:
+    """``(selected, weakest, strongest, middle)`` from the reliable points of ``grid``.
+
+    The layer follows ``cfg.layer_rule`` and the strength ``cfg.reference_rho`` (:func:`pick_strength`);
+    weakest/strongest are the reliable extremes at the selected layer and middle the reliable point
+    nearest their geometric mean strictly between them (when at least three points are reliable).
+    """
+    by_layer: dict[int, list[GridPoint]] = {}
+    for g in grid:
+        if g.reliable:
+            by_layer.setdefault(g.layer, []).append(g)
+    if not by_layer:
+        return None, None, None, None
+    picks = {l: pick_strength(pts, cfg.reference_rho) for l, pts in sorted(by_layer.items())}
+    if cfg.layer_rule == "best":
+        layer = max(sorted(picks), key=lambda l: picks[l].test.mean_diff)  # ties: the earliest
+    else:
+        layer = min(picks)
+    pts = sorted(by_layer[layer], key=lambda g: g.rho)
+    selected, weakest, strongest = picks[layer], pts[0], pts[-1]
+    middle: GridPoint | None = None
+    if len(pts) >= 3:
+        target = float(np.sqrt(weakest.rho * strongest.rho))
+        inner = [g for g in pts if weakest.rho < g.rho < strongest.rho]
+        if inner:
+            middle = min(inner, key=lambda g: abs(np.log(g.rho) - np.log(target)))
+    return selected.selection(), weakest.selection(), strongest.selection(), None if middle is None else middle.selection()
+
+
 def calibrate(
     backend: ModelBackend,
     prompt_cfg: PromptConfig,
@@ -138,12 +205,16 @@ def calibrate(
     base = backend.run(prompts, capture=True)
     layers = sorted(directions)
     norms = median_layer_norms(base, layers)
+    if cfg.strength_unit == "natural":
+        units = {l: float(directions[l].mean_difference_norm) for l in layers}
+        if any(not (u > 0) for u in units.values()):
+            raise ValueError(f"calibration.strength_unit 'natural' needs a positive natural norm at every layer, got {units}")
+    else:
+        units = dict(norms)
     rng = rng_for(run_seed, "calibration", task_name)
 
     grid: list[GridPoint] = []
-    selected: Selection | None = None
-    strongest: Selection | None = None
-    reliable_rhos: list[float] = []
+    first_reliable_layer: int | None = None
 
     for layer in layers:
         v = directions[layer].direction
@@ -153,13 +224,14 @@ def calibrate(
         i = 0
         while i < len(rhos):
             rho = rhos[i]
-            alpha = rho * norms[layer]
+            alpha = rho * units[layer]
             r = backend.run(prompts, interventions=[Intervention(layer, v, alpha)])
             t = paired_bootstrap_test(r.logprob_per_token, base.logprob_per_token, rng, n_boot=cfg.n_boot)
             gp = GridPoint(
                 layer=layer,
                 rho=float(rho),
                 alpha=float(alpha),
+                rho_layer_norm=float(alpha / norms[layer]),
                 extended=i >= len(cfg.rho_grid),
                 metrics=r.metrics_dict(),
                 test=t,
@@ -168,7 +240,7 @@ def calibrate(
             )
             # Screen only while this layer can still be (or is) the selected layer.
             need_screen = gp.passes_bootstrap and gp.passes_min_improvement and (
-                selected is None or selected.layer == layer
+                cfg.layer_rule == "best" or first_reliable_layer is None or first_reliable_layer == layer
             )
             if need_screen:
                 if controls is None:
@@ -185,12 +257,8 @@ def calibrate(
                 else:
                     gp.passes_screen = bool(gp.screen["comparison"]["p_upper"] <= cfg.random_screen_max_p)
                 gp.reliable = gp.passes_screen
-                if gp.reliable:
-                    if selected is None:
-                        selected = Selection(layer, gp.rho, gp.alpha)
-                    if selected.layer == layer:
-                        reliable_rhos.append(gp.rho)
-                        strongest = Selection(layer, gp.rho, gp.alpha)
+                if gp.reliable and first_reliable_layer is None:
+                    first_reliable_layer = layer
             layer_points.append(gp)
             i += 1
             # Extend the grid if the best point sits at the upper edge.
@@ -201,14 +269,7 @@ def calibrate(
                     rhos.append(float(nxt))
         grid.extend(layer_points)
 
-    middle: Selection | None = None
-    if selected is not None and strongest is not None and len(reliable_rhos) >= 3:
-        target = float(np.sqrt(selected.rho * strongest.rho))
-        inner = [r for r in reliable_rhos if selected.rho < r < strongest.rho]
-        if inner:
-            r_mid = min(inner, key=lambda r: abs(np.log(r) - np.log(target)))
-            middle = Selection(selected.layer, r_mid, r_mid * norms[selected.layer])
-
+    selected, weakest, strongest, middle = select_from_grid(grid, cfg)
     reason = None
     if selected is None:
         n_boot_pass = sum(g.passes_bootstrap and g.passes_min_improvement for g in grid)
@@ -220,10 +281,15 @@ def calibrate(
     return CalibrationResult(
         baseline_metrics=base.metrics_dict(),
         layer_norms=norms,
+        strength_unit=cfg.strength_unit,
+        strength_units=units,
         grid=grid,
         selected=selected,
+        weakest=weakest,
         strongest=strongest,
         middle=middle,
+        reference_rho=cfg.reference_rho,
+        layer_rule=cfg.layer_rule,
         reason=reason,
         per_example={"baseline_logprob_per_token": base.logprob_per_token.tolist()},
     )

@@ -118,11 +118,11 @@ Use at least 3 independent extraction seeds (each resamples the demonstrations a
 With `extraction.control: function_vector` the direction carried forward is the function vector of Todd et al. (2024) instead of PC1, built from the same paired prompts:
 
 * for every attention head \((l, j)\), the mean output at the final query token over the positive prompts, \(\bar a_{l,j}\), taken before the attention output projection;
-* the average indirect effect of each head: the mean change of the probability of the correct first target token on the deranged-label prompts when the head's output at the query token is replaced by \(\bar a_{l,j}\) (the paper's recovered probability; configurable);
+* the average indirect effect of each head: the mean change of the probability of the correct target (teacher-forced over the whole target, which is the paper's first-token probability whenever the target is one token; docs/DECISIONS.md D22) on the deranged-label prompts when the head's output at the query token is replaced by \(\bar a_{l,j}\);
 * one universal head set \(S\): the top \(k = 10\) heads by the mean indirect effect over all tasks that reached extraction;
 * \(\mathrm{FV}_t = \sum_{(l,j) \in S} W_o^{l}[:, j]\, \bar a^{t}_{l,j}\), normalised to unit norm and used at every candidate layer.
 
-Calibration, gates, controls and layerwise measurements are unchanged. Report the natural strength \(\|\mathrm{FV}_t\| / \operatorname{median}\|h_l\|\) at each candidate layer, the cross-seed stability of the per-seed function vectors (the stability gate applies to it), and \(\cos(\mathrm{FV}_t, v_{t,l})\) as a descriptive comparison with PC1. PC1 is still extracted at every read point and remains \(v_{t,l}\) in the direction-specific readouts.
+Gates, controls and layerwise measurements are unchanged. The calibration grid is in units of the vector's own norm with the canonical (unscaled) injection as the reference strength (see "Intervention Calibration"). Report the natural strength \(\|\mathrm{FV}_t\| / \operatorname{median}\|h_l\|\) at each candidate layer, the cross-seed stability of the per-seed function vectors (the stability gate applies to it), and \(\cos(\mathrm{FV}_t, v_{t,l})\) as a descriptive comparison with PC1. PC1 is still extracted at every read point and remains \(v_{t,l}\) in the direction-specific readouts.
 
 ## Intervention Calibration
 
@@ -146,9 +146,13 @@ $$
 
 (e.g. 0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0). The effects of steering typically only become measurable at a sizeable fraction of the residual norm, peak, and then collapse as the stream is pushed off-distribution. The grid should bracket both the onset and the peak (so, if the best point sits at the upper edge of the grid, extend the grid). The absolute strength \(\alpha = \rho \cdot \operatorname{median}_x\|h_l(x)\|\) is computed once from the calibration pool and reused unchanged at evaluation.
 
+For the function-vector control (docs/DECISIONS.md D22) the unit of \(\rho\) is the vector's own norm instead (`calibration.strength_unit: natural`, \(\alpha = \rho \cdot \|\mathrm{FV}_t\|\)), so that \(\rho = 1\) is the canonical unscaled injection of Todd et al.; the grid is 0.05–2.0 in those units (extended up to 4.0), and every grid point also records \(\alpha / \operatorname{median}_x\|h_l(x)\|\) for comparison with the PCA protocol.
+
 ### Selection Rule
 
 Select the earliest layer and, within it, the smallest strength that reliably improves the decision metric on the calibration pool, where "reliably" is operationalised statistically: a paired one-sided bootstrap over calibration examples (\(p \le 0.05\)), a minimum improvement over the unsteered baseline, and a matched random-control screen (16 random directions at the same layer and norm) using the same paired excess test as the qualification gate (D18).
+
+For the function-vector control the strength within the selected layer is instead the reliable grid point nearest the reference \(\rho = 1\) (in log distance; `calibration.reference_rho`), i.e. the paper's injection whenever it is reliable, and the weakest reliable strength is measured in the exploratory strength-robustness stage beside the middle and strongest ones. The layer rule is unchanged (`calibration.layer_rule: earliest`; `best`, the layer whose selected point improves most, is available).
 
 Intervene at the final query token.
 
@@ -404,7 +408,7 @@ Effective dimensionality and new-subspace creation are computed from the full he
 
 ### Strength robustness (exploratory)
 
-We preregister the *smallest* reliable strength, which is correct for measuring propagation with minimal off-distribution distortion but leaves open whether the measured profile is a property of the direction or of the injection magnitude. Repeat the full layerwise measurement at (a) the **strongest** reliable strength at the same layer and (b) a strength between the weakest and the strongest, and report rank correlations between the two profiles for \(\log G_l\), \(d_{\mathrm{eff}}\) and \(N_l\).
+We preregister the *smallest* reliable strength (for the PCA control; the canonical strength for the function vector, D22), which is correct for measuring propagation with minimal off-distribution distortion but leaves open whether the measured profile is a property of the direction or of the injection magnitude. Repeat the full layerwise measurement at the other reliable strengths of the same layer that differ from the selected one, (a) the **weakest**, (b) the **strongest** and (c) a strength between the weakest and the strongest, and report rank correlations with the selected profile for \(\log G_l\), \(d_{\mathrm{eff}}\) and \(N_l\).
 This should be written to the exploratory outputs (not the core outputs).
 
 ## Qualitative Profile Labels
