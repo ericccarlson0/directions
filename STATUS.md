@@ -720,17 +720,94 @@ is `metadata.json/git/commit`), so the batched device-side decompositions
 are deterministic across workers. Its wall time was 10.4 min (control
 profiles 5–7 s per task) at a host load average of 29.
 
+### Iteration 4b, model 2 (Qwen3-1.7B; commit `529473f`)
+
+```
+# workflow run 34636424201 (push-triggered request), commit 529473f, RTX 4090 (ADA_24), EUR-NO-1
+uv run directions pilot --config configs/pilot_qwen3_1.7b.yaml --run-id pilot4b_qwen3_1.7b_seed20260907
+```
+
+Same protocol and seed as the 0.6B run (config identical but for
+`model.name`; 28 layers, d = 2048, candidate layers 6/8/11/14/17). Wall
+time 26.9 min (control profiles 10–14 s per task, head effects 67–118 s per
+task, peak 8.7 GB reserved of 24). The in-run determinism check (D23, its
+first GPU run) passed on antonym in 1.1 s: the repeated steered pass, the
+gradients and the profile are bit-identical.
+
+**9 of 9** few-shot-passing tasks qualify: last_antonym now passes the
+few-shot gate (0.59; 0.29 on 0.6B), arithmetic_words still does not
+(0.25). Universal heads (block, head; mean whole-target effect): (15, 6;
+0.086), (18, 5; 0.023), (16, 11; 0.018), (18, 4; 0.011), (19, 6; 0.010),
+(16, 0; 0.008), (19, 2; 0.007), (17, 6; 0.006), (18, 1; 0.005),
+(16, 10; 0.004): eight of the ten (layer, head) indices are the 0.6B set,
+again in blocks 15–19 of 28 and again dominated by (15, 6). Arithmetic's
+head effects are all ≤ 0.001 here too (deranged baseline 0.006).
+
+Selection: layer 6, ρ = 1 (natural) for every task, α = 149–198 =
+2.9–3.9 × the median residual norm at layer 6 (0.6B: 1.7–2.5 ×). The
+reliable range is 0.05–3.91 for every task (last_antonym from 0.5), and
+the best grid point sits at the grid's ceiling (3.91 = `max_rho` 4.0 after
+three extensions) for seven of nine tasks, i.e. the effect is still
+growing at four times the canonical norm on this model; ρ = 1 is inside
+the reliable range everywhere, as the rule requires, but is not near the
+peak here.
+
+| task | Δ log p/token | acc base → steered | gap recovered | excess vs cov / other-task / demo (p) | labels | cum log G (z iso/cov) | d_eff | T_L final | ρ_S(log G) weakest / middle / strongest |
+|---|---|---|---|---|---|---|---|---|---|
+| antonym | +4.57 | 0.00 → 0.56 | 0.67 | +7.67 / +3.79 / +1.91 (all 0.000) | cascade + amplification + expansion | 2.16 (−2.2/−1.4) | 9 → 21 | +0.31 | 0.71 / 0.92 / 0.73 |
+| arithmetic | +0.20 | 0.00 → 0.00 | 0.13 | +0.67 / +0.59 / +0.01 (0.000/0.000/0.005) | delayed activation + amplification | 2.30 (−1.4/−0.7) | 8 → 5 | +0.41 | 0.53 / 0.95 / 0.56 |
+| last_antonym | +2.58 | 0.00 → 0.06 | 0.43 | +6.30 / +2.59 / +2.08 (all 0.000) | cascade + amplification | 2.18 (−2.2/−1.3) | 15 → 8 | +0.57 | 0.96 / 0.94 / 0.51 |
+| number_to_words | +1.18 | 0.00 → 0.00 | 0.29 | +1.19 / +0.44 / +0.43 (all 0.000) | delayed activation + amplification | 2.71 (+0.2/+0.5) | 9 → 5 | +0.76 | 0.59 / 0.88 / 0.67 |
+| past_tense | +5.02 | 0.01 → 0.32 | 0.69 | +7.99 / +3.64 / +3.58 (all 0.000) | delayed activation + amplification | 2.32 (−1.5/−0.6) | 10 → 10 | +0.52 | 0.77 / 0.93 / 0.52 |
+| plural | +2.71 | 0.01 → 0.18 | 0.48 | +7.32 / +2.70 / +1.80 (all 0.000) | delayed activation + amplification | 2.30 (−1.2/−1.1) | 12 → 13 | +0.24 | 0.72 / 0.93 / 0.59 |
+| present_participle | +3.85 | 0.00 → 0.39 | 0.63 | +7.15 / +3.43 / +3.30 (all 0.000) | cascade + amplification | 2.08 (−2.7/−1.8) | 13 → 10 | +0.47 | 0.76 / 0.95 / 0.46 |
+| singular | +2.68 | 0.03 → 0.64 | 0.60 | +8.90 / +2.83 / +1.95 (all 0.000) | cascade + amplification + expansion | 1.95 (−3.6/−2.6) | 14 → 21 | +0.01 | 0.88 / 0.95 / 0.46 |
+| uppercase | +4.17 | 0.00 → 0.58 | 0.85 | +6.10 / +4.07 / +2.00 (all 0.000) | delayed activation + amplification + expansion | 2.43 (−1.5/−0.6) | 11 → 20 | +0.31 | 0.74 / 0.97 / 0.57 |
+
+Against the 0.6B run of the same protocol:
+
+- **Behaviour.** The canonical injection recovers 43–85 % of the few-shot
+  gap for the seven lexical tasks (0.6B: 12–71 %) and now changes the
+  argmax: accuracy 0.00–0.03 → 0.18–0.64 for six tasks. Arithmetic
+  (+0.20 nats, 13 % of a small gap) and number_to_words (29 %) are the
+  weak ones, as before. Task specificity is uniform here: every task beats
+  the other tasks' vectors (+0.44 to +4.07) and the deranged-prompt
+  vectors (+0.01 to +3.58, all p ≤ 0.005); the antonym reversal of 0.6B
+  (deranged vector better than the task's own) is gone. The vectors are
+  as shared as on 0.6B (pairwise |cos| 0.28–0.89, median 0.54; 0.5–0.8
+  aligned with the deranged-prompt vectors).
+- **Geometry.** Cumulative log G 2.0–2.7 with z ≤ 0.5 against every null
+  (negative for eight tasks against the isotropic null, −1.2 to −3.6),
+  `N_l` inside the nulls (z −0.1 to −1.5 vs covariance), and `T_L` 0.24–0.76
+  for eight tasks (singular 0.01): the perturbation again ends aligned
+  with PC1 at the final layer. The labels split where 0.6B was uniform:
+  four tasks cascade, five delayed activation (the conversion mass sits
+  later in depth), and `d_eff` *expands* for antonym, singular and
+  uppercase (9–14 → 20–21; on 0.6B every task contracted) while it
+  contracts or holds for the other six. The expansion tasks are the three
+  with the largest accuracy gains, which is consistent with the
+  iteration-2 observation that expansion appears on the larger models.
+  Against the weakest reliable strength (0.05) the log G curve
+  rank-correlates 0.53–0.96 and `d_eff` −0.65 to 0.93; against the
+  strongest (3.1–3.9) log G only 0.46–0.73: the profile shape at the grid
+  ceiling differs from the canonical one more than the weak-injection
+  profile does.
+
 ## Not yet run / known limitations
 
-- Iteration 4b has run only on 0.6B, seed 20260907. The 1.7B/4B/8B
-  configs carry the same protocol but have not been run with it. Iteration
-  4 (weakest-reliable calibration, first-token ranking) is superseded by 4b
+- Iteration 4b has run on 0.6B and 1.7B, seed 20260907. The 4B/8B configs
+  carry the same protocol but have not been run with it. Iteration 4
+  (weakest-reliable calibration, first-token ranking) is superseded by 4b
   for the head ranking and the strength.
+- On 1.7B the calibration effect was still growing at the grid ceiling
+  (`max_rho` 4.0 in natural units) for seven of nine tasks; the reference
+  rule still selects ρ = 1, but the strongest-strength robustness profile
+  is taken at the ceiling rather than at a peak. Raising `max_rho` costs
+  one screened grid point per extension and would be a config change (D22).
 - Full replicate runs are no longer requested (D23): every run now repeats
   one steered pass, one gradient pass and one profile and records whether
   they are bit-identical (`metadata.json/determinism_check`,
-  `summary.json/deterministic`). The check has run on the toy model
-  (tests) and will first run on a GPU with the next pilot.
+  `summary.json/deterministic`); passed on the 1.7B run (1.1 s).
 - The worker's host was heavily loaded during every iteration-4/4b run
   (load average 168 on 120 CPUs in the last one); the device-side profile
   keeps the pipeline's host arithmetic small, but a stage that is still
@@ -772,7 +849,6 @@ gh run list --workflow=run-gpu.yml --branch fable --limit 1 && gh run watch <RUN
 gh run download <RUN_ID> --dir results/remote/<name>
 # iteration 4b (D21 + D22: function-vector control at the canonical strength; the configs default to it)
 # on the other models and seeds, as request-file commands (the PCA-control protocol is `extraction.control: pca` with `calibration.strength_unit: layer_norm`):
-uv run directions pilot --config configs/pilot_qwen3_1.7b.yaml --run-id pilot4b_qwen3_1.7b_seed20260907   # ADA_24
 uv run directions pilot --config configs/pilot_qwen3_4b.yaml   --run-id pilot4b_qwen3_4b_seed20260907     # ADA_24
 uv run directions pilot --config configs/pilot_qwen3_8b.yaml   --run-id pilot4b_qwen3_8b_seed20260907     # ADA_24 (18.8 GB at batch 32; check `profile.totals` at 128)
 uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --seed 1 --run-id pilot4b_qwen3_0.6b_seed1
