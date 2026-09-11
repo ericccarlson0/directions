@@ -1,6 +1,6 @@
 # Status
 
-Last updated: 2026-09-10.
+Last updated: 2026-09-11.
 
 ## Implemented (all exercised by `uv run pytest`, 49 tests)
 
@@ -516,8 +516,103 @@ worker runs that, so results no longer depend on which build a worker
 holds; a stale handler is only a warning, and the runner terminates and
 resubmits when a worker predates shipped source.
 
+### Iteration 4 (D21: the canonical function vector as the control; commit `07ee329`)
+
+```
+# workflow run 34545400854 (push-triggered request), commit 07ee329, RTX 4090 (ADA_24), EUR-NO-1
+uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --run-id pilot4_qwen3_0.6b_seed20260907
+```
+
+Protocol as in iteration 3b (D20 counts, batch 128) with `extraction.control:
+function_vector`: ten universal heads ranked by the mean recovered
+first-token probability over the eight tasks that reach extraction, the
+vector as the sum of their mean outputs through `o_proj`, calibrated, gated
+and measured exactly like the PCA direction was. PC1 is still extracted and
+is the `T_l` readout direction. A first run of the same commit family (run
+34541635889, commit `2488b92`) ranked heads by the log-probability change
+and is superseded: that scale let the lexical tasks dictate the head set
+(D21). Wall time 34.2 min, of which 863 s were the CPU-side control
+profiles of one task (plural) against 30 s for the same work on arithmetic
+(see "known limitations").
+
+Universal heads (block, head; mean effect over tasks): (15, 6; 0.134),
+(18, 5; 0.047), (16, 11; 0.031), (18, 4; 0.025), (19, 6; 0.025),
+(18, 1; 0.019), (19, 2; 0.013), (18, 13; 0.011), (16, 10; 0.010),
+(16, 7; 0.009): all in blocks 15–19 of 28, dominated by one head. Per task
+the effects of these heads are 0.16–0.33 (best head) for antonym,
+number_to_words, past_tense and present_participle, 0.05–0.07 for plural,
+singular and uppercase, and 0.000 for arithmetic: no head moves the
+arithmetic prompts' recovered probability, so its "function vector" is
+those heads' mean outputs on arithmetic prompts with no causal support.
+
+8 of 8 few-shot-passing tasks qualify (excess p = 0.0005 against 48 gate
+controls). Every function vector has cross-seed stability ≥ 0.999 and a
+natural norm of 34–49, i.e. 1.7–2.5 × the median residual norm at layer 6
+(`natural_rho`); calibration selects **layer 6 for every task** (the vector
+is layer-independent and the rule takes the earliest reliable layer) at
+ρ 0.05–0.4, 5–50 × weaker than the canonical injection.
+
+| task | sel (layer, ρ) | natural ρ | cos(FV, PC1@l*) | Δ log p/token | excess vs cov / other-task / demo (p) | cum log G (z iso/cov/other) | d_eff |
+|---|---|---|---|---|---|---|---|
+| antonym | (6, 0.05) | 1.75 | +0.03 | +0.062 | +0.05 (0.001) / +0.04 (0.009) / +0.04 (0.000) | 2.33 (−0.9/−1.8/−0.5) | 23 → 14 |
+| arithmetic | (6, 0.4) | 2.06 | +0.04 | +0.064 | +0.12 (0.000) / −0.01 (0.68) / −0.01 (1.00) | 1.76 (−1.7/−2.4/−0.8) | 11 → 8 |
+| number_to_words | (6, 0.1) | 2.21 | −0.04 | +0.057 | +0.05 (0.000) / −0.00 (0.54) / +0.01 (0.000) | 2.27 (0.0/−0.9/+1.2) | 21 → 12 |
+| past_tense | (6, 0.05) | 2.53 | −0.01 | +0.050 | +0.06 (0.000) / +0.03 (0.003) / −0.00 (0.90) | 2.44 (−0.6/−1.6/+0.8) | 27 → 14 |
+| plural | (6, 0.05) | 2.35 | −0.02 | +0.073 | +0.07 (0.000) / +0.05 (0.000) / +0.03 (0.000) | 2.35 (−1.0/−1.3/−0.3) | 19 → 14 |
+| present_participle | (6, 0.1) | 2.52 | +0.04 | +0.076 | +0.11 (0.000) / +0.06 (0.013) / +0.04 (0.000) | 1.99 (−1.7/−2.2/−1.1) | 22 → 14 |
+| singular | (6, 0.05) | 2.37 | −0.01 | +0.036 | +0.03 (0.001) / +0.01 (0.08) / +0.03 (0.000) | 2.31 (−1.2/−1.5/−0.7) | 28 → 16 |
+| uppercase | (6, 0.1) | 2.45 | +0.03 | +0.092 | +0.10 (0.000) / +0.09 (0.000) / +0.01 (0.031) | 2.19 (−0.4/−1.4/+0.5) | 17 → 13 |
+
+What the run says, against the iteration-3b PCA run of the same seed:
+
+- **The function vector and PC1 are orthogonal at the injection layer**
+  (|cos| ≤ 0.04 at layer 6; the largest |cos| with PC1 at any layer is
+  0.3–0.4, around blocks 16–19 where the heads live), and the function
+  vector's perturbation never rotates toward PC1 downstream (`T_l` downstream
+  mean −0.04 to +0.09; final-layer −0.22 to +0.37; z against every null
+  |z| ≤ 1.6). Two directions that share no component at layer 6 both steer
+  the task, with held-out effects of the same size at the calibrated
+  strengths (function vector +0.04 to +0.09, PCA +0.05 to +0.10 for six
+  tasks; PCA larger for plural and singular, whose PCA strengths were
+  10–20 × higher).
+- **Most of the function vector is not task content.** The tasks' vectors
+  have pairwise cosines 0.30–0.83 (median 0.58), and each is 0.5–0.8
+  aligned with the vector built the same way from deranged-label prompts
+  (the `demo_variation` null). Consistently, the task's own vector beats the
+  other tasks' vectors by only +0.01 to +0.09 (significant for 5 of 8) and
+  the deranged-prompt vectors by −0.01 to +0.04 (not at all for
+  arithmetic, past_tense). This is the iteration-3 picture (a shared
+  in-context/answer component carries most of the behavioural effect) seen
+  from the head-level construction, and for arithmetic the vector has no
+  causal support at all yet steers by +0.064.
+- **Geometric profile.** Every task is cascade + amplification (cumulative
+  log G 1.8–2.4), and `d_eff` *contracts* (17–28 → 8–16) where the PCA
+  direction expanded for plural and singular. Against the nulls the
+  function vector amplifies *less* than covariance-matched random
+  directions (z −0.9 to −2.4) and sits inside the isotropic and other-task
+  nulls; the gradient readout `Γ_l` is +0.02 to +0.05 at `l*` and
+  downstream, as for the PCA direction. The propagation profile of the
+  canonical direction is therefore as unremarkable as the PCA direction's
+  was: nothing in the layerwise geometry distinguishes it from an
+  in-distribution random direction of the same norm.
+
+Bit-identity (required after the change of the numerical path):
+the replicate `pilot4_qwen3_0.6b_seed20260907_b` (run 34548153518, commit
+`7bde911`, same `src/` and configs) is in progress; result to be recorded here.
+
 ## Not yet run / known limitations
 
+- The CPU-side control profiles (65 per task, an SVD per layer each) take
+  30–60 s per task on the RunPod worker most of the time, but 300–900 s
+  for one or two tasks per run (iteration 4: antonym 293 s, plural 863 s;
+  the earliest batch-32 run: antonym 1019 s) with identical work: thread
+  contention on the shared host, most likely (the BLAS cap of 4 threads is
+  in place; `controls_profiles:<task>` in `timings_seconds` records it).
+  Moving the profile SVDs to the GPU would remove the dependence.
+- Iteration 4 has run only on 0.6B, seed 20260907. Whether the canonical
+  strength (natural ρ ≈ 2, ~20 × the calibrated one) changes the profile is
+  untested: the calibration rule selects the weakest reliable point, and
+  the strength-robustness stage covers only the reliable range at layer 6.
 - Iteration 3b (D20: 16 controls per random kind, batch 128) has run only
   on 0.6B, seed 20260907 (twice, bit-identical). The 1.7B/4B/8B configs
   carry the same change but have not been run with it; 8B at batch 128 has
@@ -551,12 +646,13 @@ uv run pytest                                                           # 122 te
 # them one at a time. Then:
 gh run list --workflow=run-gpu.yml --branch fable --limit 1 && gh run watch <RUN_ID>
 gh run download <RUN_ID> --dir results/remote/<name>
-# iteration-3b (D20 protocol) on the other models and seeds, e.g. as request-file commands:
-uv run directions pilot --config configs/pilot_qwen3_1.7b.yaml --run-id pilot3b_qwen3_1.7b_seed20260907   # ADA_24
-uv run directions pilot --config configs/pilot_qwen3_4b.yaml   --run-id pilot3b_qwen3_4b_seed20260907     # ADA_24
-uv run directions pilot --config configs/pilot_qwen3_8b.yaml   --run-id pilot3b_qwen3_8b_seed20260907     # ADA_24 (18.8 GB at batch 32; check memory at 128)
-uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --seed 1 --run-id pilot3b_qwen3_0.6b_seed1
-uv run directions aggregate results/remote/<a>/... results/remote/<b>/... --out results/aggregate3b_qwen3_0.6b.json
+# iteration 4 (D21: function-vector control; the configs now default to it) on the other models and seeds,
+# as request-file commands (the PCA-control protocol is `extraction.control: pca`, D20 counts):
+uv run directions pilot --config configs/pilot_qwen3_1.7b.yaml --run-id pilot4_qwen3_1.7b_seed20260907   # ADA_24
+uv run directions pilot --config configs/pilot_qwen3_4b.yaml   --run-id pilot4_qwen3_4b_seed20260907     # ADA_24
+uv run directions pilot --config configs/pilot_qwen3_8b.yaml   --run-id pilot4_qwen3_8b_seed20260907     # ADA_24 (18.8 GB at batch 32; check memory at 128)
+uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --seed 1 --run-id pilot4_qwen3_0.6b_seed1
+uv run directions aggregate results/remote/<a>/... results/remote/<b>/... --out results/aggregate4_qwen3_0.6b.json
 uv run directions compare results/<run_a> results/<run_b>                # reproducibility diff
 ```
 
