@@ -546,19 +546,29 @@ Decisions:
   the D1-style strength is still measured, as an exploratory output. The
   PCA-control configs and the defaults are unchanged (`layer_norm`, weakest
   reliable), so iteration-3 runs are reproducible as they were.
-* **Spectra on the model's device.** `geometry.spectra` decomposes the
-  perturbation matrices of all read points from the intervention layer on
-  in one batched float64 `torch.linalg.eigh` of their Gram matrices on the
-  CUDA device (the same Gram construction as the NumPy path; right singular
-  vectors recovered from the eigenvectors), and `compute_profile` calls it
-  once per centring instead of two SVDs per layer. With no CUDA device the
-  NumPy path runs unchanged, which keeps the tests and CPU runs as they
-  were; `tests/test_geometry.py` checks the two paths agree (effective
-  rank, d90, total variance, the projector onto the top subspace). The
-  `new_subspace_fraction` projections stay in NumPy (one small matmul per
-  layer). `metadata.json/linalg_device` records which path ran.
-  Determinism on the GPU is verified the usual way: the first run is
-  replicated and diffed.
+* **The profile arrays on the model's device.** `compute_profile` computes
+  every array of a profile in float64 torch on the CUDA device when one is
+  set (`geometry.set_linalg_device`, done by the pipeline for a CUDA model):
+  the residuals go to the device once, the per-example metrics, the
+  direction readouts, the block responses and the spectra (one batched
+  `torch.linalg.eigh` of the Gram matrices of all read points from the
+  intervention layer on, per centring; right singular vectors recovered from
+  the eigenvectors) are computed there, and every array comes back in one
+  transfer. With no CUDA device the NumPy geometry runs unchanged, as the
+  reference: `tests/test_geometry.py` checks the device path against it
+  array by array (run on the CPU torch device) and the batched spectra
+  against the per-matrix ones. `metadata.json/linalg_device` records which
+  path ran. The first version of this change moved only the spectra; the
+  run that followed (34615062827) still spent 20–826 s per task on the
+  control profiles with CPU seconds equal to wall seconds, and
+  `scripts/profile_bench.py` on the same worker class then measured 0.6 s
+  (NumPy) and 0.2 s (spectra on the GPU) per full profile on synthetic and
+  on real residuals alike, i.e. 13–40 s per task: the slow phases are not
+  the decompositions but intermittent host slowness during which the
+  process holds one core, which the whole-profile device path exposes to
+  less (a few milliseconds of host arithmetic per profile) and which the
+  profiler now records (below). Determinism on the GPU is verified the usual
+  way: the first run is replicated and diffed.
 * **Run instrumentation.** `directions.profiling.Profiler` replaces the
   ad-hoc timers: every stage of every task runs inside a named section
   (`model_load`, `data`/`fewshot`/`extraction`/`head_effects`/
@@ -571,10 +581,12 @@ Decisions:
   stage. `metadata.json/timings_seconds` keeps the flat `{section: seconds}`
   table with the same keys as before, `metadata.json/profile` holds the
   structured version plus totals (forward counts, max RSS, peak/reserved
-  GPU memory against the device's total), and the log ends with a table of
-  the sections over one second. CPU seconds against wall seconds separate
-  host contention (wall ≫ CPU) from compute; the forward counts make the
-  stage costs comparable across models and batch sizes. Both fields are
+  GPU memory against the device's total, the load average, the cgroup CPU
+  quota and the container's cgroup-throttled seconds, also per section),
+  and the log ends with a table of the sections over one second. CPU
+  seconds against wall seconds and the throttled seconds separate host
+  contention from compute; the forward counts make the stage costs
+  comparable across models and batch sizes. Both fields are
   volatile for `directions compare`. The cost is a few counters per forward
   call and one CUDA memory query per section.
 

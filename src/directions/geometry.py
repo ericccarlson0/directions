@@ -286,37 +286,48 @@ def spectra(X: np.ndarray, frac: float = 0.9, center: bool = True) -> list[Spect
 def _torch_spectra(X: np.ndarray, frac: float, center: bool) -> list[Spectrum]:
     import torch
 
-    m, n, d = X.shape
     T = torch.as_tensor(X, dtype=torch.float64, device=_LINALG_DEVICE)
+    ranks, tops = torch_spectra(T, frac, center)
+    return [Spectrum(eff, k, total, top.cpu().numpy()) for (eff, k, total), top in zip(ranks, tops)]
+
+
+def torch_spectra(T: Any, frac: float, center: bool) -> tuple[list[tuple[float, int | None, float]], list[Any]]:
+    """The torch counterpart of :func:`spectra` on a float64 tensor ``T`` (m, n, d) already on the device:
+    ``([(effective_rank, d90, total_variance), ...], [top_subspace tensor (k, d), ...])``.
+
+    One batched ``eigh`` of the smaller Gram matrices; the eigenvalues come to the host once, the top
+    right singular vectors stay on the device (``V = X^T U / s`` when n < d, ``V = U`` otherwise).
+    """
+    import torch
+
+    m, n, d = T.shape
     if center:
         T = T - T.mean(dim=1, keepdim=True)
-    # Eigendecomposition of the smaller Gram matrix: s^2 are its eigenvalues (descending) and the
-    # right singular vectors follow from the eigenvectors (V = X^T U / s when n < d, V = U otherwise).
     gram_small = n < d
     G = T @ T.transpose(1, 2) if gram_small else T.transpose(1, 2) @ T
     w, U = torch.linalg.eigh(G)
     w = torch.flip(w, dims=(1,)).clamp_min(0.0)
     U = torch.flip(U, dims=(2,))
     w_cpu = w.cpu().numpy()
-    out: list[Spectrum] = []
+    ranks: list[tuple[float, int | None, float]] = []
+    tops: list[Any] = []
     for i in range(m):
         s2 = w_cpu[i]
         total = float(np.sum(s2))
         if total == 0.0:
-            out.append(Spectrum(float("nan"), None, 0.0, np.zeros((0, d))))
+            ranks.append((float("nan"), None, 0.0))
+            tops.append(T.new_zeros((0, d)))
             continue
         cum = np.cumsum(s2) / total
         k = int(np.searchsorted(cum, frac - 1e-12) + 1)
-        eff = float(total**2 / np.sum(s2**2))
+        ranks.append((float(total**2 / np.sum(s2**2)), k, total))
         if gram_small:
             s = torch.sqrt(w[i, :k])
-            keep = s > 0
-            V = (T[i].transpose(0, 1) @ U[i, :, :k])[:, keep] / s[keep]
-            top = V.transpose(0, 1)
+            inv = torch.where(s > 0, 1.0 / s, torch.zeros_like(s))  # s_k > 0 whenever total > 0 (k <= rank)
+            tops.append(((T[i].transpose(0, 1) @ U[i, :, :k]) * inv).transpose(0, 1))
         else:
-            top = U[i, :, :k].transpose(0, 1)
-        out.append(Spectrum(eff, k, total, top.cpu().numpy()))
-    return out
+            tops.append(U[i, :, :k].transpose(0, 1))
+    return ranks, tops
 
 
 def new_subspace_fraction(B: np.ndarray, top_subspace: np.ndarray) -> float:

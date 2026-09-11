@@ -162,6 +162,52 @@ def test_torch_spectra_match_numpy_path():
         spectra(wide[0])
 
 
+def test_torch_profile_matches_numpy_profile():
+    """The device path of compute_profile (every array on torch) against the NumPy reference."""
+    from directions.config import EvaluationConfig
+    from directions.geometry import set_linalg_device
+    from directions.layerwise import COMPARED_METRICS, compute_profile
+
+    rng = np.random.default_rng(7)
+    L1, n, d, ls = 7, 12, 40, 2
+    base = (rng.standard_normal((L1, n, d)) * 5).astype(np.float32)
+    delta = np.zeros((L1, n, d), dtype=np.float32)
+    v = rng.standard_normal(d)
+    v /= np.linalg.norm(v)
+    delta[ls] = 3 * v
+    for l in range(ls + 1, L1):
+        delta[l] = 1.2 * delta[l - 1] + rng.standard_normal((n, d)).astype(np.float32)
+    steered = base + delta
+    tdirs = rng.standard_normal((L1, d))
+    grads = rng.standard_normal((L1, n, d)).astype(np.float32)
+    cfg = EvaluationConfig(n_boot=50)
+    for kw in ({"task_directions": tdirs, "gradients": grads}, {}):
+        for tall in (False, True):  # n >= d exercises the other Gram branch
+            b, s = (base, steered) if not tall else (base[:, :, :8], steered[:, :, :8])
+            vv, td, gr = (v, kw.get("task_directions"), kw.get("gradients")) if not tall else (
+                v[:8], None if "task_directions" not in kw else tdirs[:, :8], None if "gradients" not in kw else grads[:, :, :8])
+            ref = compute_profile(b, s, vv, ls, cfg, np.random.default_rng(0), with_ci=True, task_directions=td, gradients=gr)
+            set_linalg_device("cpu")
+            try:
+                got = compute_profile(b, s, vv, ls, cfg, np.random.default_rng(0), with_ci=True, task_directions=td, gradients=gr)
+            finally:
+                set_linalg_device(None)
+            for name in COMPARED_METRICS:
+                np.testing.assert_allclose(got.metric_curve(name), ref.metric_curve(name), rtol=1e-9, atol=1e-9, err_msg=name)
+            for name in ("magnitude", "gain", "log_gain", "conversion", "alignment", "delta_norm", "block_norm"):
+                np.testing.assert_allclose(getattr(got.per_example, name), getattr(ref.per_example, name), rtol=1e-9, atol=1e-9, err_msg=name)
+            for name, arr in ref.readouts.items():
+                np.testing.assert_allclose(got.readouts[name], arr, rtol=1e-9, atol=1e-9, err_msg=name)
+            assert set(got.readout_diagnostics) == set(ref.readout_diagnostics)
+            for key, val in ref.readout_diagnostics.items():
+                assert got.readout_diagnostics[key] == pytest.approx(val, rel=1e-9), key
+            assert got.cumulative_log_gain == pytest.approx(ref.cumulative_log_gain, rel=1e-9)
+            assert got.noise_floor == pytest.approx(ref.noise_floor, rel=1e-9, abs=1e-9)
+            assert got.pre_intervention_max_abs_delta == ref.pre_intervention_max_abs_delta == 0.0
+            np.testing.assert_allclose(got.summaries["log_gain"]["median"], ref.summaries["log_gain"]["median"], rtol=1e-9)
+            np.testing.assert_allclose(got.summaries["magnitude"]["low"], ref.summaries["magnitude"]["low"], rtol=1e-9)
+
+
 def test_layerwise_gain_conversion_hand_computed():
     # one example, d = 2, three read points
     v = np.array([1.0, 0.0])

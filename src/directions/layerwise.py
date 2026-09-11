@@ -20,6 +20,7 @@ from .geometry import (
     direction_readouts,
     effective_rank,
     layerwise_example_metrics,
+    linalg_device,
     new_subspace_fraction,
     spectra,
 )
@@ -89,6 +90,142 @@ def _median_rows(X: np.ndarray) -> dict[str, list[float]]:
     return out
 
 
+def _profile_arrays_numpy(
+    base: np.ndarray, steered: np.ndarray, v: np.ndarray, ls: int, frac: float,
+    task_directions: np.ndarray | None, gradients: np.ndarray | None,
+) -> dict[str, Any]:
+    """The per-example and per-layer arrays of a profile, computed with the NumPy geometry (the reference)."""
+    base = np.asarray(base, dtype=np.float64)
+    steered = np.asarray(steered, dtype=np.float64)
+    L1 = base.shape[0]
+    L = L1 - 1
+    delta = steered - base
+    ex = layerwise_example_metrics(delta, base, v)
+    readouts = direction_readouts(delta, task_directions, gradients)
+    out: dict[str, Any] = {
+        "pre_max": float(np.abs(delta[:ls]).max()) if ls > 0 else 0.0,
+        "example": ex,
+        "readouts": readouts,
+        "gradient_norm_median": None,
+        "injected_direction_gradient_cosine_median": None,
+    }
+    if gradients is not None:
+        gnorm = np.linalg.norm(np.asarray(gradients, dtype=np.float64), axis=2)  # (L+1, n)
+        out["gradient_norm_median"] = [float(x) for x in np.median(gnorm, axis=1)]
+        # cos(v, g_l*): does the *injected* direction itself point along the target gradient?
+        vv = v / np.linalg.norm(v)
+        g_ls = np.asarray(gradients[ls], dtype=np.float64)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            c = (g_ls @ vv) / np.linalg.norm(g_ls, axis=1)
+        out["injected_direction_gradient_cosine_median"] = float(np.nanmedian(c))
+    spec_c = spectra(delta[ls:], frac=frac, center=True)
+    spec_u = spectra(delta[ls:], frac=frac, center=False)
+    out["ranks_c"] = [(s.effective_rank, s.d90, s.total_variance) for s in spec_c]
+    out["ranks_u"] = [(s.effective_rank, s.d90, s.total_variance) for s in spec_u]
+    b = block_responses(delta)
+    N = np.full(L, np.nan)
+    N_unc = np.full(L, np.nan)
+    for l in range(ls, L):
+        if l > ls:
+            N[l] = new_subspace_fraction(b[l], spec_c[l - ls].top_subspace)
+        N_unc[l] = new_subspace_fraction(b[l], spec_u[l - ls].top_subspace)
+    out["new_subspace"], out["new_subspace_uncentered"] = N, N_unc
+    return out
+
+
+def _median_like_numpy(t: Any, dim: int) -> Any:
+    """``np.median`` along ``dim`` for a torch tensor (the mean of the two middle values when even)."""
+    s, _ = t.sort(dim=dim)
+    n = s.shape[dim]
+    if n % 2:
+        return s.narrow(dim, n // 2, 1).squeeze(dim)
+    return 0.5 * (s.narrow(dim, n // 2 - 1, 1) + s.narrow(dim, n // 2, 1)).squeeze(dim)
+
+
+def _profile_arrays_torch(
+    base: np.ndarray, steered: np.ndarray, v: np.ndarray, ls: int, frac: float,
+    task_directions: np.ndarray | None, gradients: np.ndarray | None, device: Any,
+) -> dict[str, Any]:
+    """:func:`_profile_arrays_numpy` in float64 torch on ``device`` (the GPU path, docs/DECISIONS.md D22):
+    the residuals go to the device once, every array comes back once. ``tests/test_geometry.py`` checks
+    it against the NumPy path."""
+    import torch
+
+    from .geometry import torch_spectra
+
+    f64 = torch.float64
+    B = torch.as_tensor(np.asarray(base), dtype=f64, device=device)
+    D = torch.as_tensor(np.asarray(steered), dtype=f64, device=device) - B
+    L1, n, _ = D.shape
+    L = L1 - 1
+    nan = torch.full((), float("nan"), dtype=f64, device=device)
+    dn = D.norm(dim=2)
+    bn = B.norm(dim=2)
+    b = D[1:] - D[:-1]
+    b_norm = b.norm(dim=2)
+    vv = torch.as_tensor(np.asarray(v, dtype=np.float64), device=device)
+    vv = vv / vv.norm()
+    magnitude = torch.where(bn > 0, dn / bn, nan)
+    gain = torch.where(dn[:-1] > 0, dn[1:] / dn[:-1], nan)
+    conversion = torch.where(dn[:-1] > 0, b_norm / dn[:-1], nan)
+    alignment = torch.where(dn > 0, (D @ vv).abs() / dn, nan)
+    readouts = {k: torch.full((L1, n), float("nan"), dtype=f64, device=device)
+                for k in ("task_alignment", "gradient_alignment", "gradient_projection")}
+    out: dict[str, Any] = {"gradient_norm_median": None, "injected_direction_gradient_cosine_median": None}
+    if task_directions is not None:
+        V = torch.as_tensor(np.asarray(task_directions, dtype=np.float64), device=device)
+        V = V / V.norm(dim=1, keepdim=True)
+        readouts["task_alignment"] = torch.where(dn > 0, torch.einsum("lnd,ld->ln", D, V) / dn, nan)
+    if gradients is not None:
+        G = torch.as_tensor(np.asarray(gradients), dtype=f64, device=device)
+        gn = G.norm(dim=2)
+        dot = (D * G).sum(dim=2)
+        readouts["gradient_projection"] = dot
+        readouts["gradient_alignment"] = torch.where((dn > 0) & (gn > 0), dot / (dn * gn), nan)
+        out["gradient_norm_median"] = [float(x) for x in _median_like_numpy(gn, 1).cpu().numpy()]
+        c = torch.where(gn[ls] > 0, (G[ls] @ vv) / gn[ls], nan)
+        c = c[~torch.isnan(c)]
+        out["injected_direction_gradient_cosine_median"] = float(_median_like_numpy(c, 0).cpu()) if c.numel() else float("nan")
+    ranks_c, tops_c = torch_spectra(D[ls:], frac, True)
+    ranks_u, tops_u = torch_spectra(D[ls:], frac, False)
+    N = torch.full((L,), float("nan"), dtype=f64, device=device)
+    N_unc = torch.full((L,), float("nan"), dtype=f64, device=device)
+
+    def fraction(Bl: Any, top: Any) -> Any:
+        total = (Bl**2).sum()
+        if top.shape[0] == 0:
+            return torch.where(total > 0, torch.ones_like(total), nan)
+        resid = Bl - (Bl @ top.transpose(0, 1)) @ top
+        return torch.where(total > 0, (resid**2).sum() / total, nan)
+
+    for l in range(ls, L):
+        if l > ls:
+            N[l] = fraction(b[l], tops_c[l - ls])
+        N_unc[l] = fraction(b[l], tops_u[l - ls])
+    # everything to the host in one transfer
+    stack = torch.cat([t.reshape(-1) for t in (dn, bn, magnitude, alignment, gain, conversion, b_norm,
+                                                readouts["task_alignment"], readouts["gradient_alignment"],
+                                                readouts["gradient_projection"], N, N_unc)]).cpu().numpy()
+    sizes = [L1 * n] * 4 + [L * n] * 3 + [L1 * n] * 3 + [L, L]
+    parts = np.split(stack, np.cumsum(sizes)[:-1])
+    dn_np, bn_np, mag, ali, gain_np, conv, bnorm, ta, ga, gp, N_np, Nu_np = parts
+    with np.errstate(divide="ignore", invalid="ignore"):
+        log_gain = np.log(gain_np.reshape(L, n))
+    out.update({
+        "pre_max": float(D[:ls].abs().max().cpu()) if ls > 0 else 0.0,
+        "example": LayerwiseExampleMetrics(
+            magnitude=mag.reshape(L1, n), gain=gain_np.reshape(L, n), log_gain=log_gain, conversion=conv.reshape(L, n),
+            alignment=ali.reshape(L1, n), delta_norm=dn_np.reshape(L1, n), block_norm=bnorm.reshape(L, n)),
+        "readouts": {"task_alignment": ta.reshape(L1, n), "gradient_alignment": ga.reshape(L1, n),
+                     "gradient_projection": gp.reshape(L1, n)},
+        "ranks_c": ranks_c,
+        "ranks_u": ranks_u,
+        "new_subspace": N_np,
+        "new_subspace_uncentered": Nu_np,
+    })
+    return out
+
+
 def compute_profile(
     base: np.ndarray,
     steered: np.ndarray,
@@ -105,18 +242,19 @@ def compute_profile(
     ``with_ci=False`` skips the bootstrap confidence intervals (medians only).
     ``task_directions`` (L+1, d) and ``gradients`` (L+1, n, d) feed the
     direction-specific readouts (:func:`direction_readouts`); when absent those
-    metrics are all ``nan``.
+    metrics are all ``nan``. The arrays are computed on the linalg device when
+    one is set (:func:`directions.geometry.set_linalg_device`), else in NumPy.
     """
-    base = np.asarray(base, dtype=np.float64)
-    steered = np.asarray(steered, dtype=np.float64)
-    L1, n, _ = base.shape
+    L1, n, _ = np.shape(base)
     L = L1 - 1
     ls = intervention_layer
-    delta = steered - base
-    pre_max = float(np.abs(delta[:ls]).max()) if ls > 0 else 0.0
-
-    ex = layerwise_example_metrics(delta, base, v)
-    readouts = direction_readouts(delta, task_directions, gradients)
+    device = linalg_device()
+    if device is None:
+        arrays = _profile_arrays_numpy(base, steered, v, ls, cfg.variance_fraction, task_directions, gradients)
+    else:
+        arrays = _profile_arrays_torch(base, steered, v, ls, cfg.variance_fraction, task_directions, gradients, device)
+    ex: LayerwiseExampleMetrics = arrays["example"]
+    readouts: dict[str, np.ndarray] = arrays["readouts"]
     # Quantities are only defined from the intervention layer on.
     for arr in (ex.magnitude, ex.alignment, *readouts.values()):
         arr[:ls] = np.nan
@@ -138,14 +276,8 @@ def compute_profile(
         "gradients_available": gradients is not None,
     }
     if gradients is not None:
-        gnorm = np.linalg.norm(np.asarray(gradients, dtype=np.float64), axis=2)  # (L+1, n)
-        readout_diagnostics["gradient_norm_median"] = [float(x) for x in np.median(gnorm, axis=1)]
-        # cos(v, g_l*): does the *injected* direction itself point along the target gradient?
-        vv = v / np.linalg.norm(v)
-        g_ls = np.asarray(gradients[ls], dtype=np.float64)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            c = (g_ls @ vv) / np.linalg.norm(g_ls, axis=1)
-        readout_diagnostics["injected_direction_gradient_cosine_median"] = float(np.nanmedian(c))
+        readout_diagnostics["gradient_norm_median"] = arrays["gradient_norm_median"]
+        readout_diagnostics["injected_direction_gradient_cosine_median"] = arrays["injected_direction_gradient_cosine_median"]
     with np.errstate(divide="ignore", invalid="ignore"):
         cum = np.log(ex.delta_norm[L] / ex.delta_norm[ls])
     if with_ci:
@@ -160,33 +292,24 @@ def compute_profile(
     d90 = np.full(L1, np.nan)
     tot = np.full(L1, np.nan)
     d_eff_unc = np.full(L1, np.nan)
-    N = np.full(L, np.nan)
-    N_unc = np.full(L, np.nan)
-    b = block_responses(delta)
     observed_at_ls: dict[str, float | None] = {"d_eff": None, "total_centered_variance": None, "d90": None}
-    # One batched decomposition per centring over the read points from the intervention layer on.
-    spectra_c = spectra(delta[ls:], frac=cfg.variance_fraction, center=True)
-    spectra_u = spectra(delta[ls:], frac=cfg.variance_fraction, center=False)
     for l in range(ls, L1):
-        spec_c = spectra_c[l - ls]
-        spec_u = spectra_u[l - ls]
-        d_eff_unc[l] = spec_u.effective_rank
+        eff_c, k_c, tot_c = arrays["ranks_c"][l - ls]
+        d_eff_unc[l] = arrays["ranks_u"][l - ls][0]
         if l == ls:
             # exact arithmetic: centered D is zero; the observed value is the bf16 noise floor
             observed_at_ls = {
-                "d_eff": None if np.isnan(spec_c.effective_rank) else float(spec_c.effective_rank),
-                "d90": None if spec_c.d90 is None else float(spec_c.d90),
-                "total_centered_variance": float(spec_c.total_variance),
+                "d_eff": None if np.isnan(eff_c) else float(eff_c),
+                "d90": None if k_c is None else float(k_c),
+                "total_centered_variance": float(tot_c),
             }
-            tot[l] = spec_c.total_variance
+            tot[l] = tot_c
         else:
-            d_eff[l] = spec_c.effective_rank
-            d90[l] = np.nan if spec_c.d90 is None else spec_c.d90
-            tot[l] = spec_c.total_variance
-        if l < L:
-            if l > ls:
-                N[l] = new_subspace_fraction(b[l], spec_c.top_subspace)
-            N_unc[l] = new_subspace_fraction(b[l], spec_u.top_subspace)
+            d_eff[l] = eff_c
+            d90[l] = np.nan if k_c is None else k_c
+            tot[l] = tot_c
+    N = np.asarray(arrays["new_subspace"], dtype=np.float64)
+    N_unc = np.asarray(arrays["new_subspace_uncentered"], dtype=np.float64)
 
     next_var = tot[ls + 1] if ls + 1 < L1 else float("nan")
     var_ls = observed_at_ls["total_centered_variance"]
@@ -214,7 +337,7 @@ def compute_profile(
         new_subspace_uncentered=N_unc,
         cumulative_log_gain={"median": cum_ci.median, "low": cum_ci.low, "high": cum_ci.high, "n": cum_ci.n},
         noise_floor=noise_floor,
-        pre_intervention_max_abs_delta=pre_max,
+        pre_intervention_max_abs_delta=arrays["pre_max"],
         readouts=readouts,
         readout_diagnostics=readout_diagnostics,
     )
