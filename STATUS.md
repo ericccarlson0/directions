@@ -598,7 +598,12 @@ What the run says, against the iteration-3b PCA run of the same seed:
 
 Bit-identity (required after the change of the numerical path):
 the replicate `pilot4_qwen3_0.6b_seed20260907_b` (run 34548153518, commit
-`7bde911`, same `src/` and configs) is in progress; result to be recorded here.
+`7bde911`, same `src/` and configs) is **bit-identical** to the run above
+in every result file (`directions compare`: 71 JSON files and 16 `.npz`
+arrays, `atol = 0`; the only difference is `metadata.json/git/commit`).
+Its wall time was 84 min against 34 min for the first run, entirely in the
+CPU-side control profiles (70–836 s per task against 29–863 s the first
+time, for identical work; see "known limitations").
 
 ## Not yet run / known limitations
 
