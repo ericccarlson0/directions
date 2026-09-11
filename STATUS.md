@@ -711,6 +711,15 @@ What the run says, against iteration 4 (same directions, 5–50 × weaker):
   canonical one), while the middle strength (0.3–0.75) correlates 0.84–0.96
   and 0.61–0.96 with the selected profile.
 
+Bit-identity (required after the change of the numerical path): the
+replicate `pilot4b_qwen3_0.6b_seed20260907_b` (run 34624148329, commit
+`16e5bf5`, same `src/` and configs, another RTX 4090 worker) is
+**bit-identical** to the run above in every result file (`directions
+compare`, `atol = 0`, and all 200 `.npz` arrays equal; the only difference
+is `metadata.json/git/commit`), so the batched device-side decompositions
+are deterministic across workers. Its wall time was 10.4 min (control
+profiles 5–7 s per task) at a host load average of 29.
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run only on 0.6B, seed 20260907. The 1.7B/4B/8B
