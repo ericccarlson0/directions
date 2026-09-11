@@ -543,6 +543,9 @@ class Pipeline:
                 st.gradients = self.backend.gradients(zs_prompts)
             readout_kw = {"task_directions": st.all_layer_directions, "gradients": st.gradients}
             test = paired_bootstrap_test(st.steered.logprob_per_token, st.base.logprob_per_token, brng, n_boot=cfg.calibration.n_boot)
+        if cfg.determinism_check and "determinism_check" not in self.metadata:
+            with self.prof.section("determinism_check", name):
+                self._determinism_check(st, v, do_layerwise, readout_kw)
         for kind, label, u in self._build_controls(st, states, sel.layer, v):
             with self.prof.section("controls_forward", name):
                 r = self.backend.run(zs_prompts, interventions=[Intervention(sel.layer, u, sel.alpha)], capture=do_layerwise)
@@ -666,6 +669,36 @@ class Pipeline:
             log.error("[%s] exploratory stage failed: %s", name, e)
             self.rejections.add("error", name, f"exploratory: {type(e).__name__}: {e}", {"traceback": traceback.format_exc()})
 
+    def _determinism_check(self, st: TaskState, v: np.ndarray, do_layerwise: bool, readout_kw: dict[str, Any]) -> None:
+        """Repeat the steered pass, the gradient pass and one profile of this task; require bit identity (D23)."""
+        from .determinism import compare_arrays, determinism_report, forward_arrays, profile_check_arrays
+
+        cfg = self.cfg
+        sel = st.selection
+        assert sel is not None and st.steered is not None and st.base is not None and st.base.residuals is not None
+        again = self.backend.run(st.eval_prompts, interventions=[Intervention(sel.layer, v, sel.alpha)], capture=True)
+        forward = compare_arrays(forward_arrays(st.steered), forward_arrays(again))
+        gradients = profile = None
+        if do_layerwise:
+            assert st.gradients is not None and st.steered.residuals is not None
+            gradients = compare_arrays({"gradients": st.gradients}, {"gradients": self.backend.gradients(st.eval_prompts)})
+            # the profile twice on the same residuals (medians only: the bootstrap draws are seeded separately)
+            first = compute_profile(st.base.residuals, st.steered.residuals, v, sel.layer, cfg.evaluation,
+                                    np.random.default_rng(0), with_ci=False, **readout_kw)
+            second = compute_profile(st.base.residuals, st.steered.residuals, v, sel.layer, cfg.evaluation,
+                                     np.random.default_rng(0), with_ci=False, **readout_kw)
+            profile = compare_arrays(profile_check_arrays(first), profile_check_arrays(second))
+        report = determinism_report(forward, gradients, profile, st.name)
+        self.metadata["determinism_check"] = report
+        write_json(self.root / "metadata.json", self.metadata)
+        if report["identical"]:
+            self.log.info("[%s] determinism check: steered pass, gradients and profile repeat bit-identically", st.name)
+        else:
+            failed = {part: {k: a["max_abs_diff"] for k, a in report[part]["arrays"].items() if not a["identical"]}
+                      for part in ("forward", "gradients", "profile") if report[part] is not None and not report[part]["identical"]}
+            self.log.error("[%s] determinism check FAILED: %s", st.name, failed)
+            self.rejections.add("determinism", st.name, "repeat_not_bit_identical", {"max_abs_diff_by_array": failed})
+
     def _finish_task(self, st: TaskState) -> None:
         q = st.qualification
         q["qualified"] = bool(st.qualified)
@@ -745,6 +778,7 @@ class Pipeline:
             },
             "n_qualified": sum(s.qualified for s in states.values()),
             "n_rejections": len(self.rejections.entries),
+            "deterministic": None if "determinism_check" not in self.metadata else self.metadata["determinism_check"]["identical"],
         }
         if sigs:
             table = cross_task_table(sigs)

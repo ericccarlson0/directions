@@ -200,6 +200,9 @@ class Config:
     name: str = "pilot"
     seed: int = 0
     output_dir: str = "results"
+    # Repeat one steered forward pass, one gradient pass and one profile in the run and require bit
+    # identity (docs/DECISIONS.md D23); recorded in metadata.json/determinism_check.
+    determinism_check: bool = True
     model: ModelConfig = field(default_factory=ModelConfig)
     prompt: PromptConfig = field(default_factory=PromptConfig)
     data: DataConfig = field(default_factory=DataConfig)

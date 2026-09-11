@@ -29,6 +29,12 @@ def test_smoke_pilot_outputs(smoke_run):
     for key in ("git", "environment", "seed", "seeds", "model", "config", "candidate_layers", "timings_seconds"):
         assert key in meta, key
     assert meta["model"]["n_layers"] == 4
+    # the in-run determinism check (D23): the repeated steered pass, gradients and profile are bit-identical
+    det = meta["determinism_check"]
+    assert det["identical"] and det["forward"]["identical"] and det["gradients"]["identical"] and det["profile"]["identical"]
+    assert det["task"] == "antonym" and set(det["forward"]["arrays"]) >= {"logprob_sum", "residuals"}
+    assert "determinism_check:antonym" in meta["timings_seconds"]
+    assert json.loads((root / "core" / "summary.json").read_text())["deterministic"] is True
     for task in ("antonym", "arithmetic", "number_to_words"):
         d = root / "core" / "tasks" / task
         for rel in ("splits.json", "qualification.json", "extraction.json", "directions.npz", "calibration.json",

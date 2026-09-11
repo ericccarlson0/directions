@@ -726,6 +726,11 @@ profiles 5–7 s per task) at a host load average of 29.
   configs carry the same protocol but have not been run with it. Iteration
   4 (weakest-reliable calibration, first-token ranking) is superseded by 4b
   for the head ranking and the strength.
+- Full replicate runs are no longer requested (D23): every run now repeats
+  one steered pass, one gradient pass and one profile and records whether
+  they are bit-identical (`metadata.json/determinism_check`,
+  `summary.json/deterministic`). The check has run on the toy model
+  (tests) and will first run on a GPU with the next pilot.
 - The worker's host was heavily loaded during every iteration-4/4b run
   (load average 168 on 120 CPUs in the last one); the device-side profile
   keeps the pipeline's host arithmetic small, but a stage that is still
@@ -759,7 +764,7 @@ profiles 5–7 s per task) at a host load average of 29.
 ## Next commands
 
 ```bash
-uv run pytest                                                           # 148 tests
+uv run pytest                                                           # 150 tests
 # GPU runs: edit .github/gpu-run.yaml (command + a new `request` label), commit, push; the run-gpu
 # workflow triggers on the push (README, "Run on GPUs"). One run per push; the ci environment runs
 # them one at a time. Then:
@@ -772,7 +777,7 @@ uv run directions pilot --config configs/pilot_qwen3_4b.yaml   --run-id pilot4b_
 uv run directions pilot --config configs/pilot_qwen3_8b.yaml   --run-id pilot4b_qwen3_8b_seed20260907     # ADA_24 (18.8 GB at batch 32; check `profile.totals` at 128)
 uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --seed 1 --run-id pilot4b_qwen3_0.6b_seed1
 uv run directions aggregate results/remote/<a>/... results/remote/<b>/... --out results/aggregate4b_qwen3_0.6b.json
-uv run directions compare results/<run_a> results/<run_b>                # reproducibility diff
+uv run directions compare results/<run_a> results/<run_b>                # diff two runs (only after a change of the numerical path, D23)
 ```
 
 Suggested next steps, in order:

@@ -595,3 +595,35 @@ with iteration 4 (a different calibration rule and possibly a different head
 set); the gates, the nulls and the layerwise metrics are unchanged. The
 change alters the numerical path (GPU decompositions), so the first 0.6B run
 is executed twice and diffed (`directions compare`).
+
+## 2026-09-11 — Reproducibility checking
+
+### D23. An in-run determinism check replaces full replicate runs
+
+Until now every change of the numerical path was followed by a second,
+identical GPU run diffed against the first (`directions compare`): iteration
+1 on four models, 3b, 4 and 4b, all bit-identical, the last one across two
+different workers. A replicate proves that the pipeline is deterministic on
+that hardware; it carries no scientific information (same seed, same model,
+same data), cannot detect a deterministic bug (iteration 4's saturated
+metric replicated perfectly), and costs a full run per protocol change.
+Its one incidental payoff, exposing the host-contention slowdown, is now
+provided by the run profile (D22).
+
+From this decision on, the pipeline checks determinism inside every run
+(`determinism_check: true`, the default): for the first task that reaches
+held-out steering it repeats the steered forward pass, the gradient pass and
+one layerwise profile (medians only; the bootstrap draws are seeded
+separately) and requires every array to be bit-identical to the original,
+`nan` equal to `nan`. The result is written to
+`metadata.json/determinism_check` (per array: identical, largest absolute
+difference) and `summary.json/deterministic`; a failure is logged as an
+error and as a `determinism` rejection but does not stop the run. The cost
+is one forward pass, one backward pass and one profile (about ten seconds
+on the 0.6B model), paid on every model and every seed rather than on a
+chosen day. Full replicates are no longer requested; the check covers the
+model forward with hooks, the gradient capture and the device-side linear
+algebra, which is where non-determinism would enter. What it does not cover
+is unchanged: reproducibility across GPU architectures is a tolerance
+question (`directions compare --atol`), and a replicate on a reduced config
+remains the tool if the check ever fails and the cause has to be located.

@@ -15,7 +15,7 @@ Research code for studying the propagation and transformation (from control into
 - Scientific correctness and reproducibility take priority over convenience.
 - Separate reusable analysis code (`src/directions/`) from experiments.
 - Experiments must be configurable; every scientifically meaningful parameter in a version-controlled config file.
-- Set and record random seeds. (Note: sub-seeds from the run seed through a stable digest, not through Python's per-process-salted `hash()`.) Prove reproducibility; run the same command twice and diff.
+- Set and record random seeds. (Note: sub-seeds from the run seed through a stable digest, not through Python's per-process-salted `hash()`.) Prove reproducibility: every run repeats one steered pass, one gradient pass and one profile and requires bit identity (`metadata.json/determinism_check`, D23); diff two runs with `directions compare` only after a change to the numerical path, on a reduced config.
 - Save sufficient metadata to reproduce every result.
 - Prefer statistical criteria (paired tests, matched-control nulls) over fixed effect-size thresholds wherever sampling noise could be comparable to the effect.
 - Keep exploratory diagnostics distinct from preregistered/core metrics.

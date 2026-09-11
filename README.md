@@ -30,8 +30,9 @@ writes a uniquely named directory under `results/`:
 
 ```
 results/<run_id>/
-  metadata.json            run id, command, git commit, model, environment, seed table, timings and
-                           the run profile (per-stage seconds, forward counts, peak memory)
+  metadata.json            run id, command, git commit, model, environment, seed table, timings, the
+                           run profile (per-stage seconds, forward counts, peak memory) and the
+                           in-run determinism check (a repeated pass and profile, bit-identical or not)
   config.resolved.yaml     the exact configuration used
   rejections.jsonl         every automatic filtering decision, with the numbers behind it
   log.txt
