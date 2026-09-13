@@ -1,11 +1,11 @@
 # Request a GPU run: change this file, commit, push. The run-gpu workflow triggers on every push that changes
 # this file and runs `command` at the repository root on a RunPod worker. To re-request an identical command,
 # there needs to be a new `request` label. A manual workflow_dispatch ignores this file.
-request: pilot4b_qwen3_4b_seed20260907 # note that a new label re-requests the same command
-command: uv run directions pilot --config configs/pilot_qwen3_4b.yaml --run-id pilot4b_qwen3_4b_seed20260907
-gpu_tier: ADA_24          # memory class ("tier")
+request: pilot4b_qwen3_8b_seed20260907 # note that a new label re-requests the same command
+command: uv run directions pilot --config configs/pilot_qwen3_8b.yaml --run-id pilot4b_qwen3_8b_seed20260907
+gpu_tier: ADA_48_PRO         # memory class ("tier")
 gpu_type: ""              # exact device name to pin instead of the tier, e.g. "NVIDIA RTX A4500"
 datacenter: EUR-NO-1      # data center of the `directions` network volume
 flash_env: ci             # Flash environment; one run at a time per environment
-timeout_minutes: 300
+timeout_minutes: 340
 max_output_mb: 8
