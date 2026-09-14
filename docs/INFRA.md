@@ -31,6 +31,7 @@ Facts about the RunPod path that are perhaps not obvious and perhaps had to be l
 
 ## Reading a run from outside
 
-- Live: the GitHub job log (tailed from the volume), or the worker's container log (`stream-worker-logs` with the id from `list-endpoint-workers`).
+- Live: the GitHub job log (tailed from the volume), or the worker's container log (`stream-worker-logs` with the id from `list-endpoint-workers`). From outside the workflow, `scripts/runpod_log.py <run id>` reads the same `runner.log` from the volume (`--follow` tails it, `--list` and `--download` reach the results before the workflow uploads them); it needs `RUNPOD_API_KEY`, `RUNPOD_S3_ACCESS_KEY` and `RUNPOD_S3_SECRET_KEY`, which are also set in the Claude Code cloud environment used for these sessions. GitHub serves a job's log only after the job ends, so this is the only live view a session has; without it a job that never left the queue looks like a long run (below).
 - After: the workflow artifact, or `results/run-<id>/` on the volume over S3.
+- A tier can have no capacity in the data center: an `ADA_48_PRO` request in `EUR-NO-1` (run 34778958703) stayed `IN_QUEUE` for the whole 340-minute job timeout without a worker being assigned, and the runner then cancelled it. The queue state is visible only in the live log. `AMPERE_80` was used instead; `AMPERE_48` (A40) is available there but slower than a 4090.
 - A second worker is allowed on the endpoint; a probe job can run beside a pilot; the handler runs any `argv`, so a probe can read the volume, the log, or the host's state.
