@@ -1067,7 +1067,10 @@ spent four hours on the environment install (`docs/INFRA.md`). The function
 vectors, head effects, per-layer PC1s, head count (16) and head support
 are bit-identical to batch A (40 arrays; the per-seed PC1 array differs
 only in its candidate-layer set), as they must be up to the selection;
-the determinism check passed on antonym.
+the determinism check passed on antonym. A second run of the same
+request (run 34895927702, another RTX 4090, pipeline 19.0 min) is
+**bit-identical** in every result file (`directions compare`: only the
+recorded commit differs).
 
 - **The best layer is the deepest allowed.** Layer 14 (50 %) for six
   tasks, layer 8 for singular; ρ = 1 everywhere. The best reliable
