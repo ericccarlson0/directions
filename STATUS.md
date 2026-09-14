@@ -64,7 +64,7 @@ Methodological choices are recorded in `docs/DECISIONS.md` (D1–D21).
 4-layer model in ~25 s. Gates are computed but not enforced (D11). Two runs
 are bit-identical (`tests/test_integration.py`).
 
-### Iteration 1 (superseded protocol; commits `1a831e0`–`8a6fcf2`)
+### Iteration 1 (superseded protocol)
 
 64 held-out examples, five tasks, 16 random controls. Two tasks qualified per
 model (0.6B: plural, arithmetic; 1.7B: antonym, plural); every qualified
@@ -73,7 +73,7 @@ isotropic null except plural-1.7B. Reruns were bit-identical. Superseded by
 iteration 2 because the 16-control null could not be decisive (minimum
 p = 1/17) and `n = 64` bounded the dimensionality metrics (D14, D15).
 
-### Iteration 2 (current protocol; commit `fe052ed`, configs unchanged since)
+### Iteration 2 (current protocol; configs unchanged since)
 
 ```
 uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --run-id pilot2_qwen3_0.6b_seed20260907
@@ -208,7 +208,7 @@ uv run directions aggregate results/pilot2_qwen3_4b_seed* --out results/aggregat
 uv run directions aggregate results/pilot2_qwen3_8b_seed* --out results/aggregate_qwen3_8b.json
 ```
 
-Code at commit `fe052ed` plus the two configs; torch 2.14, transformers
+The iteration-2 code plus the two configs; torch 2.14, transformers
 5.16.1, RTX 4090. Model revisions `906bfd4b` (4B), `49e3418f` (8B).
 
 #### Qwen3-4B-Base (d = 2560), three seeds; wall time 21.2 / 20.8 / 18.7 min
@@ -326,7 +326,7 @@ as the only residuals. The gate remains seed-dependent (12/30 pairs pass on
 4B, 14/27 on 8B), and larger models increasingly select strong (ρ ≥ 1,
 α 40–100) early-layer injections for the lexical tasks.
 
-### Iteration 3 (current protocol; commit `8928088`; D17–D19)
+### Iteration 3 (current protocol; D17–D19)
 
 Changes from iteration 2, each in its own commit: direction-specific
 readouts `T_l = cos(δ_l, v_{t,l})` and `Γ_l = cos(δ_l, ∇ log p)` (D17); the
@@ -451,13 +451,13 @@ requested by pushing a change to `.github/gpu-run.yaml` (the workflow's
 push trigger; `workflow_dispatch` remains as a manual fallback).
 
 ```
-# workflow run 34434269088 (manual dispatch), commit fbab4d4, RTX 4090 (ADA_24), EUR-NO-1
+# workflow run 34434269088 (manual dispatch), RTX 4090 (ADA_24), EUR-NO-1
 uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --run-id pilot3b_qwen3_0.6b_seed20260907
 ```
 
 Wall time 8.4 min for the pipeline (12.5 min for the GitHub job including the
 deploy), against 41.8 min (46 min) for the same config at 32 + 32 + 32
-controls and batch size 32 the day before (run 34409519341, commit `29a3e01`,
+controls and batch size 32 the day before (run 34409519341,
 same card): the per-task measurement stage went from 106–1019 s to a flat
 49–55 s. Same seed, same 8/10 tasks past the few-shot gate (the composites
 fail on 0.6B as before), all 8 qualified with excess p = 0.0005 against the
@@ -488,7 +488,7 @@ against a half-sized null.
 #### Bit-identity check (required after the batch-size change)
 
 ```
-# workflow run 34438110479 (push-triggered request), commit 82171db (since squashed into ac33360, whose src/ and configs are unchanged; only the RunPod path differs), RTX 4090 (ADA_24), EUR-NO-1
+# workflow run 34438110479 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
 uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --run-id pilot3b_qwen3_0.6b_seed20260907_b
 uv run directions compare results/remote/run1/.../pilot3b_qwen3_0.6b_seed20260907 results/remote/run2/.../pilot3b_qwen3_0.6b_seed20260907_b
 ```
@@ -496,13 +496,11 @@ uv run directions compare results/remote/run1/.../pilot3b_qwen3_0.6b_seed2026090
 `directions compare` on the two runs (71 JSON files and 16 `.npz` arrays
 each, `atol = 0`): **every result file is identical**; the only three
 differences are `metadata.json/git/{commit, dirty, source}`, which the
-replicate records (`82171db`, later squashed into `ac33360`, shipped
-tree) and run 1 does not (`null`,
-before the run metadata learned the shipped commit). The two runs come
-from commits `fbab4d4` and `82171db` (since squashed into `ac33360` together
-with later RunPod-path changes), whose `src/` numerical path and configs
-are identical (the intervening commits touch the RunPod workflow, scripts,
-`directions/remote.py`, `runinfo.py` and docs only).
+replicate records and run 1 does not (`null`, before the run metadata
+learned the shipped commit). The two runs come from different commits
+whose `src/` numerical path and configs are identical (the intervening
+commits touch the RunPod workflow, scripts, `directions/remote.py`,
+`runinfo.py` and docs only).
 Wall time 8.4 min for both.
 
 Three earlier attempts at the replicate failed on the RunPod path, not on
@@ -516,10 +514,10 @@ worker runs that, so results no longer depend on which build a worker
 holds; a stale handler is only a warning, and the runner terminates and
 resubmits when a worker predates shipped source.
 
-### Iteration 4 (D21: the canonical function vector as the control; commit `07ee329`)
+### Iteration 4 (D21: the canonical function vector as the control)
 
 ```
-# workflow run 34545400854 (push-triggered request), commit 07ee329, RTX 4090 (ADA_24), EUR-NO-1
+# workflow run 34545400854 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
 uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --run-id pilot4_qwen3_0.6b_seed20260907
 ```
 
@@ -529,7 +527,7 @@ first-token probability over the eight tasks that reach extraction, the
 vector as the sum of their mean outputs through `o_proj`, calibrated, gated
 and measured exactly like the PCA direction was. PC1 is still extracted and
 is the `T_l` readout direction. A first run of the same commit family (run
-34541635889, commit `2488b92`) ranked heads by the log-probability change
+34541635889) ranked heads by the log-probability change
 and is superseded: that scale let the lexical tasks dictate the head set
 (D21). Wall time 34.2 min, of which 863 s were the CPU-side control
 profiles of one task (plural) against 30 s for the same work on arithmetic
@@ -601,18 +599,18 @@ What the run says, against the iteration-3b PCA run of the same seed:
   in-distribution random direction of the same norm.
 
 Bit-identity (required after the change of the numerical path):
-the replicate `pilot4_qwen3_0.6b_seed20260907_b` (run 34548153518, commit
-`7bde911`, same `src/` and configs) is **bit-identical** to the run above
+the replicate `pilot4_qwen3_0.6b_seed20260907_b` (run 34548153518, same
+`src/` and configs) is **bit-identical** to the run above
 in every result file (`directions compare`: 71 JSON files and 16 `.npz`
 arrays, `atol = 0`; the only difference is `metadata.json/git/commit`).
 Its wall time was 84 min against 34 min for the first run, entirely in the
 CPU-side control profiles (70–836 s per task against 29–863 s the first
 time, for identical work; see "known limitations").
 
-### Iteration 4b (D22: the answer probability, the canonical strength, device-side profiles, a run profile; commit `9e82c9b`)
+### Iteration 4b (D22: the answer probability, the canonical strength, device-side profiles, a run profile)
 
 ```
-# workflow run 34624145202 (push-triggered request), commit 9e82c9b, RTX 4090 (ADA_24), EUR-NO-1
+# workflow run 34624145202 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
 uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --run-id pilot4b_qwen3_0.6b_seed20260907
 ```
 
@@ -626,8 +624,8 @@ float64 torch on the GPU; and every stage instrumented
 (`metadata.json/profile`). Wall time **11.3 min** (iteration 4: 34 and 84
 min): the control profiles take 6–7 s per task, the head effects 33–62 s
 per task, the largest stages are now the extraction passes. An earlier run
-of the same protocol with only the spectra on the GPU (run 34615062827,
-commit `53541ac`) agrees with this run within 1e-6 in every result file
+of the same protocol with only the spectra on the GPU (run 34615062827)
+agrees with this run within 1e-6 in every result file
 (`directions compare --atol 1e-6`: only the commit and the host kernel
 differ) and took 56 min, 2600 s of them in the control profiles with CPU
 seconds equal to wall seconds; `scripts/profile_bench.py` on the same
@@ -712,18 +710,18 @@ What the run says, against iteration 4 (same directions, 5–50 × weaker):
   and 0.61–0.96 with the selected profile.
 
 Bit-identity (required after the change of the numerical path): the
-replicate `pilot4b_qwen3_0.6b_seed20260907_b` (run 34624148329, commit
-`16e5bf5`, same `src/` and configs, another RTX 4090 worker) is
+replicate `pilot4b_qwen3_0.6b_seed20260907_b` (run 34624148329, same
+`src/` and configs, another RTX 4090 worker) is
 **bit-identical** to the run above in every result file (`directions
 compare`, `atol = 0`, and all 200 `.npz` arrays equal; the only difference
 is `metadata.json/git/commit`), so the batched device-side decompositions
 are deterministic across workers. Its wall time was 10.4 min (control
 profiles 5–7 s per task) at a host load average of 29.
 
-### Iteration 4b, model 2 (Qwen3-1.7B; commit `529473f`)
+### Iteration 4b, model 2 (Qwen3-1.7B)
 
 ```
-# workflow run 34636424201 (push-triggered request), commit 529473f, RTX 4090 (ADA_24), EUR-NO-1
+# workflow run 34636424201 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
 uv run directions pilot --config configs/pilot_qwen3_1.7b.yaml --run-id pilot4b_qwen3_1.7b_seed20260907
 ```
 
@@ -793,10 +791,10 @@ Against the 0.6B run of the same protocol:
   ceiling differs from the canonical one more than the weak-injection
   profile does.
 
-### Iteration 4b, model 3 (Qwen3-4B; commit `cf535cb`)
+### Iteration 4b, model 3 (Qwen3-4B)
 
 ```
-# workflow run 34641432381 (push-triggered request), commit cf535cb, RTX 4090 (ADA_24), EUR-NO-1
+# workflow run 34641432381 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
 uv run directions pilot --config configs/pilot_qwen3_4b.yaml --run-id pilot4b_qwen3_4b_seed20260907
 ```
 
