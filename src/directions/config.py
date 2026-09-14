@@ -152,7 +152,7 @@ class CalibrationConfig:
     n_boot: int = 2000
 
 
-CONTROL_KINDS = ("isotropic", "orthogonal", "covariance", "other_task", "demo_variation")
+CONTROL_KINDS = ("isotropic", "orthogonal", "covariance", "other_task", "demo_variation", "common")
 
 
 @dataclass
@@ -164,6 +164,8 @@ class EvaluationConfig:
     covariance      random direction drawn from the residual-stream covariance at the layer
     other_task      the control direction of another task at the same layer (up to n)
     demo_variation  PC1 of differences between two correct-demonstration prompts (no task contrast)
+    common          the leave-one-out common direction: the normalised mean of the *other* tasks' unit control
+                    directions (D28; at most 1)
     Every control is injected at the same layer, token and absolute norm as the real direction.
     """
 

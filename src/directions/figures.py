@@ -193,7 +193,7 @@ def task_figures(root: Path, st: "TaskState", cfg: Config) -> None:
 
 
 KIND_COLORS = {"isotropic": RANDOM, "orthogonal": "#6d6c68", "covariance": SERIES[1], "other_task": SERIES[2],
-               "demo_variation": SERIES[6]}
+               "demo_variation": SERIES[6], "common": SERIES[4]}
 
 
 def _structured_nulls_figure(root: Path, figdir: Path, st: "TaskState", dpi: int) -> None:

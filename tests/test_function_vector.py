@@ -165,7 +165,7 @@ def test_smoke_function_vector_outputs(smoke_fv_run):
         ext = json.loads((d / "extraction.json").read_text())["function_vector"]
         assert ext["aie_metric"] == "target_probability" and 0 <= ext["aie_baseline_mean"] <= ext["aie_baseline_first_token_probability_mean"] <= 1
         cal = json.loads((d / "calibration.json").read_text())
-        assert cal["strength_unit"] == "natural" and cal["reference_rho"] == 4.0 and cal["layer_rule"] == "earliest"
+        assert cal["strength_unit"] == "natural" and cal["reference_rho"] == 4.0 and cal["layer_rule"] == "best"
         assert set(cal) >= {"weakest", "strongest", "middle", "strength_units"} and all("rho_layer_norm" in g for g in cal["grid"])
         for g in cal["grid"]:
             assert g["alpha"] == pytest.approx(g["rho"] * cal["strength_units"][str(g["layer"])])
@@ -201,13 +201,23 @@ def test_smoke_function_vector_outputs(smoke_fv_run):
         # the damage check (D24): KL from the baseline distribution for the steered run and every control
         dmg = ev["damage"]
         assert dmg["steered"]["kl_mean"] >= 0 and 0 <= dmg["steered"]["argmax_change_rate"] <= 1
-        assert set(dmg["by_kind"]) == {"covariance", "demo_variation", "isotropic", "orthogonal", "other_task"}
+        assert set(dmg["by_kind"]) == {"common", "covariance", "demo_variation", "isotropic", "orthogonal", "other_task"}
         assert "excess_mean" in dmg["gate_excess_test"] and len(ev["per_example"]["steered_kl"]) == 6
         assert all("kl_mean" in c["metrics"] for c in ev["controls"]) and q["damage"]["kl_mean"] == dmg["steered"]["kl_mean"]
         for g in cal["grid"]:
             assert "kl_mean" in g["metrics"] and (g["screen"] is None or "kl_excess_test" in g["screen"])
         lw = json.loads((d / "layerwise.json").read_text())
-        assert sorted({c["kind"] for c in lw["controls"]}) == ["covariance", "demo_variation", "isotropic", "orthogonal", "other_task"]
+        assert sorted({c["kind"] for c in lw["controls"]}) == ["common", "covariance", "demo_variation", "isotropic", "orthogonal", "other_task"]
+        # D28: the leave-one-out common direction and the additive split of the vector into common and residual parts
+        dec = json.loads((d / "decomposition.json").read_text())
+        assert dec["common_direction"]["n_other_tasks"] == 2 and -1 <= dec["common_direction"]["cos_with_fv"] <= 1
+        assert set(dec["parts"]) == {"common", "residual"}
+        for part in dec["parts"].values():
+            assert set(part) >= {"alpha", "metrics", "steering_test", "signature", "curves", "rank_correlations_with_fv"}
+            assert "kl_mean" in part["metrics"] and "labels" in part["signature"]
+        shares = dec["common_direction"]
+        assert shares["norm_share_common"]**2 + shares["norm_share_residual"]**2 == pytest.approx(1.0)
+        assert q["decomposition"]["n_other_tasks"] == 2
         assert lw["real"]["summaries"]["alignment"]["median"][lw["real"]["intervention_layer"]] == pytest.approx(1.0, abs=1e-4)
         assert summary["tasks"][task]["function_vector"]["natural_rho_at_selection"] > 0
         assert (root / "figures" / f"{task}_function_vector.png").exists()

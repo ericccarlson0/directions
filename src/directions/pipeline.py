@@ -227,6 +227,7 @@ class Pipeline:
                 "calibration_damage": derive_seed(s, "calibration_damage", t.name),
                 "damage_bootstrap": derive_seed(s, "damage_bootstrap", t.name),
                 "head_support": derive_seed(s, "head_support", t.name),
+                "decomposition_bootstrap": derive_seed(s, "decomposition_bootstrap", t.name),
                 "random_controls": derive_seed(s, "random_controls", t.name),
                 "covariance_controls": derive_seed(s, "covariance_controls", t.name),
                 "bootstrap": derive_seed(s, "bootstrap", t.name),
@@ -560,7 +561,22 @@ class Pipeline:
         if counts.get("demo_variation", 0):
             for i, u in enumerate(st.demo_variation.get(layer, [])[: counts["demo_variation"]]):
                 out.append(("demo_variation", f"demo_variation_{i}", u))
+        if counts.get("common", 0):
+            c, others = self._common_direction(st, states, layer)
+            if c is not None:
+                out.append(("common", "common", c))
         return out
+
+    def _common_direction(self, st: TaskState, states: dict[str, TaskState], layer: int) -> tuple[np.ndarray | None, list[str]]:
+        """The leave-one-out common direction at ``layer`` (D28): the normalised mean of the other ready tasks'
+        unit control directions there. ``(None, [])`` when no other task reached phase B."""
+        others = sorted(n for n, s2 in states.items() if n != st.name and s2.ready and layer in s2.directions)
+        if not others:
+            return None, []
+        mean = np.mean([normalize(states[n].directions[layer].direction) for n in others], axis=0)
+        if not np.linalg.norm(mean) > 0:
+            return None, others
+        return normalize(mean), others
 
     def _measure_task(self, st: TaskState, states: dict[str, TaskState]) -> None:
         cfg = self.cfg
@@ -786,6 +802,83 @@ class Pipeline:
             log.error("[%s] exploratory stage failed: %s", name, e)
             self.rejections.add("error", name, f"exploratory: {type(e).__name__}: {e}", {"traceback": traceback.format_exc()})
 
+        # 8. decomposition into the common and the task-specific part (D28) ---
+        if st.fv is not None:
+            try:
+                with self.prof.section("decomposition", name):
+                    self._decomposition(st, states, readout_kw, ref, gate_kinds)
+            except Exception as e:
+                log.error("[%s] decomposition stage failed: %s", name, e)
+                self.rejections.add("error", name, f"decomposition: {type(e).__name__}: {e}", {"traceback": traceback.format_exc()})
+
+    def _decomposition(self, st: TaskState, states: dict[str, TaskState], readout_kw: dict[str, Any], reference: Any,
+                       gate_kinds: list[str]) -> None:
+        """Split the unit function vector into its projection on the leave-one-out common direction and the
+        residual, inject each at its natural share of the selected strength (they sum to the real injection),
+        and measure both like the real direction: held-out effect, damage, layerwise profile against the same
+        control profiles, signature. Writes ``decomposition.json``."""
+        cfg = self.cfg
+        sel = st.selection
+        assert sel is not None and st.fv is not None and st.base is not None and st.steered is not None
+        assert st.base.residuals is not None and st.profile is not None
+        c, others = self._common_direction(st, states, sel.layer)
+        out: dict[str, Any] = {"selection": sel.__dict__, "common_direction": None, "parts": {}}
+        if c is None:
+            out["reason"] = "no other task reached phase B; no common direction"
+            write_json(self._task_dir(st.name) / "decomposition.json", out)
+            return
+        drng = rng_for(cfg.seed, "decomposition_bootstrap", st.name)
+        cos = float(st.fv.direction @ c)
+        parts = {"common": cos * c, "residual": st.fv.direction - cos * c}  # unit-vector coordinates; they sum to the FV
+        out["common_direction"] = {"cos_with_fv": cos, "other_tasks": others, "n_other_tasks": len(others),
+                                   "norm_share_common": abs(cos), "norm_share_residual": float(np.sqrt(max(0.0, 1 - cos**2)))}
+        by_kind: dict[str, list[LayerwiseProfile]] = {}
+        for ctl in st.controls:
+            if ctl.profile is not None:
+                by_kind.setdefault(ctl.kind, []).append(ctl.profile)
+        gate_mat = np.stack([ctl.per_example_diff for ctl in st.controls if ctl.kind in cfg.qualification.gate_control_kinds])
+        real_diff = st.steered.logprob_per_token - st.base.logprob_per_token
+        metrics = ("log_gain", "d_eff", "new_subspace", "new_subspace_uncentered", "conversion", "magnitude",
+                   "task_alignment", "gradient_alignment", "gradient_projection", "first_order_increment")
+        effects: dict[str, float] = {}
+        for label, part in parts.items():
+            norm = float(np.linalg.norm(part))
+            if not norm > 0:
+                out["parts"][label] = {"norm_share": 0.0, "skipped": "zero vector"}
+                effects[label] = 0.0
+                continue
+            u = part / norm
+            alpha = sel.alpha * norm  # the part's natural size under the selected strength
+            r = self.backend.run(st.eval_prompts, interventions=[Intervention(sel.layer, u, alpha)], capture=True,
+                                 reference_logprobs=reference)
+            assert r.residuals is not None
+            diff = r.logprob_per_token - st.base.logprob_per_token
+            test = paired_bootstrap_test(r.logprob_per_token, st.base.logprob_per_token, drng, n_boot=cfg.calibration.n_boot)
+            excess = paired_excess_test(diff, gate_mat, drng, n_boot=cfg.calibration.n_boot)
+            prof = compute_profile(st.base.residuals, r.residuals, u, sel.layer, cfg.evaluation, drng, **readout_kw)
+            comparison = compare_by_kind(prof, by_kind, gate_kinds)
+            sig = profile_signature(prof, comparison["primary"], cfg.analysis, by_kind=comparison["by_kind"])
+            effects[label] = test.mean_diff
+            out["parts"][label] = {
+                "norm_share": norm, "alpha": alpha, "cos_with_fv": float(u @ st.fv.direction),
+                "metrics": r.metrics_dict(), "steering_test": test.__dict__, "excess_vs_gate_controls": excess.__dict__,
+                "excess_vs_fv": paired_excess_test(diff, real_diff[None, :], drng, n_boot=cfg.calibration.n_boot).__dict__,
+                "signature": sig, "curves": metric_curves(prof),
+                "rank_correlations_with_fv": {m: spearman(st.profile.metric_curve(m), prof.metric_curve(m)) for m in metrics},
+            }
+        out["fv"] = {"mean_diff": float(np.mean(real_diff)), "metrics": st.steered.metrics_dict()}
+        out["additivity"] = {"fv_minus_sum_of_parts": float(np.mean(real_diff)) - effects.get("common", 0.0) - effects.get("residual", 0.0)}
+        write_json(self._task_dir(st.name) / "decomposition.json", out)
+        st.qualification["decomposition"] = {
+            "cos_with_common": cos, "n_other_tasks": len(others),
+            "common_part_mean_diff": effects.get("common"), "residual_part_mean_diff": effects.get("residual"),
+            "common_part_labels": out["parts"].get("common", {}).get("signature", {}).get("labels"),
+            "residual_part_labels": out["parts"].get("residual", {}).get("signature", {}).get("labels"),
+        }
+        self.log.info("[%s] decomposition: cos(FV, common of %d tasks) %.3f; held-out d(lp/tok): FV %+.3f, common part %+.3f, "
+                      "residual part %+.3f", st.name, len(others), cos, float(np.mean(real_diff)), effects.get("common", 0.0),
+                      effects.get("residual", 0.0))
+
     def _determinism_check(self, st: TaskState, v: np.ndarray, do_layerwise: bool, readout_kw: dict[str, Any],
                            reference: Any = None) -> None:
         """Repeat the steered pass, the gradient pass and one profile of this task; require bit identity (D23)."""
@@ -890,6 +983,7 @@ class Pipeline:
                     "selection": s.qualification.get("selection"),
                     "labels": None if s.signature is None else s.signature["labels"],
                     "damage": s.qualification.get("damage"),
+                    "decomposition": s.qualification.get("decomposition"),
                     "function_vector": None if s.fv is None else {
                         "natural_rho_at_selection": None if s.selection is None else
                         s.qualification["function_vector"]["natural_rho"][str(s.selection.layer)],

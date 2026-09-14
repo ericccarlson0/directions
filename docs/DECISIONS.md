@@ -753,3 +753,65 @@ look, more tasks there) will fail the gate, and a model where no task passes
 is a model with no function vectors under this construction, which is a
 result. Runs after this decision are not head-for-head comparable with
 iteration 4b.
+
+### D27. No injection past half depth; the injection layer is the one whose selected strength improves most
+
+Context: on every model the function-vector heads sit at 54–69 % of depth,
+and the earliest-reliable-layer rule (D1) injected the vector at 20–25 %,
+where every task was reliable. Todd et al. sweep the injection layer and
+take the best one, which for them is in the early-middle layers. The
+candidate layers ran to 60 %, past the start of the heads' band.
+
+Decisions: the candidate layers are 20/30/40/50 % of depth
+(`candidate_depth_fractions: [0.2, 0.3, 0.4, 0.5]`); nothing is injected
+past half depth, because a perturbation placed inside or after the band
+whose outputs the vector is made of would not have to propagate through
+the network to act, which is the thing this project measures. Among those
+candidates the layer is the one whose selected strength (D22's reference
+rule) improves the calibration metric most (`calibration.layer_rule:
+best`), the paper's sweep in the pipeline's statistical terms. The
+earliest-layer rule stays the PCA-control protocol and remains available.
+Consequence: the injection layer can differ between tasks and models, and
+the profiles cover a shorter depth when a later candidate wins; the
+"layer-matched" case of the discussion, one injection immediately upstream
+of the heads, is the 50 % candidate, and whether the sweep prefers it or
+the paper's early-middle layers is a result of the run.
+
+### D28. The vector's common and task-specific parts
+
+Context: on every model the tasks' function vectors have pairwise cosines
+of 0.3–0.9 (median ≈ 0.5) and are 0.5–0.8 aligned with vectors built from
+deranged-label prompts; the other-task and deranged-prompt nulls carry
+most of the behavioural effect at weak and moderate strengths. Whether the
+"control direction" of this construction is a shared in-context component
+plus a task-specific residue, and which of the two the geometry and the
+behaviour belong to, is the question the project's measurement has to
+answer before the propagation question means anything.
+
+Decisions:
+
+* **Leave-one-out common direction.** For task `t`, `c_{-t}` is the
+  normalised mean of the *other* tasks' unit control directions at the
+  layer, over the tasks that reached phase B (so a task's own vector never
+  enters its null). For the function vector, which is layer-independent,
+  it is one direction.
+* **A sixth control kind, `common`** (one per task): `c_{-t}` injected at
+  the real direction's layer and norm, so the layerwise nulls and the
+  behavioural excess tests include "the shared direction alone".
+* **The additive split.** `v_t = (v_t · c_{-t}) c_{-t} + r_t`; each part is
+  injected at its natural share of the selected strength (`α · ‖part‖` for
+  the unit vector's parts), so the two injections sum to the real one, and
+  each is measured exactly like the real direction: held-out effect and
+  damage, the paired excess against the gate controls and against the real
+  direction, the layerwise profile against the same control profiles, its
+  signature and labels, and rank correlations with the real profile. The
+  bootstrap draws come from a separate stream. Written to
+  `decomposition.json`; the summary carries the cosine with the common
+  direction and the two parts' held-out effects.
+
+Cost: one steered pass and one profile per part per task, plus one control.
+Interpretation: the model is not linear in the injection, so the two parts'
+effects need not add to the real one; `additivity` records the gap. The
+distributed, layer-matched injection of each head's contribution at its own
+layer was considered and set aside in favour of the single-layer rule of
+D27, so that every condition stays comparable to the paper's construction.

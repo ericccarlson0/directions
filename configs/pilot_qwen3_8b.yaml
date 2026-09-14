@@ -61,7 +61,7 @@ qualification:
 extraction:
   n_seeds: 3
   center: false                      # preregistered: PC1 of the raw (uncentered) differences
-  candidate_depth_fractions: [0.2, 0.3, 0.4, 0.5, 0.6]
+  candidate_depth_fractions: [0.2, 0.3, 0.4, 0.5]   # D27: no injection past half depth (the heads live at 55-70 %)
   control: function_vector         # D21: the canonical function vector is the control; PC1 is still
                                    # extracted at every layer (the T_l readout) and reported beside it
   function_vector:
@@ -78,7 +78,7 @@ calibration:
                                      # canonical unscaled injection of Todd et al. (layer_norm: the D1-D21 unit)
   rho_grid: [0.05, 0.1, 0.2, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0]
   reference_rho: 1.0                 # D22: select the reliable strength nearest the canonical one (null: the weakest)
-  layer_rule: earliest               # the earliest candidate layer with a reliable strength (best: largest improvement)
+  layer_rule: best                   # D27: the candidate layer whose selected strength improves most (the paper's sweep)
   extend_grid: true                  # extend geometrically while the best point is at the upper edge
   extension_factor: 1.25
   max_rho: 4.0
@@ -99,6 +99,7 @@ evaluation:
     covariance: 16                   # random directions from the residual covariance at the layer
     other_task: 9                    # the other tasks' control directions at the same layer
     demo_variation: 8                # PC1 of correct-vs-correct demonstration differences
+    common: 1                        # D28: the leave-one-out common direction of the other tasks' vectors
   gate_kinds: [isotropic, orthogonal]   # primary null of the layerwise metrics (the behavioural gate is qualification.gate_control_kinds)
   n_boot: 1000
   ci_alpha: 0.05
