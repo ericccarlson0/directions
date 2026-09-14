@@ -82,6 +82,7 @@ class ControlResult:
     profile: LayerwiseProfile | None = None
     per_example_diff: np.ndarray | None = None  # steered - baseline log p per token, per evaluation example
     per_example_kl: np.ndarray | None = None  # KL(baseline || steered) at the query token, per evaluation example (D24)
+    per_example_collateral_kl: np.ndarray | None = None  # the same with the answer token removed (D24)
 
 
 @dataclass
@@ -99,6 +100,7 @@ class TaskState:
     fv: FunctionVector | None = None
     aie_prompts: list[Prompt] = field(default_factory=list)  # the deranged-label prompts the indirect effects use
     aie_baseline: np.ndarray | None = None  # their unpatched metric values
+    aie_positive_mean: float | None = None  # the metric's mean on the positive prompts (the head-support ceiling)
     gradients: np.ndarray | None = None  # (L+1, n_eval, d) d log p(target) / d resid at the query token (D17)
     demo_variation: dict[int, list[np.ndarray]] = field(default_factory=dict)
     stable_layers: list[int] = field(default_factory=list)
@@ -326,6 +328,7 @@ class Pipeline:
                 st.head_effects = head_effects(self.backend, neg, base, st.seed_head_means.mean(axis=0), metric=fvc.aie_metric)
             st.head_effects_n_prompts = len(neg)
             st.aie_prompts, st.aie_baseline = neg, base
+            st.aie_positive_mean = float(np.mean(np.concatenate([effect_values(s.positive_result, fvc.aie_metric) for s in seeds[:k]])))
             top = np.dstack(np.unravel_index(np.argsort(-st.head_effects, axis=None)[:5], st.head_effects.shape))[0]
             log.info("[%s] head effects (%s) over %d deranged prompts in %.0fs: baseline mean %.4f, max effect %.4f, "
                      "top (layer, head) %s", name, fvc.aie_metric, len(neg), self.prof.sections[f"head_effects:{name}"]["seconds"],
@@ -466,11 +469,15 @@ class Pipeline:
                     self.backend, st.aie_prompts, st.aie_baseline, st.seed_head_means.mean(axis=0), [(l, h) for l, h, _, _ in sel],
                     rng_for(cfg.seed, "head_support", name), n_null=fvc.head_support_null, metric=fvc.aie_metric,
                     n_boot=cfg.calibration.n_boot, alpha=fvc.head_support_alpha,
-                    real_effect=joint_by_task.get(name, {}).get(len(sel)))
+                    real_effect=joint_by_task.get(name, {}).get(len(sel)),
+                    positive_mean=st.aie_positive_mean, min_restored=fvc.head_support_min_restored)
             q["head_support"] = support
             q["gates"]["head_support"] = support["supported"]
-            self.log.info("[%s] head support: %d heads move the deranged prompts by %+.4f (p=%.3f); random sets %+.4f; excess p=%.3f -> %s",
-                          name, len(sel), support["mean_effect"], support["test"]["p_value"], float(np.mean(support["null_mean_effects"])),
+            self.log.info("[%s] head support: %d heads move the deranged prompts by %+.4f (p=%.3f), restoring %s of the gap to the "
+                          "positive prompts (%.3f -> %.3f); random sets %+.4f; excess p=%.3f -> %s",
+                          name, len(sel), support["mean_effect"], support["test"]["p_value"],
+                          "n/a" if support["restored_fraction"] is None else f"{support['restored_fraction']:.1%}",
+                          support["baseline_mean"], support["positive_mean"] or float("nan"), float(np.mean(support["null_mean_effects"])),
                           support["excess_test"]["p_value"], "supported" if support["supported"] else "NOT supported")
             st.fv = build_function_vector(self.backend, st.seed_head_means, sel)
             heads = [(h["layer"], h["head"]) for h in st.fv.heads]
@@ -522,7 +529,8 @@ class Pipeline:
             if not support["supported"]:
                 self.rejections.add("head_support", name, "no_head_support",
                                     {"mean_effect": support["mean_effect"], "p": support["test"]["p_value"],
-                                     "excess_p": support["excess_test"]["p_value"], "n_heads": len(sel)})
+                                     "excess_p": support["excess_test"]["p_value"], "n_heads": len(sel),
+                                     "restored_fraction": support["restored_fraction"], "min_restored": support["min_restored"]})
                 if cfg.qualification.enforce:
                     st.ready = False
 
@@ -632,7 +640,8 @@ class Pipeline:
                     prof = compute_profile(st.base.residuals, r.residuals, u, sel.layer, cfg.evaluation, prng, with_ci=False,
                                            **readout_kw)
             st.controls.append(ControlResult(kind, label, rt.mean_diff, rt.p_value, r.metrics_dict(), prof,
-                                             r.logprob_per_token - st.base.logprob_per_token, r.kl_from_reference))
+                                             r.logprob_per_token - st.base.logprob_per_token, r.kl_from_reference,
+                                             r.collateral_kl))
         sec = self.prof.sections
         log.info("[%s] %d controls: steered run + gradients %.0fs, control forwards %.0fs, control profiles %.0fs", name,
                  len(st.controls), sec[f"controls_setup:{name}"]["seconds"], sec.get(f"controls_forward:{name}", {}).get("seconds", 0.0),
@@ -653,14 +662,22 @@ class Pipeline:
             by_kind_excess[kind] = paired_excess_test(real_diff, mat, brng, n_boot=cfg.calibration.n_boot).__dict__
         # Damage (D24): the real direction's disturbance of the next-token distribution against the controls'
         # at the same norm (positive excess = more damage than random); its own bootstrap stream.
-        real_kl = st.steered.kl_from_reference
+        real_kl, real_ckl = st.steered.kl_from_reference, st.steered.collateral_kl
+        gate_ctl = [c for c in st.controls if c.kind in behav_gate_kinds]
         damage = {
-            "steered": {k: st.steered.metrics_dict()[k] for k in ("kl_mean", "kl_median", "argmax_change_rate")},
-            "gate_excess_test": paired_excess_test(real_kl, np.stack([c.per_example_kl for c in st.controls if c.kind in behav_gate_kinds]),
+            "steered": {k: st.steered.metrics_dict()[k] for k in ("kl_mean", "kl_median", "collateral_kl_mean", "collateral_kl_median",
+                                                                  "argmax_change_rate")},
+            "gate_excess_test": paired_excess_test(real_kl, np.stack([c.per_example_kl for c in gate_ctl]),
                                                    krng, n_boot=cfg.calibration.n_boot).__dict__,
+            "collateral_gate_excess_test": paired_excess_test(real_ckl, np.stack([c.per_example_collateral_kl for c in gate_ctl]),
+                                                              krng, n_boot=cfg.calibration.n_boot).__dict__,
             "by_kind": {kind: {"kl_mean": float(np.mean([c.metrics["kl_mean"] for c in st.controls if c.kind == kind])),
+                               "collateral_kl_mean": float(np.mean([c.metrics["collateral_kl_mean"] for c in st.controls if c.kind == kind])),
                                "excess_test": paired_excess_test(real_kl, np.stack([c.per_example_kl for c in st.controls if c.kind == kind]),
-                                                                 krng, n_boot=cfg.calibration.n_boot).__dict__}
+                                                                 krng, n_boot=cfg.calibration.n_boot).__dict__,
+                               "collateral_excess_test": paired_excess_test(
+                                   real_ckl, np.stack([c.per_example_collateral_kl for c in st.controls if c.kind == kind]),
+                                   krng, n_boot=cfg.calibration.n_boot).__dict__}
                         for kind in sorted({c.kind for c in st.controls})},
         }
         ev = {
@@ -687,17 +704,22 @@ class Pipeline:
                 "steered_exact_match": st.steered.exact_match.tolist(),
                 "controls_logprob_per_token_diff": {c.label: c.per_example_diff.tolist() for c in st.controls},
                 "steered_kl": real_kl.tolist(),
+                "steered_collateral_kl": real_ckl.tolist(),
                 "controls_kl": {c.label: c.per_example_kl.tolist() for c in st.controls},
+                "controls_collateral_kl": {c.label: c.per_example_collateral_kl.tolist() for c in st.controls},
             },
         }
         write_json(out / "evaluation.json", ev)
         q["steering"] = {"test": test.__dict__, "random_comparison": null.__dict__, "excess_test": excess.__dict__,
                          "by_kind": by_kind_behav, "by_kind_excess": by_kind_excess}
         q["damage"] = {**damage["steered"], "gate_excess_mean": damage["gate_excess_test"]["excess_mean"],
-                       "gate_excess_p": damage["gate_excess_test"]["p_value"]}
-        log.info("[%s] damage: KL(base||steered) at the query token mean %.3f (argmax changed for %.0f%%); excess over the gate "
-                 "controls %+.3f (p=%.3f)", name, q["damage"]["kl_mean"], 100 * q["damage"]["argmax_change_rate"],
-                 q["damage"]["gate_excess_mean"], q["damage"]["gate_excess_p"])
+                       "gate_excess_p": damage["gate_excess_test"]["p_value"],
+                       "collateral_gate_excess_mean": damage["collateral_gate_excess_test"]["excess_mean"],
+                       "collateral_gate_excess_p": damage["collateral_gate_excess_test"]["p_value"]}
+        log.info("[%s] damage: KL(base||steered) at the query token mean %.3f, collateral (answer token removed) %.3f (argmax "
+                 "changed for %.0f%%); collateral excess over the gate controls %+.3f (p=%.3f)", name, q["damage"]["kl_mean"],
+                 q["damage"]["collateral_kl_mean"], 100 * q["damage"]["argmax_change_rate"],
+                 q["damage"]["collateral_gate_excess_mean"], q["damage"]["collateral_gate_excess_p"])
         q["gates"]["steering"] = bool(test.p_value <= cfg.qualification.steering_alpha and test.mean_diff > 0)
         if cfg.qualification.gate_test == "paired_excess":
             q["gates"]["random_controls"] = bool(excess.p_value <= cfg.qualification.random_control_max_p)

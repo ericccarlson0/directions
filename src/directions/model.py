@@ -121,6 +121,7 @@ class ForwardResult:
     query_logprobs: np.ndarray | None = None  # (N, V) float32 next-token log-probabilities at the query token, if captured
     # Damage against a reference run's query-token distribution (docs/DECISIONS.md D24), if one was given:
     kl_from_reference: np.ndarray | None = None  # (N,) KL(reference || this run) at the query token
+    collateral_kl: np.ndarray | None = None  # (N,) the same KL with the first target token removed from both (renormalised)
     argmax_changed: np.ndarray | None = None  # (N,) bool: the most likely next token differs from the reference's
 
     def metrics_dict(self) -> dict[str, float]:
@@ -134,6 +135,8 @@ class ForwardResult:
         if self.kl_from_reference is not None:
             out["kl_mean"] = float(np.mean(self.kl_from_reference))
             out["kl_median"] = float(np.median(self.kl_from_reference))
+            out["collateral_kl_mean"] = float(np.mean(self.collateral_kl))
+            out["collateral_kl_median"] = float(np.median(self.collateral_kl))
             out["argmax_change_rate"] = float(np.mean(self.argmax_changed))
         return out
 
@@ -479,6 +482,14 @@ class ModelBackend:
             ref = reference.to(query_lp.dtype)
             out["kl"] = (ref.exp() * (ref - query_lp)).sum(dim=1)
             out["argmax_changed"] = query_lp.argmax(dim=1) != ref.argmax(dim=1)
+            # collateral change (D24): the same divergence with the correct first target token removed from both
+            # distributions and the rest renormalised, so mass moved onto the answer itself does not count
+            first = tgt_dev[:, :1]
+            neg_inf = torch.full_like(query_lp[:, :1], float("-inf"))
+            ref_rest = torch.log_softmax(ref.scatter(1, first, neg_inf), dim=1)
+            cur_rest = torch.log_softmax(query_lp.scatter(1, first, neg_inf), dim=1)
+            out["collateral_kl"] = torch.where(torch.isinf(ref_rest), torch.zeros_like(ref_rest),
+                                               ref_rest.exp() * (ref_rest - cur_rest)).sum(dim=1)
         return out
 
     def _run_batch(
@@ -517,6 +528,7 @@ class ModelBackend:
             first_token_logprob=sc["first_lp"].cpu().numpy().astype(np.float64),
             query_logprobs=sc["query_logprobs"].cpu().numpy().astype(np.float32) if capture_logprobs else None,
             kl_from_reference=sc["kl"].cpu().numpy().astype(np.float64) if reference is not None else None,
+            collateral_kl=sc["collateral_kl"].cpu().numpy().astype(np.float64) if reference is not None else None,
             argmax_changed=sc["argmax_changed"].cpu().numpy().astype(bool) if reference is not None else None,
         )
 
@@ -651,6 +663,7 @@ def _concat_results(parts: list[ForwardResult]) -> ForwardResult:
         first_token_logprob=None if parts[0].first_token_logprob is None else np.concatenate([p.first_token_logprob for p in parts]),
         query_logprobs=None if parts[0].query_logprobs is None else np.concatenate([p.query_logprobs for p in parts]),
         kl_from_reference=None if parts[0].kl_from_reference is None else np.concatenate([p.kl_from_reference for p in parts]),
+        collateral_kl=None if parts[0].collateral_kl is None else np.concatenate([p.collateral_kl for p in parts]),
         argmax_changed=None if parts[0].argmax_changed is None else np.concatenate([p.argmax_changed for p in parts]),
     )
 

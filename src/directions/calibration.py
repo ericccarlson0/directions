@@ -138,6 +138,7 @@ def random_screen(
     reference: Any = None,
     real_kl: np.ndarray | None = None,
     kl_rng: np.random.Generator | None = None,
+    real_collateral_kl: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """Improvement of each matched random direction at ``(layer, alpha)``, and the
     rank comparison plus the paired excess test of the real direction against them.
@@ -146,6 +147,7 @@ def random_screen(
     diffs = []
     per_example = []
     kls = []
+    ckls = []
     for kind, u in controls:
         r = backend.run(prompts, interventions=[Intervention(layer, u, alpha)], reference_logprobs=reference)
         t = paired_bootstrap_test(r.logprob_per_token, base.logprob_per_token, rng, n_boot=cfg.n_boot)
@@ -153,13 +155,17 @@ def random_screen(
         per_example.append(r.logprob_per_token - base.logprob_per_token)
         if r.kl_from_reference is not None:
             kls.append(r.kl_from_reference)
+            ckls.append(r.collateral_kl)
     comp = compare_to_null(real_mean_diff, np.array([d["mean_diff"] for d in diffs]))
     excess = paired_excess_test(real_diff, np.stack(per_example), rng, n_boot=cfg.n_boot)
     out = {"controls": diffs, "comparison": comp.__dict__, "excess_test": excess.__dict__}
     if real_kl is not None and kls:
         # damage excess (D24): positive means the real direction disturbs the next-token distribution more
-        # than the matched random directions of the same norm do
+        # than the matched random directions of the same norm do (raw, and with the answer token removed)
         out["kl_excess_test"] = paired_excess_test(real_kl, np.stack(kls), kl_rng or rng, n_boot=cfg.n_boot).__dict__
+        if real_collateral_kl is not None:
+            out["collateral_kl_excess_test"] = paired_excess_test(real_collateral_kl, np.stack(ckls), kl_rng or rng,
+                                                                  n_boot=cfg.n_boot).__dict__
     return out
 
 
@@ -267,7 +273,8 @@ def calibrate(
                     )
                 gp.screen = random_screen(backend, prompts, base, layer, alpha, v, t.mean_diff,
                                           r.logprob_per_token - base.logprob_per_token, controls, cfg, rng,
-                                          reference=reference, real_kl=r.kl_from_reference, kl_rng=kl_rng)
+                                          reference=reference, real_kl=r.kl_from_reference, kl_rng=kl_rng,
+                                          real_collateral_kl=r.collateral_kl)
                 if cfg.screen_test == "paired_excess":
                     gp.passes_screen = bool(gp.screen["excess_test"]["p_value"] <= cfg.random_screen_max_p)
                 else:

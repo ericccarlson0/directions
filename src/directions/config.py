@@ -87,6 +87,8 @@ class FunctionVectorConfig:
     head_support_null      random head sets of the chosen size against which the selected set is tested (the
                     head_support gate: the set's joint effect must be positive and exceed the random sets')
     head_support_alpha     p threshold of both tests
+    head_support_min_restored  the set must also restore this fraction of the gap between the deranged prompts'
+                    answer probability and the positive prompts' (scale-free; 0 disables)
     head_selection  "universal": one head set for all tasks, ranked by the mean indirect effect over the
                     tasks that reached extraction (the paper's construction); "per_task": each task's own top heads
     aie_seeds       the indirect effect of a head is measured on the deranged-label prompts of this many
@@ -102,6 +104,7 @@ class FunctionVectorConfig:
     head_count_candidates: list[int] = field(default_factory=lambda: [1, 2, 4, 8, 16, 32])
     head_support_null: int = 16
     head_support_alpha: float = 0.05
+    head_support_min_restored: float = 0.1
     head_selection: str = "universal"
     aie_seeds: int = 1
     aie_metric: str = "target_probability"
@@ -300,6 +303,8 @@ def validate_config(cfg: Config) -> None:
         raise ValueError("extraction.function_vector.head_support_null must be >= 1")
     if not (0 < fv.head_support_alpha < 1):
         raise ValueError("extraction.function_vector.head_support_alpha must lie in (0, 1)")
+    if not (0 <= fv.head_support_min_restored < 1):
+        raise ValueError("extraction.function_vector.head_support_min_restored must lie in [0, 1)")
     if fv.head_selection not in ("universal", "per_task"):
         raise ValueError("extraction.function_vector.head_selection must be 'universal' or 'per_task'")
     if not (1 <= fv.aie_seeds <= cfg.extraction.n_seeds):

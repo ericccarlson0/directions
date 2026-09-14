@@ -228,10 +228,14 @@ def head_support_test(
     n_boot: int = 2000,
     alpha: float = 0.05,
     real_effect: np.ndarray | None = None,
+    positive_mean: float | None = None,
+    min_restored: float = 0.0,
 ) -> dict[str, Any]:
     """Does the selected head set carry the task? The joint patched effect of ``heads`` on the deranged
-    prompts must be positive (paired bootstrap) and exceed that of ``n_null`` random sets of the same size
-    (paired excess test). Returns the tests, the null's per-set means and the verdict."""
+    prompts must be positive (paired bootstrap), exceed that of ``n_null`` random sets of the same size
+    (paired excess test) and, when ``positive_mean`` (the metric on the positive prompts) is given, restore at
+    least ``min_restored`` of the gap between the deranged baseline and the positive prompts. Returns the
+    tests, the null's per-set means, the restored fraction and the verdict."""
     from .stats import paired_bootstrap_test, paired_excess_test
 
     L, H, _ = head_means.shape
@@ -240,13 +244,22 @@ def head_support_test(
                      for s in random_head_sets(rng, L, H, len(heads), n_null)])
     test = paired_bootstrap_test(real, np.zeros_like(real), rng, n_boot=n_boot)
     excess = paired_excess_test(real, null, rng, n_boot=n_boot)
+    baseline_mean = float(np.mean(baseline))
+    restored = None
+    if positive_mean is not None and positive_mean > baseline_mean:
+        restored = float(np.mean(real) / (positive_mean - baseline_mean))
     return {
         "n_heads": len(heads),
         "n_prompts": int(real.shape[0]),
         "mean_effect": float(np.mean(real)),
+        "baseline_mean": baseline_mean,
+        "positive_mean": positive_mean,
+        "restored_fraction": restored,
+        "min_restored": min_restored,
         "test": test.__dict__,
         "null_mean_effects": [float(x) for x in null.mean(axis=1)],
         "excess_test": excess.__dict__,
         "alpha": alpha,
-        "supported": bool(test.p_value <= alpha and test.mean_diff > 0 and excess.p_value <= alpha),
+        "supported": bool(test.p_value <= alpha and test.mean_diff > 0 and excess.p_value <= alpha
+                          and (restored is None or restored >= min_restored)),
     }

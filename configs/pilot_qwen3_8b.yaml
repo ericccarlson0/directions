@@ -69,6 +69,7 @@ extraction:
     head_count_candidates: [1, 2, 4, 8, 16, 32]
     head_support_null: 16            # random head sets the chosen set must beat (the head_support gate)
     head_support_alpha: 0.05
+    head_support_min_restored: 0.1   # and restore >= 10 % of the deranged-to-positive gap in answer probability
     head_selection: universal        # one head set for all tasks, ranked by the mean indirect effect
     aie_seeds: 1                     # indirect effects measured on the deranged prompts of seed 0 (64 prompts)
 

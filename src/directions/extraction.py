@@ -25,6 +25,7 @@ class SeedExtraction:
     head_means: np.ndarray | None = None  # (L, n_heads, head_dim) mean head outputs over the positive prompts
     permuted_prompts: list[Prompt] = field(default_factory=list)  # the deranged-label prompts of this seed
     permuted_result: ForwardResult | None = None  # their unpatched scores (the indirect-effect baseline), no residuals
+    positive_result: ForwardResult | None = None  # the positive prompts' scores (the ceiling of the head-support test), no residuals
 
 
 @dataclass
@@ -97,6 +98,7 @@ def extract_differences(
                 head_means=rp.head_outputs.astype(np.float64).mean(axis=1) if capture_heads else None,
                 permuted_prompts=neg if capture_heads else [],
                 permuted_result=replace(rn, residuals=None) if capture_heads else None,
+                positive_result=replace(rp, residuals=None, head_outputs=None) if capture_heads else None,
             )
         )
     return out

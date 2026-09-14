@@ -37,6 +37,15 @@ def test_kl_against_own_distribution_is_zero_and_matches_numpy(backend, prompts)
     assert np.all(steered.kl_from_reference >= -1e-6) and np.allclose(steered.kl_from_reference, kl, atol=1e-4)
     assert steered.kl_from_reference.max() > 1e-3
     assert np.array_equal(steered.argmax_changed, steered.query_logprobs.argmax(1) != base.query_logprobs.argmax(1))
+    # the collateral KL: the answer's first token removed from both distributions, the rest renormalised
+    for i, p_ in enumerate(prompts):
+        tid = backend.tokenizer.encode(p_.target, add_special_tokens=False)[0]
+        b = base.query_logprobs[i].astype(np.float64).copy(); c = steered.query_logprobs[i].astype(np.float64).copy()
+        b[tid] = c[tid] = -np.inf
+        b -= np.log(np.exp(b).sum()); c -= np.log(np.exp(c).sum())
+        keep = np.isfinite(b)
+        assert steered.collateral_kl[i] == pytest.approx(float((np.exp(b[keep]) * (b[keep] - c[keep])).sum()), abs=1e-4)
+    assert np.all(steered.collateral_kl >= -1e-6) and np.allclose(same.collateral_kl, 0.0, atol=1e-6)
     # the reference may be given as the backend's device tensor, once, for several runs
     ref = backend.reference_tensor(base.query_logprobs)
     again = backend.run(prompts, interventions=[Intervention(1, v, 3.0)], reference_logprobs=ref)

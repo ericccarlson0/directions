@@ -642,12 +642,17 @@ the unsteered model); this pipeline had none.
 
 Decision: every steered forward pass whose unsteered counterpart exists
 records the **KL divergence from the unsteered next-token distribution at
-the query token**, `KL(p_base || p_steered)`, per example, and whether the
-most likely next token changed. The query token is where the intervention
-acts and where the first answer token is decided, so this is the
-distribution the steering is supposed to move; a large KL with a small
-target gain is the signature of an injection that has stopped being a
-perturbation. Recorded for every calibration grid point (with the matched
+the query token**, `KL(p_base || p_steered)`, per example, whether the most
+likely next token changed, and the **collateral KL**: the same divergence
+with the correct first answer token removed from both distributions and
+the rest renormalised. The query token is where the intervention acts and
+where the first answer token is decided, so the raw KL contains the
+intended change (the first 0.6B run changed the most likely token for
+94–98 % of the lexical prompts, which is the steering working, since the
+unsteered model never produced the answer); the collateral KL is the
+change the injection makes to everything *other* than the answer, and is
+the damage measure proper. A large collateral KL with a small target gain
+is the signature of an injection that has stopped being a perturbation. Recorded for every calibration grid point (with the matched
 random screen's controls, and a paired excess test of the real direction's
 KL against theirs, on its own bootstrap stream so no existing draw moves),
 for the held-out steered run and every control kind (`evaluation.json/
@@ -721,13 +726,18 @@ Decisions:
   the paper's construction available. With `head_selection: per_task` the
   choice is made per task.
 * **Head-support gate.** For each task the chosen set's joint effect on its
-  deranged prompts must be positive (paired bootstrap, p ≤ 0.05) and exceed
+  deranged prompts must be positive (paired bootstrap, p ≤ 0.05), exceed
   that of `head_support_null` = 16 random sets of the same size patched the
-  same way (paired excess test, p ≤ 0.05; own seed). A task that fails has
-  no function vector in the paper's sense: its outputs up to and including
-  the vector, the sweep and the test are written, and with gates enforced it
-  is not calibrated or measured. The same thresholds as every other gate;
-  no effect-size threshold, since the effect scale differs by model.
+  same way (paired excess test, p ≤ 0.05; own seed), and restore at least
+  `head_support_min_restored` = 10 % of the gap between the deranged
+  prompts' answer probability and the positive prompts' (a fraction of the
+  task's own gap, so the criterion is scale-free across models; the first
+  0.6B run showed why it is needed: arithmetic's 16 heads move its
+  deranged prompts by +0.003, which is significant and above random sets,
+  but 0.4 % of a gap of 0.8, while every lexical task's set restores
+  80–110 %). A task that fails has no function vector in the paper's sense:
+  its outputs up to and including the vector, the sweep and the test are
+  written, and with gates enforced it is not calibrated or measured.
 
 Rationale for testing the set rather than single heads: the paper's causal
 evidence is per head, but its object is the sum, and a task carried jointly

@@ -177,6 +177,7 @@ def test_smoke_function_vector_outputs(smoke_fv_run):
         # D26: the head-support test of the chosen set against random sets of the same size
         hs = fv["head_support"]
         assert hs["n_heads"] == n_heads and len(hs["null_mean_effects"]) == 4 and hs["n_prompts"] == 6
+        assert "restored_fraction" in hs and hs["positive_mean"] is not None and hs["min_restored"] == 0.1
         assert set(hs["test"]) >= {"mean_diff", "p_value"} and "excess_mean" in hs["excess_test"] and isinstance(hs["supported"], bool)
         assert set(fv["head_count"]["mean_effect_by_k"]) == {"1", "2", "4", "8"}
         assert set(fv["cos_with_pca"]) == {"1", "2"} and len(fv["cos_with_pca_all_layers"]) == 5
