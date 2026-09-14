@@ -90,6 +90,7 @@ gh workflow run run-gpu.yml --ref <branch> \
 gh run list --workflow=run-gpu.yml --branch <branch> --limit 1
 gh run watch <RUN_ID>
 gh run download <RUN_ID> --dir results/remote      # artifact results-<flash_env>-<RUN_ID>-<SHA>
+uv run --with boto3 python scripts/runpod_log.py <RUN_ID> --follow   # live worker log from the volume (needs the RunPod keys)
 ```
 
 Results are written to a network volume named `directions` (mounted at `/runpod-volume` on the worker, under `results/run-<GITHUB_RUN_ID>`) and downloaded through RunPod's S3-compatible API; the volume holds the Hugging Face cache as well. The volume lives in the `datacenter` input's data center (default `EUR-NO-1`), which pins the workers there. The GPU tier is a `runpod_flash.GpuGroup` name (16 to 80 GB options are listed in the workflow); a tier is a memory class (whose pool can contain different architectures), and the optional `gpu_type` input pins an exact device name instead (see the Compute section of `AGENTS.md`). Each run writes `runner.log` and `run_metadata.json` next to the results, the runner tails the log into the GitHub job log, and the workflow summary shows the metadata (`docs/INFRA.md` has the operational details). A run redeploys the endpoint only when the handler or the GPU/data-center settings changed (otherwise the recorded endpoint is reused; a redeploy first deletes the previous endpoint, `scripts/runpod_cleanup.py`), and one run executes at a time per Flash environment.
