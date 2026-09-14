@@ -924,6 +924,70 @@ relative to the residual stream at the injection layer falls from 1.7–3.9
 canonical injection falls with it, while the strength that moves each
 model stays at 2–4 × the stream.
 
+### Iteration 5, batch A (D24 damage, D25 first-order depth profile, D26 head count and head support)
+
+```
+# workflow run 34870190577 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
+uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --run-id pilot5_qwen3_0.6b_seed20260907
+```
+
+Iteration 4b with the three batch-A additions and nothing else changed
+(`n_heads: null` with candidates 1–32, `head_support_min_restored: 0.1`;
+the damage measure; the two first-order metrics). Wall time 15.1 min
+(host load average 137 on 120 CPUs); the determinism check passed on
+antonym. A first run of the same request without the restored-fraction
+requirement (run 34868012639) was **bit-identical to the iteration-4b
+run** in every array the additions do not touch (PC1 directions, head
+effects, extraction: 40 arrays and blocks equal), so the regression is
+clean; it also admitted arithmetic's head set on the statistical tests
+alone (+0.003 on the deranged prompts, 0.4 % of its gap), which is why
+D26 gained the restored fraction before this run.
+
+- **Head count.** The pooled joint effect of the top-*k* universal heads
+  on the deranged prompts rises 0.13 → 0.28 → 0.50 → 0.63 → 0.67 for
+  k = 1, 2, 4, 8, 16 and stalls at 32 (0.66); every k < 16 is
+  significantly below 16 (p = 0.0005), so **16 heads** are used (iteration
+  4b: 10 by fiat). The six added heads are (16, 0), (16, 14), (14, 13),
+  (17, 6), (19, 9), (12, 0), effects 0.007 → 0.004, so the set now spans
+  blocks 12–19. The 16-head set restores 77–99 % of the
+  deranged-to-positive gap for the seven lexical tasks and 0.35 % of
+  arithmetic's, so **arithmetic is rejected by the head-support gate**
+  and seven tasks qualify (4b: eight).
+- **Damage at the canonical strength.** KL(base‖steered) at the query
+  token is 0.8–5.5 nats and the most likely next token changes for 94–98 %
+  of the held-out prompts (number_to_words: 0 %, although its first-token
+  margin improves from −8.1 to −2.6), which is the steering working; the
+  collateral KL (answer token removed) is within 0–20 % of the raw KL, so
+  it does not separate the
+  intended change from the rest. Against the 48 gate controls at the same
+  norm the vector's KL is *lower* for past_tense, plural and
+  present_participle (−0.9 to −2.1 nats, p = 1), not different for antonym
+  (+0.08, p = 0.14), and higher for number_to_words, singular and
+  uppercase (+0.8 to +1.7, p ≤ 0.001). Along the grid at layer 6 the KL
+  is 0.01–0.1 at ρ = 0.05–0.1, 0.4–0.85 at ρ = 0.5, 0.8–3.1 at ρ = 0.75
+  and 5.5–10 at ρ = 2. The neutral-prose probe (D24 amendment) is not in
+  this run.
+- **First-order depth profile.** The first-order predicted effect
+  `δ·g` at the injection layer is already +1.8 to +5.9 nats (the realised
+  held-out effect is +0.7 to +4.3) and ends at +1.3 to +6.5 at the final
+  read point: the direction points along the target's gradient where it
+  is injected, and the blocks downstream neither build nor destroy that
+  projection on net. The per-block increment is a large negative at block
+  6 (−1 to −7) followed by a large positive at block 7 (+1.6 to +5.0) for
+  five of seven tasks, then noise of ±1 with a centre of mass at 24–60 % of
+  the downstream depth (conversion: 68–73 %). Against the nulls the
+  *level* is distinct (gradient-projection z +1.0 to +5.3 against the
+  isotropic, orthogonal and covariance kinds, whose directions project to
+  zero) while the *increments* are not (z −0.07 to +0.56): the blocks
+  transform the function vector's perturbation toward the answer no more
+  than they transform a random direction of the same norm. The
+  deranged-prompt vectors are the exception (projection z 21–44 for six
+  tasks, −8 for antonym): they carry a first-order effect of their own.
+- Everything else is as in iteration 4b with 16 heads instead of 10:
+  layer 6 and ρ = 1 selected for six tasks (antonym ρ = 0.5), held-out
+  +0.7 to +4.3 nats, cascade + amplification inside the nulls, `d_eff`
+  contracting (17–39 → 6–21).
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
