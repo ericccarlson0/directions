@@ -1073,13 +1073,14 @@ request (run 34895927702, another RTX 4090, pipeline 19.0 min) is
 recorded commit differs).
 
 - **The best layer is the deepest allowed.** Layer 14 (50 %) for six
-  tasks, layer 8 for singular; ρ = 1 everywhere. The best reliable
-  improvement rises with depth for five tasks (antonym +1.1 → +2.4 → +3.2
-  → +5.1 nats at 6/8/11/14; uppercase +2.4 → +5.4; plural +3.3 → +4.7;
-  present_participle +4.0 → +5.6; past_tense +6.1/+5.3/+6.9/+6.8) and is
-  flat within 0.06 nats for number_to_words and singular, so the half-depth
-  cap binds and the layer-8 choice for singular is a toss-up. At layer 14
-  the vector is 1.06–1.48 × the median residual norm (at layer 6: 2.9–3.3;
+  tasks, layer 8 for singular; ρ = 1 everywhere. The improvement of the
+  canonical injection rises with depth (at layers 6/8/11/14: antonym
+  −1.7 (not reliable) / +2.4 / +2.9 / +5.0 nats; uppercase +2.4 → +4.9;
+  past_tense +4.7 → +6.5; present_participle +3.9 → +4.7; plural
+  +3.2/+2.7/+3.3/+4.3) and is within 0.3 nats across layers for
+  number_to_words and singular, so the half-depth cap binds for five
+  tasks and the layer-8 choice for singular is a toss-up. At layer 14 the
+  vector is 1.06–1.48 × the median residual norm (at layer 6: 2.9–3.3;
   the stream has grown), at layer 8 for singular 3.0 ×.
 - **Effects at 50 % depth.** Held-out +2.5 to +5.9 nats (layer 6 in batch
   A: +0.7 to +4.3), 74–97 % of the few-shot gap, accuracy 0.57–0.96 for
@@ -1122,15 +1123,80 @@ recorded commit differs).
   log G 1.3–1.9 with |z| ≤ 0.7 against the isotropic null, `T_L` −0.19 to
   +0.45.
 
+```
+# workflow run 34901506341 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
+uv run directions pilot --config configs/pilot_qwen3_1.7b.yaml --run-id pilot5b_qwen3_1.7b_seed20260907
+```
+
+Same protocol on 1.7B: pipeline 34.6 min
+(batch A: 35.2; load average 10), determinism check passed on antonym;
+32 heads again, arithmetic rejected by head support, arithmetic_words by
+the few-shot gate, 8 of 10 qualify.
+
+- **On 1.7B the layer barely matters between 20 and 50 % depth.** The
+  canonical injection's improvement differs by at most 0.6 nats across
+  the four candidate layers for six tasks (antonym +6.0/+5.6/+6.5/+6.4 at
+  6/8/11/14; past_tense +6.3/+6.3/+5.9/+6.1; present_participle
+  +5.3/+5.2/+5.4/+5.3; uppercase +5.5/+5.6/+5.5/+5.4; last_antonym +4.2 →
+  +4.0; number_to_words +3.0/+3.2/+3.1/+2.9) and rises with depth only for
+  plural (+3.4 → +4.3) and singular (+3.5 → +4.0). The rule therefore
+  picks layer 6 for two tasks, 8 for two, 11 for two and 14 for two, all
+  at ρ = 1; the vector is 4.1–6.1 × the stream at layers 6–8 and 2.0–3.0 ×
+  at 11–14. Held-out +3.3 to +5.9 nats (70–95 % of the gap, accuracy
+  0.41–0.99), the same as batch A's layer-6 numbers; the task's vector
+  beats the other tasks' by +2.5 to +5.2 and the deranged-prompt vectors
+  by +1.8 to +4.4.
+- **The residual carries most of the effect for five tasks; last_antonym
+  is non-additive.** cos(FV, common of the other seven) is 0.56–0.79.
+  The common direction alone (the `common` control) steers +0.04
+  (uppercase) to +3.1 (past_tense); the task's vector beats it by +1.5 to
+  +4.7. Split additively, the common part gives +0.06 to +2.9 and the
+  residual −2.3 to +5.4: the residual carries antonym (+5.4 vs +1.1),
+  uppercase (+4.3 vs +0.06), number_to_words, plural and singular, the
+  common part carries past_tense (+2.9 vs +2.0) and present_participle
+  (+1.5 vs +0.8), and for last_antonym the residual alone *hurts* (−2.3)
+  while the whole vector gives +4.2, an interaction of +5.5 nats. Both
+  parts keep the vector's profile shape (log G rank correlation
+  0.86–0.96 common, 0.79–0.96 residual).
+- **Damage.** Query-token KL 1.4–4.6 nats. On neutral prose the vector
+  moves the next-token distribution by 0.6–3.4 nats, the larger values
+  where the vector is 5–6 × the stream (past_tense 3.4, uppercase 3.3 at
+  layers 6–8; present_participle 2.6 at layer 11), yet *below* random
+  directions of the same norm for seven of eight tasks (excess −0.2 to
+  −3.7, p ≥ 0.83; singular +0.12, p = 0.08). Against the common direction
+  at the same norm the vector disturbs prose more for seven tasks (+0.12
+  to +2.2, p ≤ 0.001; last_antonym +0.16, p = 0.09): the shared component
+  is the gentler half. Along the grid the neutral KL reaches 1 nat at
+  ρ ≈ 0.75–1.2 for the deep selections and at ρ ≈ 0.6–0.9 for the shallow
+  ones.
+- **First-order profile.** `δ·g` −1.7 to +8.3 at the injection layer and
+  +6.1 to +9.0 at the end; the increments sit inside the nulls here (z
+  −0.6 to +1.0 against the gate kinds; on 0.6B at layer 14 they were
+  above, +1.1 to +2.6), including for the two layer-14 tasks. Geometric
+  profile: cascade or delayed activation + amplification with expansion
+  for seven of eight tasks (`d_eff` 3–9 → 10–47), cumulative log G 1.5–2.3
+  at z −0.2 to −4.8 against the isotropic null, `T_L` +0.02 to +0.67.
+
+Batch B on both models, in one line: with the injection confined to the
+first half of the depth, 0.6B wants the deepest layer allowed and 1.7B
+does not care; the leave-one-out common direction alone steers 0.04–3.1
+nats and the task-specific residual carries most of the effect for most
+tasks, with strong interactions between the two; at the canonical strength
+the vector disturbs unrelated prose by 0.5–3.4 nats, no more (and usually
+less) than a random direction of its norm, and more than its own shared
+component; and the downstream blocks build the first-order effect above
+the nulls at half depth on 0.6B but not on 1.7B.
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
   (8B on an H100 in US-CA-2, the others on RTX 4090s in EUR-NO-1).
   Iteration 4 (weakest-reliable calibration, first-token ranking) is
-  superseded by 4b for the head ranking and the strength. Iteration 5,
-  batch A, has run on 0.6B and 1.7B; the head-count sweep chose the
-  largest candidate (32) on 1.7B, so `head_count_candidates` should be
-  extended (64) before the sweep is trusted on 4B and 8B.
+  superseded by 4b for the head ranking and the strength. Iteration 5
+  (batches A and B) has run on 0.6B and 1.7B, not yet on 4B and 8B; the
+  head-count sweep chose the largest candidate (32) on 1.7B, so
+  `head_count_candidates` should be extended (64) before the sweep is
+  trusted on the larger models.
 - Data centers: EUR-NO-1 (the volume with the 0.6B–4B cache) currently
   offers nothing above 24 GB, and only US-CA-2, US-IL-1, US-MO-2, US-NC-2,
   EU-RO-1 and EUR-NO-1 can host a run at all (`docs/INFRA.md`;
