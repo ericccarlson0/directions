@@ -1050,6 +1050,75 @@ direction's of the same norm for most tasks, and the first-order effect is
 present at the injection layer and not built downstream except for
 last_antonym.
 
+### Iteration 5, batch B (D27 half-depth candidates with the best-layer rule, D28 common direction and decomposition, D24 neutral-prose damage)
+
+```
+# workflow run 34873923702 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
+uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --run-id pilot5b_qwen3_0.6b_seed20260907
+```
+
+Batch A plus: candidate layers at 20/30/40/50 % depth (6/8/11/14 of 28)
+with `layer_rule: best`; the leave-one-out common direction as a control
+kind (`common`) and the additive split of the vector into its common and
+residual parts (`decomposition.json`); the neutral-prose damage probe.
+The pipeline took 19.5 min (batch A: 15.1; the probe, the decomposition
+and the extra control) once it started: this is the run whose worker
+spent four hours on the environment install (`docs/INFRA.md`). The function
+vectors, head effects, per-layer PC1s, head count (16) and head support
+are bit-identical to batch A (40 arrays; the per-seed PC1 array differs
+only in its candidate-layer set), as they must be up to the selection;
+the determinism check passed on antonym.
+
+- **The best layer is the deepest allowed.** Layer 14 (50 %) for six
+  tasks, layer 8 for singular; ρ = 1 everywhere. The best reliable
+  improvement rises with depth for five tasks (antonym +1.1 → +2.4 → +3.2
+  → +5.1 nats at 6/8/11/14; uppercase +2.4 → +5.4; plural +3.3 → +4.7;
+  present_participle +4.0 → +5.6; past_tense +6.1/+5.3/+6.9/+6.8) and is
+  flat within 0.06 nats for number_to_words and singular, so the half-depth
+  cap binds and the layer-8 choice for singular is a toss-up. At layer 14
+  the vector is 1.06–1.48 × the median residual norm (at layer 6: 2.9–3.3;
+  the stream has grown), at layer 8 for singular 3.0 ×.
+- **Effects at 50 % depth.** Held-out +2.5 to +5.9 nats (layer 6 in batch
+  A: +0.7 to +4.3), 74–97 % of the few-shot gap, accuracy 0.57–0.96 for
+  six tasks (batch A: 0.29–0.94 for four; antonym 0.01 → 0.57,
+  number_to_words stays at 0). The task's own vector beats the other
+  tasks' by +1.7 to +5.2 and the deranged-prompt vectors by +0.9 to +3.7
+  (all p = 0).
+- **The shared direction carries part of every effect, the residual
+  most of it for four tasks.** cos(FV, common of the other six) is
+  0.58–0.79. Injected at the vector's norm, the common direction alone
+  steers +0.4 to +2.8 nats (the `common` control; the task's vector beats
+  it by +0.8 to +4.3, p = 0). Split additively, the common part gives +0.5
+  to +2.4 and the residual +0.85 to +3.9, both significant against the
+  gate controls for every task; the residual carries most of antonym
+  (+3.9 vs +0.6), uppercase (+3.2 vs +0.5), plural, past_tense, the common
+  part more of present_participle (+2.0 vs +0.85) and singular. The parts
+  interact: the vector's effect exceeds the sum of the parts by +0.1 to
+  +1.7 nats for six tasks. Both parts show the vector's profile shape
+  (log G rank correlation 0.72–0.95 common, 0.70–0.96 residual); the
+  common part is labelled cascade + amplification + expansion for every
+  task, the residual for four.
+- **Damage.** Query-token KL 1.4–8.2 nats at ρ = 1, above the 48 gate
+  controls' for all seven tasks (+0.2 to +4.4; at layer 6 three were
+  below). On neutral prose the vector moves the next-token distribution
+  by 0.46–1.28 nats, against 0.34–1.9 for random directions of the same
+  norm: excess +0.11, +0.17, +0.21 (p ≤ 0.03) for antonym, number_to_words
+  and uppercase, none for past_tense, plural and present_participle, and
+  −0.41 for singular (p = 0.98). Along the grid at the selected layer the
+  neutral KL is ≤ 0.07 up to ρ = 0.3, 0.10–0.18 at 0.5, 0.25–0.53 at
+  0.75, then 1.0–3.5 at 1.5 and 1.6–7 at 2: the canonical injection is
+  at the knee. The common part disturbs prose less than the residual for
+  four tasks (0.11–0.38 vs 0.24–0.47).
+- **At 50 % depth the blocks build the first-order effect.** `δ·g` is
+  +2.7 to +6.9 at the injection layer and +6.3 to +10.6 at the end, and
+  the per-block increments now sit *above* the nulls (z +1.1 to +2.6
+  against the gate kinds; at layer 6 in batch A: −0.1 to +0.6), with the
+  centre of mass at 38–61 % of the downstream depth. The geometric profile
+  is cascade + amplification with dimensional expansion for five tasks
+  (`d_eff` 10–17 → 23–35; at layer 6 every task contracted), cumulative
+  log G 1.3–1.9 with |z| ≤ 0.7 against the isotropic null, `T_L` −0.19 to
+  +0.45.
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
