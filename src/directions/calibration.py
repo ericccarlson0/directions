@@ -24,7 +24,7 @@ at its upper edge.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -139,6 +139,8 @@ def random_screen(
     real_kl: np.ndarray | None = None,
     kl_rng: np.random.Generator | None = None,
     real_collateral_kl: np.ndarray | None = None,
+    neutral_probe: Callable[[int, np.ndarray, float], np.ndarray] | None = None,
+    real_neutral_kl: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """Improvement of each matched random direction at ``(layer, alpha)``, and the
     rank comparison plus the paired excess test of the real direction against them.
@@ -148,10 +150,16 @@ def random_screen(
     per_example = []
     kls = []
     ckls = []
+    nkls = []
     for kind, u in controls:
         r = backend.run(prompts, interventions=[Intervention(layer, u, alpha)], reference_logprobs=reference)
         t = paired_bootstrap_test(r.logprob_per_token, base.logprob_per_token, rng, n_boot=cfg.n_boot)
-        diffs.append({"kind": kind, "mean_diff": t.mean_diff, "p_value": t.p_value, "metrics": r.metrics_dict()})
+        metrics = r.metrics_dict()
+        if neutral_probe is not None:
+            nkl = neutral_probe(layer, u, alpha)
+            nkls.append(nkl)
+            metrics["neutral_kl_mean"], metrics["neutral_kl_median"] = float(np.mean(nkl)), float(np.median(nkl))
+        diffs.append({"kind": kind, "mean_diff": t.mean_diff, "p_value": t.p_value, "metrics": metrics})
         per_example.append(r.logprob_per_token - base.logprob_per_token)
         if r.kl_from_reference is not None:
             kls.append(r.kl_from_reference)
@@ -166,6 +174,8 @@ def random_screen(
         if real_collateral_kl is not None:
             out["collateral_kl_excess_test"] = paired_excess_test(real_collateral_kl, np.stack(ckls), kl_rng or rng,
                                                                   n_boot=cfg.n_boot).__dict__
+    if real_neutral_kl is not None and nkls:
+        out["neutral_kl_excess_test"] = paired_excess_test(real_neutral_kl, np.stack(nkls), kl_rng or rng, n_boot=cfg.n_boot).__dict__
     return out
 
 
@@ -219,7 +229,9 @@ def calibrate(
     pool: list[Item],
     run_seed: int,
     task_name: str,
+    neutral_probe: Callable[[int, np.ndarray, float], np.ndarray] | None = None,
 ) -> CalibrationResult:
+    """``neutral_probe(layer, direction, alpha)`` returns the per-prompt KL on the neutral prose set (D24)."""
     prompts = [zero_shot_prompt(prompt_cfg, q) for q in pool]
     base = backend.run(prompts, capture=True, capture_logprobs=True)
     reference = backend.reference_tensor(base.query_logprobs)  # the damage check's baseline distribution (D24)
@@ -248,13 +260,18 @@ def calibrate(
             alpha = rho * units[layer]
             r = backend.run(prompts, interventions=[Intervention(layer, v, alpha)], reference_logprobs=reference)
             t = paired_bootstrap_test(r.logprob_per_token, base.logprob_per_token, rng, n_boot=cfg.n_boot)
+            metrics = r.metrics_dict()
+            real_nkl = None
+            if neutral_probe is not None:
+                real_nkl = neutral_probe(layer, v, alpha)
+                metrics["neutral_kl_mean"], metrics["neutral_kl_median"] = float(np.mean(real_nkl)), float(np.median(real_nkl))
             gp = GridPoint(
                 layer=layer,
                 rho=float(rho),
                 alpha=float(alpha),
                 rho_layer_norm=float(alpha / norms[layer]),
                 extended=i >= len(cfg.rho_grid),
-                metrics=r.metrics_dict(),
+                metrics=metrics,
                 test=t,
                 passes_bootstrap=bool(t.p_value <= cfg.bootstrap_alpha),
                 passes_min_improvement=bool(t.mean_diff >= cfg.min_improvement),
@@ -274,7 +291,8 @@ def calibrate(
                 gp.screen = random_screen(backend, prompts, base, layer, alpha, v, t.mean_diff,
                                           r.logprob_per_token - base.logprob_per_token, controls, cfg, rng,
                                           reference=reference, real_kl=r.kl_from_reference, kl_rng=kl_rng,
-                                          real_collateral_kl=r.collateral_kl)
+                                          real_collateral_kl=r.collateral_kl, neutral_probe=neutral_probe,
+                                          real_neutral_kl=real_nkl)
                 if cfg.screen_test == "paired_excess":
                     gp.passes_screen = bool(gp.screen["excess_test"]["p_value"] <= cfg.random_screen_max_p)
                 else:

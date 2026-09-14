@@ -669,6 +669,33 @@ its own forward passes, and the query-token KL answers the immediate
 question, whether the calibration's strongest points still perturb rather
 than replace the stream.
 
+Amendment (batch B, before the batch-B runs): the collateral KL did not
+separate from the raw KL on 0.6B (the two agreed to within a few per cent
+for every task and every control), because on a task prompt the
+intervention moves probability among many task-related tokens, not only
+onto the answer, and removing one token from the distribution does not
+remove the intended change. The measure that does not mix with the
+intended change is the one the steering literature uses: the intervention
+on text that carries no task. Each run therefore also applies the
+direction, at the selected layer and norm, to the last token of a fixed
+set of 48 **neutral prose** sentences cut mid-sentence (`directions.neutral`;
+`evaluation.neutral_prompts`, 0 disables) and records the KL from the
+unsteered next-token distribution there, for every calibration grid point
+with its random screen (`neutral_kl_excess_test`), for the selected
+condition and every control kind on the held-out pool (`evaluation.json/
+damage/neutral`, paired excess tests against the gate controls and per
+kind, on the existing damage bootstrap streams), for the strength-
+robustness alternatives and for the decomposition parts. The sentences
+are the same for every task and model, so the neutral KL is comparable
+across tasks in a way the query-token KL is not. Cost: one forward pass
+of 48 short prompts per condition (grid points, screen controls, held-out
+controls, alternatives, parts), under a tenth of a task's forward work on
+0.6B, where calibration and the control forwards together take a quarter
+of a task. Still not a
+gate, for the same reason as above; the by-kind excess on neutral prose
+("no more disturbance of unrelated text than a random direction of the
+same norm") replaces the collateral excess as the candidate criterion.
+
 ### D25. The functional depth profile: the first-order effect per read point and per block, compared against the nulls
 
 Context: the geometric profile (S, log G, C, A, d_eff, d90, N) has come back

@@ -206,6 +206,15 @@ def test_smoke_function_vector_outputs(smoke_fv_run):
         assert all("kl_mean" in c["metrics"] for c in ev["controls"]) and q["damage"]["kl_mean"] == dmg["steered"]["kl_mean"]
         for g in cal["grid"]:
             assert "kl_mean" in g["metrics"] and (g["screen"] is None or "kl_excess_test" in g["screen"])
+            assert "neutral_kl_mean" in g["metrics"] and (g["screen"] is None or "neutral_kl_excess_test" in g["screen"])
+        # the neutral-prose probe (D24): the intervention on task-free sentences, steered and every control
+        neu = dmg["neutral"]
+        assert neu["n_prompts"] == 48 and neu["steered"]["kl_mean"] >= 0 and len(neu["per_prompt"]["steered"]) == 48
+        assert set(neu["by_kind"]) == set(dmg["by_kind"]) and "excess_mean" in neu["gate_excess_test"]
+        assert all("neutral_kl_mean" in c["metrics"] for c in ev["controls"])
+        assert q["damage"]["neutral_kl_mean"] == neu["steered"]["kl_mean"] and "neutral_gate_excess_p" in q["damage"]
+        for p in rob["profiles"].values():
+            assert p is None or "neutral_kl_mean" in p["metrics"]
         lw = json.loads((d / "layerwise.json").read_text())
         assert sorted({c["kind"] for c in lw["controls"]}) == ["common", "covariance", "demo_variation", "isotropic", "orthogonal", "other_task"]
         # D28: the leave-one-out common direction and the additive split of the vector into common and residual parts

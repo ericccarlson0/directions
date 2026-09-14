@@ -47,7 +47,8 @@ results/<run_id>/
       calibration.json     the layer x strength grid with bootstrap tests and random screens
       evaluation.json      held-out behavioural metrics per condition, every control by kind,
                            the gate comparison (isotropic + orthogonal), per-kind comparisons and the
-                           damage measure (KL from the unsteered distribution, D24) with its excess tests
+                           damage measure (KL from the unsteered distribution at the query token and on
+                           neutral prose, D24) with its excess tests
       layerwise.json       S_l, log G_l, C_l, A_l (median + CI), d_eff, d90, N_l, noise floor;
                            every control's metric curves; null summaries and per-layer z /
                            empirical p for the primary null and for each structured null
