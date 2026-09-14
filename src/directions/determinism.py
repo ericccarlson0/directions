@@ -25,6 +25,8 @@ def forward_arrays(r: ForwardResult) -> dict[str, np.ndarray | None]:
         "first_token_margin": r.first_token_margin,
         "first_token_logprob": r.first_token_logprob,
         "residuals": r.residuals,
+        "kl_from_reference": r.kl_from_reference,
+        "argmax_changed": r.argmax_changed,
     }
 
 

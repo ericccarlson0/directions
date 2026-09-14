@@ -42,7 +42,9 @@ def _z_means(comparison: dict[str, Any], intervention_layer: int | None = None) 
     for metric, key in (("log_gain", "log_gain_z_mean"), ("d_eff", "d_eff_z_mean"),
                         ("new_subspace", "new_subspace_z_mean"), ("new_subspace_uncentered", "new_subspace_uncentered_z_mean"),
                         ("alignment", "alignment_z_mean"), ("conversion", "conversion_z_mean"),
-                        ("task_alignment", "task_alignment_z_mean"), ("gradient_alignment", "gradient_alignment_z_mean")):
+                        ("task_alignment", "task_alignment_z_mean"), ("gradient_alignment", "gradient_alignment_z_mean"),
+                        ("gradient_projection", "gradient_projection_z_mean"),
+                        ("first_order_increment", "first_order_increment_z_mean")):
         rows = comparison["metrics"][metric]["per_layer"]
         if metric in _Z_MEAN_EXCLUDE_AT_INTERVENTION and intervention_layer is not None:
             rows = [r for l, r in enumerate(rows) if l != intervention_layer]
@@ -78,6 +80,8 @@ def profile_signature(
     conv = profile.metric_curve("conversion")
     task_al = profile.metric_curve("task_alignment")
     grad_al = profile.metric_curve("gradient_alignment")
+    first_order = profile.metric_curve("gradient_projection")  # median delta_l . g_l per read point (D25)
+    increment = profile.metric_curve("first_order_increment")  # its change per block
 
     def downstream_mean(curve: np.ndarray) -> float | None:
         vals = _finite(curve[ls + 1 :])
@@ -122,6 +126,12 @@ def profile_signature(
         "gradient_alignment_at_intervention": float(grad_al[ls]) if not np.isnan(grad_al[ls]) else None,
         "gradient_alignment_downstream_mean": downstream_mean(grad_al),
         "gradient_alignment_final": float(grad_al[L]) if not np.isnan(grad_al[L]) else None,
+        # the functional depth profile (D25): where the first-order predicted effect is created
+        "first_order_at_intervention": float(first_order[ls]) if not np.isnan(first_order[ls]) else None,
+        "first_order_final": float(first_order[L]) if not np.isnan(first_order[L]) else None,
+        "first_order_increment_argmax_block": (int(ls + np.nanargmax(increment[ls:]))
+                                              if np.any(~np.isnan(increment[ls:])) else None),
+        "first_order_increment_centre_of_mass": _positive_centre_of_mass(increment[ls:], depth),
     }
     if comparison is not None:
         zm = _z_means(comparison, ls)
@@ -131,6 +141,15 @@ def profile_signature(
     sig["by_kind"] = {k: _z_means(c, ls) for k, c in (by_kind or {}).items()}
     sig["labels"] = assign_labels(sig, cfg)
     return sig
+
+
+def _positive_centre_of_mass(values: np.ndarray, depth: np.ndarray) -> float | None:
+    """Centre of mass (in normalised depth) of the positive part of ``values``; None without positive mass."""
+    pos = np.where(np.isnan(values), 0.0, np.clip(values, 0.0, None))
+    total = float(pos.sum())
+    if total <= 0.0:
+        return None
+    return float((pos * depth).sum() / total)
 
 
 def _trend(values: np.ndarray) -> float | None:
@@ -209,6 +228,12 @@ def cross_task_table(signatures: dict[str, dict[str, Any]]) -> dict[str, Any]:
         "gradient_alignment_at_intervention",
         "gradient_alignment_downstream_mean",
         "gradient_alignment_z_mean",
+        "first_order_at_intervention",
+        "first_order_final",
+        "first_order_increment_argmax_block",
+        "first_order_increment_centre_of_mass",
+        "gradient_projection_z_mean",
+        "first_order_increment_z_mean",
         "n_primary_controls",
         "noise_floor_variance_ratio",
         "labels",
@@ -219,7 +244,8 @@ def cross_task_table(signatures: dict[str, dict[str, Any]]) -> dict[str, Any]:
         row["by_kind"] = {
             kind: {k: d.get(k) for k in ("n", "log_gain_z_mean", "d_eff_z_mean", "new_subspace_uncentered_z_mean",
                                           "alignment_z_mean", "cumulative_log_gain_z",
-                                          "task_alignment_z_mean", "gradient_alignment_z_mean")}
+                                          "task_alignment_z_mean", "gradient_alignment_z_mean",
+                                          "gradient_projection_z_mean", "first_order_increment_z_mean")}
             for kind, d in sig.get("by_kind", {}).items()
         }
         table[task] = row

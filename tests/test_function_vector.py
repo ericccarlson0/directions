@@ -140,7 +140,12 @@ def test_smoke_function_vector_outputs(smoke_fv_run):
     root = smoke_fv_run
     meta = json.loads((root / "metadata.json").read_text())
     assert meta["control"] == "function_vector"
-    assert len(meta["function_vector"]["universal_heads"]) == 3 and meta["function_vector"]["head_selection"] == "universal"
+    n_heads = meta["function_vector"]["n_heads"]
+    assert len(meta["function_vector"]["universal_heads"]) == n_heads and meta["function_vector"]["head_selection"] == "universal"
+    # D26: the head count comes from the joint-effect sweep over the candidates, on the prompts pooled over tasks
+    hc = meta["function_vector"]["head_count"]
+    assert not hc["fixed"] and hc["candidates"] == [1, 2, 4, 8] and hc["chosen"] == n_heads and n_heads in hc["candidates"]
+    assert set(hc["mean_effect_by_k"]) == {"1", "2", "4", "8"} and hc["k_best"] in hc["candidates"]
     # the run profile (D22): every stage of every task, with forward counts; the flat timings mirror it
     prof = meta["profile"]
     for key in ("model_load", "function_vectors", "figures", "total", "prepare:antonym", "extraction:antonym", "head_effects:antonym",
@@ -168,7 +173,12 @@ def test_smoke_function_vector_outputs(smoke_fv_run):
         rob = json.loads((root / "exploratory" / "tasks" / task / "strength_robustness.json").read_text())
         assert set(rob["profiles"]) == {"weakest", "middle", "strongest"} and rob["selected"]["rho"] == cal["selected"]["rho"] if cal["selected"] else True
         fv = json.loads((d / "function_vector.json").read_text())
-        assert len(fv["heads"]) == 3 and np.array(fv["head_effects"]).shape == (4, 4) and fv["head_effects_n_prompts"] == 6
+        assert len(fv["heads"]) == n_heads and np.array(fv["head_effects"]).shape == (4, 4) and fv["head_effects_n_prompts"] == 6
+        # D26: the head-support test of the chosen set against random sets of the same size
+        hs = fv["head_support"]
+        assert hs["n_heads"] == n_heads and len(hs["null_mean_effects"]) == 4 and hs["n_prompts"] == 6
+        assert set(hs["test"]) >= {"mean_diff", "p_value"} and "excess_mean" in hs["excess_test"] and isinstance(hs["supported"], bool)
+        assert set(fv["head_count"]["mean_effect_by_k"]) == {"1", "2", "4", "8"}
         assert set(fv["cos_with_pca"]) == {"1", "2"} and len(fv["cos_with_pca_all_layers"]) == 5
         assert len(fv["demo_variation_cos_with_control"]) == 1
         if heads is None:
@@ -176,16 +186,25 @@ def test_smoke_function_vector_outputs(smoke_fv_run):
         assert [(h["layer"], h["head"]) for h in fv["heads"]] == heads  # universal: the same set for every task
         arrays = np.load(d / "directions.npz")
         assert set(arrays) >= {"pooled", "per_seed", "all_layers", "fv", "fv_direction", "fv_per_seed", "fv_heads", "head_effects"}
-        assert np.linalg.norm(arrays["fv_direction"]) == pytest.approx(1.0) and arrays["fv_heads"].shape == (3, 2)
+        assert np.linalg.norm(arrays["fv_direction"]) == pytest.approx(1.0) and arrays["fv_heads"].shape == (n_heads, 2)
         assert arrays["pooled"].shape == (2, 32)  # PC1 at the candidate layers is still extracted
         q = json.loads((d / "qualification.json").read_text())
-        assert set(q["gates"]) == {"fewshot", "stability", "calibration", "steering", "random_controls"}
+        assert set(q["gates"]) == {"fewshot", "stability", "head_support", "calibration", "steering", "random_controls"}
+        assert q["gates"]["head_support"] == q["head_support"]["supported"]
         assert "pca_stability" in q and q["stability"]["1"] == q["stability"]["2"] == q["function_vector"]["stability"]
         assert set(q["function_vector"]["natural_rho"]) == {"1", "2"} and "cos_with_pca_at_selected_layer" in q["function_vector"]
         assert q["function_vector"]["alpha_over_natural_norm"] == pytest.approx(q["selection"]["rho"])  # natural units
         assert q["selection"]["strength_unit"] == "natural" and "rho_layer_norm" in q["selection"]
         ev = json.loads((d / "evaluation.json").read_text())
         assert ev["control"] == "function_vector" and ev["function_vector"]["natural_norm"] > 0
+        # the damage check (D24): KL from the baseline distribution for the steered run and every control
+        dmg = ev["damage"]
+        assert dmg["steered"]["kl_mean"] >= 0 and 0 <= dmg["steered"]["argmax_change_rate"] <= 1
+        assert set(dmg["by_kind"]) == {"covariance", "demo_variation", "isotropic", "orthogonal", "other_task"}
+        assert "excess_mean" in dmg["gate_excess_test"] and len(ev["per_example"]["steered_kl"]) == 6
+        assert all("kl_mean" in c["metrics"] for c in ev["controls"]) and q["damage"]["kl_mean"] == dmg["steered"]["kl_mean"]
+        for g in cal["grid"]:
+            assert "kl_mean" in g["metrics"] and (g["screen"] is None or "kl_excess_test" in g["screen"])
         lw = json.loads((d / "layerwise.json").read_text())
         assert sorted({c["kind"] for c in lw["controls"]}) == ["covariance", "demo_variation", "isotropic", "orthogonal", "other_task"]
         assert lw["real"]["summaries"]["alignment"]["median"][lw["real"]["intervention_layer"]] == pytest.approx(1.0, abs=1e-4)

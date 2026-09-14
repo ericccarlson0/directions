@@ -55,7 +55,11 @@ def test_smoke_pilot_outputs(smoke_run):
         assert sorted({c["kind"] for c in lw["controls"]}) == ["covariance", "demo_variation", "isotropic", "orthogonal", "other_task"]
         assert len(lw["controls"]) == 7 and set(lw["null_summaries"]) >= {"primary", "isotropic"}
         assert set(lw["comparison"]["primary"]["metrics"]) >= {"log_gain", "d_eff", "new_subspace", "alignment",
-                                                               "task_alignment", "gradient_alignment"}
+                                                               "task_alignment", "gradient_alignment",
+                                                               "gradient_projection", "first_order_increment"}
+        # the functional depth profile (D25): first-order effect per read point and its block increments
+        assert len(real["summaries"]["gradient_projection"]["median"]) == 5 and len(real["summaries"]["first_order_increment"]["median"]) == 4
+        assert lw["signature"]["first_order_final"] is not None and "first_order_increment_z_mean" in lw["signature"]
         # direction-specific readouts (D17): defined from the intervention layer on, task alignment 1 at l*
         for m in ("task_alignment", "gradient_alignment"):
             med = real["summaries"][m]["median"]

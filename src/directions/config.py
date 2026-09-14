@@ -80,7 +80,13 @@ class QualificationConfig:
 class FunctionVectorConfig:
     """Canonical function-vector extraction after Todd et al. (2024); docs/DECISIONS.md D21.
 
-    n_heads         attention heads summed into the function vector (the paper's default is 10)
+    n_heads         attention heads summed into the function vector: a fixed count (the paper uses 10), or null
+                    to choose it by the joint-effect sweep over head_count_candidates (D26: the smallest count
+                    whose joint patched effect is not significantly below the best count's)
+    head_count_candidates  head counts tried by the sweep (in rank order of the universal ranking)
+    head_support_null      random head sets of the chosen size against which the selected set is tested (the
+                    head_support gate: the set's joint effect must be positive and exceed the random sets')
+    head_support_alpha     p threshold of both tests
     head_selection  "universal": one head set for all tasks, ranked by the mean indirect effect over the
                     tasks that reached extraction (the paper's construction); "per_task": each task's own top heads
     aie_seeds       the indirect effect of a head is measured on the deranged-label prompts of this many
@@ -92,7 +98,10 @@ class FunctionVectorConfig:
                     "logprob_per_token" (the pipeline's decision metric; its scale differs by task)
     """
 
-    n_heads: int = 10
+    n_heads: int | None = None
+    head_count_candidates: list[int] = field(default_factory=lambda: [1, 2, 4, 8, 16, 32])
+    head_support_null: int = 16
+    head_support_alpha: float = 0.05
     head_selection: str = "universal"
     aie_seeds: int = 1
     aie_metric: str = "target_probability"
@@ -282,8 +291,15 @@ def validate_config(cfg: Config) -> None:
     if cfg.extraction.control not in ("pca", "function_vector"):
         raise ValueError("extraction.control must be 'pca' or 'function_vector'")
     fv = cfg.extraction.function_vector
-    if fv.n_heads < 1:
-        raise ValueError("extraction.function_vector.n_heads must be >= 1")
+    if fv.n_heads is not None and fv.n_heads < 1:
+        raise ValueError("extraction.function_vector.n_heads must be >= 1 or null")
+    if not fv.head_count_candidates or any(k < 1 for k in fv.head_count_candidates) or \
+            sorted(fv.head_count_candidates) != list(fv.head_count_candidates):
+        raise ValueError("extraction.function_vector.head_count_candidates must be positive and ascending")
+    if fv.head_support_null < 1:
+        raise ValueError("extraction.function_vector.head_support_null must be >= 1")
+    if not (0 < fv.head_support_alpha < 1):
+        raise ValueError("extraction.function_vector.head_support_alpha must lie in (0, 1)")
     if fv.head_selection not in ("universal", "per_task"):
         raise ValueError("extraction.function_vector.head_selection must be 'universal' or 'per_task'")
     if not (1 <= fv.aie_seeds <= cfg.extraction.n_seeds):

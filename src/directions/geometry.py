@@ -381,13 +381,15 @@ def direction_readouts(
     ``gradient_alignment[l, x] = cos(delta_l(x), g_l(x))`` with ``g_l(x)`` the
     gradient of the target log-probability with respect to the baseline residual
     at ``l``; ``gradient_projection[l, x] = delta_l(x) . g_l(x)``, the first-order
-    predicted change of the target log-probability. Arrays are ``nan`` where the
-    corresponding input is missing or a norm is zero.
+    predicted change of the target log-probability, and ``first_order_increment[l, x]``
+    its change across block ``l`` (shape (L, n); docs/DECISIONS.md D25). Arrays are
+    ``nan`` where the corresponding input is missing or a norm is zero.
     """
     delta = np.asarray(delta, dtype=np.float64)
     L1, n, _ = delta.shape
     dn = np.linalg.norm(delta, axis=2)
     out = {k: np.full((L1, n), np.nan) for k in ("task_alignment", "gradient_alignment", "gradient_projection")}
+    out["first_order_increment"] = np.full((L1 - 1, n), np.nan)
     with np.errstate(divide="ignore", invalid="ignore"):
         if task_directions is not None:
             V = normalize(np.asarray(task_directions, dtype=np.float64), axis=1)  # (L+1, d)
@@ -399,6 +401,7 @@ def direction_readouts(
             dot = np.einsum("lnd,lnd->ln", delta, G)
             out["gradient_projection"] = dot
             out["gradient_alignment"] = np.where((dn > 0) & (gn > 0), dot / (dn * gn), np.nan)
+            out["first_order_increment"] = dot[1:] - dot[:-1]
     return out
 
 

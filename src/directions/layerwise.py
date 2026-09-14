@@ -27,7 +27,8 @@ from .geometry import (
 from .stats import bootstrap_median_ci, bootstrap_median_ci_rows, compare_to_null
 
 READOUT_METRICS = ("task_alignment", "gradient_alignment")  # direction-specific (docs/DECISIONS.md D17)
-PER_EXAMPLE_METRICS = ("magnitude", "log_gain", "conversion", "alignment") + READOUT_METRICS
+FIRST_ORDER_METRICS = ("gradient_projection", "first_order_increment")  # the functional depth profile (D25)
+PER_EXAMPLE_METRICS = ("magnitude", "log_gain", "conversion", "alignment") + READOUT_METRICS + FIRST_ORDER_METRICS
 MATRIX_METRICS = ("d_eff", "d90", "total_centered_variance", "d_eff_uncentered", "new_subspace", "new_subspace_uncentered")
 
 
@@ -171,6 +172,7 @@ def _profile_arrays_torch(
     alignment = torch.where(dn > 0, (D @ vv).abs() / dn, nan)
     readouts = {k: torch.full((L1, n), float("nan"), dtype=f64, device=device)
                 for k in ("task_alignment", "gradient_alignment", "gradient_projection")}
+    readouts["first_order_increment"] = torch.full((L, n), float("nan"), dtype=f64, device=device)
     out: dict[str, Any] = {"gradient_norm_median": None, "injected_direction_gradient_cosine_median": None}
     if task_directions is not None:
         V = torch.as_tensor(np.asarray(task_directions, dtype=np.float64), device=device)
@@ -182,6 +184,7 @@ def _profile_arrays_torch(
         dot = (D * G).sum(dim=2)
         readouts["gradient_projection"] = dot
         readouts["gradient_alignment"] = torch.where((dn > 0) & (gn > 0), dot / (dn * gn), nan)
+        readouts["first_order_increment"] = dot[1:] - dot[:-1]
         out["gradient_norm_median"] = [float(x) for x in _median_like_numpy(gn, 1).cpu().numpy()]
         c = torch.where(gn[ls] > 0, (G[ls] @ vv) / gn[ls], nan)
         c = c[~torch.isnan(c)]
@@ -205,10 +208,11 @@ def _profile_arrays_torch(
     # everything to the host in one transfer
     stack = torch.cat([t.reshape(-1) for t in (dn, bn, magnitude, alignment, gain, conversion, b_norm,
                                                 readouts["task_alignment"], readouts["gradient_alignment"],
-                                                readouts["gradient_projection"], N, N_unc)]).cpu().numpy()
-    sizes = [L1 * n] * 4 + [L * n] * 3 + [L1 * n] * 3 + [L, L]
+                                                readouts["gradient_projection"], readouts["first_order_increment"],
+                                                N, N_unc)]).cpu().numpy()
+    sizes = [L1 * n] * 4 + [L * n] * 3 + [L1 * n] * 3 + [L * n] + [L, L]
     parts = np.split(stack, np.cumsum(sizes)[:-1])
-    dn_np, bn_np, mag, ali, gain_np, conv, bnorm, ta, ga, gp, N_np, Nu_np = parts
+    dn_np, bn_np, mag, ali, gain_np, conv, bnorm, ta, ga, gp, foi, N_np, Nu_np = parts
     with np.errstate(divide="ignore", invalid="ignore"):
         log_gain = np.log(gain_np.reshape(L, n))
     out.update({
@@ -217,7 +221,7 @@ def _profile_arrays_torch(
             magnitude=mag.reshape(L1, n), gain=gain_np.reshape(L, n), log_gain=log_gain, conversion=conv.reshape(L, n),
             alignment=ali.reshape(L1, n), delta_norm=dn_np.reshape(L1, n), block_norm=bnorm.reshape(L, n)),
         "readouts": {"task_alignment": ta.reshape(L1, n), "gradient_alignment": ga.reshape(L1, n),
-                     "gradient_projection": gp.reshape(L1, n)},
+                     "gradient_projection": gp.reshape(L1, n), "first_order_increment": foi.reshape(L, n)},
         "ranks_c": ranks_c,
         "ranks_u": ranks_u,
         "new_subspace": N_np,
@@ -265,8 +269,12 @@ def compute_profile(
         return readouts[name] if name in readouts else getattr(ex, name)
 
     if with_ci:
+        # The first-order metrics (D25) take their bootstrap draws from a child stream, so that adding
+        # them left every other CI and every later draw of ``rng`` exactly as before.
+        first_order_rng = rng.spawn(1)[0]
         summaries = {
-            name: bootstrap_median_ci_rows(per_example(name), rng, n_boot=cfg.n_boot, alpha=cfg.ci_alpha)
+            name: bootstrap_median_ci_rows(per_example(name), first_order_rng if name in FIRST_ORDER_METRICS else rng,
+                                           n_boot=cfg.n_boot, alpha=cfg.ci_alpha)
             for name in PER_EXAMPLE_METRICS
         }
     else:

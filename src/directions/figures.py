@@ -169,8 +169,8 @@ def task_figures(root: Path, st: "TaskState", cfg: Config) -> None:
 
     # 6. real vs random: per-layer z-scores for every primary metric
     metrics = ["magnitude", "log_gain", "conversion", "alignment", "d_eff", "d90", "new_subspace", "new_subspace_uncentered",
-               "task_alignment", "gradient_alignment"]
-    fig, axes = plt.subplots(2, 5, figsize=(16, 5.5))
+               "task_alignment", "gradient_alignment", "gradient_projection", "first_order_increment"]
+    fig, axes = plt.subplots(3, 4, figsize=(14, 8))
     for ax, m in zip(axes.ravel(), metrics):
         x = layers if len(comp[m]["real"]) == L + 1 else blocks
         z = np.array([r["z"] if r["z"] is not None else np.nan for r in comp[m]["per_layer"]], dtype=np.float64)
@@ -237,11 +237,12 @@ def _readouts_figure(root: Path, figdir: Path, st: "TaskState", dpi: int) -> Non
                                              or p.readout_diagnostics.get("gradients_available")):
         return
     kinds = [k for k in KIND_COLORS if k in st.comparison["by_kind"]]
-    x = np.arange(L + 1)
-    specs = [("task_alignment", "median cos(δ_l, v_{t,l})  (task's own direction at l)"),
-             ("gradient_alignment", "median cos(δ_l, ∇ log p(target))")]
-    fig, axes = plt.subplots(1, 2, figsize=(11, 3.6))
-    for ax, (m, ylabel) in zip(axes, specs):
+    specs = [("task_alignment", "median cos(δ_l, v_{t,l})  (task's own direction at l)", np.arange(L + 1)),
+             ("gradient_alignment", "median cos(δ_l, ∇ log p(target))", np.arange(L + 1)),
+             ("gradient_projection", "median δ_l · ∇ log p(target)  (first-order effect)", np.arange(L + 1)),
+             ("first_order_increment", "median block increment of δ_l · ∇ log p(target)", np.arange(L))]
+    fig, axes = plt.subplots(2, 2, figsize=(11, 7))
+    for ax, (m, ylabel, x) in zip(axes.ravel(), specs):
         for k in kinds:
             curves = _random_curves(root, st.name, m, [k])
             if curves.shape[0] == 0 or np.all(np.isnan(curves)):
@@ -257,8 +258,8 @@ def _readouts_figure(root: Path, figdir: Path, st: "TaskState", dpi: int) -> Non
         ax.axhline(0, color=TEXT2, linewidth=0.8)
         _mark_intervention(ax, ls)
         ax.set_ylabel(ylabel)
-        ax.set_xlabel("residual read point l")
-    axes[0].legend(fontsize=7)
+        ax.set_xlabel("block l" if len(x) == L else "residual read point l")
+    axes[0, 0].legend(fontsize=7)
     fig.suptitle(f"{st.name}: direction-specific readouts (median, 5-95 % band of each null)", color=TEXT)
     _save(fig, figdir / f"{st.name}_readouts.png", dpi)
 

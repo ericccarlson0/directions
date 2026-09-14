@@ -65,7 +65,10 @@ extraction:
   control: function_vector         # D21: the canonical function vector is the control; PC1 is still
                                    # extracted at every layer (the T_l readout) and reported beside it
   function_vector:
-    n_heads: 10                      # heads summed into the vector (Todd et al. 2024)
+    n_heads: null                    # D26: chosen by the joint-effect sweep (the paper fixes 10)
+    head_count_candidates: [1, 2, 4, 8, 16, 32]
+    head_support_null: 16            # random head sets the chosen set must beat (the head_support gate)
+    head_support_alpha: 0.05
     head_selection: universal        # one head set for all tasks, ranked by the mean indirect effect
     aie_seeds: 1                     # indirect effects measured on the deranged prompts of seed 0 (64 prompts)
 

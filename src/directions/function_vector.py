@@ -154,3 +154,99 @@ def build_function_vector(
         stability=stability(seed_dirs) if len(seed_dirs) > 1 else 1.0,
         cos_pooled_vs_seeds=[float(abs(direction @ d)) for d in seed_dirs],
     )
+
+
+# --------------------------------------------------------------------------- #
+# Head count and head support (docs/DECISIONS.md D26)
+# --------------------------------------------------------------------------- #
+
+
+def joint_head_effect(
+    backend: ModelBackend,
+    prompts: list[Prompt],
+    baseline: np.ndarray,
+    head_means: np.ndarray,
+    heads: list[tuple[int, int]],
+    metric: str = "target_probability",
+) -> np.ndarray:
+    """Per-prompt change of ``metric`` when all of ``heads`` are patched at once (each with its mean output
+    ``head_means[layer, head]``) into ``prompts`` at the query token: shape ``(n,)``."""
+    patches = [HeadPatch(layer, head, head_means[layer, head].astype(np.float32)) for layer, head in heads]
+    r = backend.run(prompts, head_patches=patches)
+    return effect_values(r, metric) - baseline
+
+
+def random_head_sets(rng: np.random.Generator, n_layers: int, n_heads: int, k: int, n_sets: int) -> list[list[tuple[int, int]]]:
+    """``n_sets`` sets of ``k`` distinct heads drawn uniformly from the ``n_layers x n_heads`` grid."""
+    total = n_layers * n_heads
+    out = []
+    for _ in range(n_sets):
+        flat = rng.choice(total, size=min(k, total), replace=False)
+        out.append([(int(f // n_heads), int(f % n_heads)) for f in sorted(flat)])
+    return out
+
+
+def choose_head_count(
+    effects_by_k: dict[int, np.ndarray], rng: np.random.Generator, alpha: float = 0.05, n_boot: int = 2000
+) -> dict[str, Any]:
+    """The smallest head count whose joint effect is not significantly below the largest one.
+
+    ``effects_by_k[k]`` holds the per-prompt joint effect of the top-``k`` heads (prompts pooled over tasks;
+    the same prompts for every ``k``). The largest mean effect is found, then every smaller ``k`` is
+    tested against it with the paired bootstrap; the smallest ``k`` whose deficit is not significant
+    (``p > alpha``) is chosen. Returns the choice with the per-``k`` means and p-values.
+    """
+    from .stats import paired_bootstrap_test
+
+    ks = sorted(effects_by_k)
+    means = {k: float(np.mean(effects_by_k[k])) for k in ks}
+    k_best = max(ks, key=lambda k: means[k])
+    p_vs_best: dict[int, float | None] = {}
+    chosen = k_best
+    for k in ks:
+        if k == k_best:
+            p_vs_best[k] = None
+            break
+        t = paired_bootstrap_test(effects_by_k[k_best], effects_by_k[k], rng, n_boot=n_boot)
+        p_vs_best[k] = t.p_value  # small: the top-k_best set is reliably better than the top-k set
+        if t.p_value > alpha:
+            chosen = k
+            break
+    return {"candidates": ks, "mean_effect_by_k": means, "k_best": k_best, "p_vs_best_by_k": p_vs_best,
+            "chosen": chosen, "alpha": alpha}
+
+
+def head_support_test(
+    backend: ModelBackend,
+    prompts: list[Prompt],
+    baseline: np.ndarray,
+    head_means: np.ndarray,
+    heads: list[tuple[int, int]],
+    rng: np.random.Generator,
+    n_null: int = 16,
+    metric: str = "target_probability",
+    n_boot: int = 2000,
+    alpha: float = 0.05,
+    real_effect: np.ndarray | None = None,
+) -> dict[str, Any]:
+    """Does the selected head set carry the task? The joint patched effect of ``heads`` on the deranged
+    prompts must be positive (paired bootstrap) and exceed that of ``n_null`` random sets of the same size
+    (paired excess test). Returns the tests, the null's per-set means and the verdict."""
+    from .stats import paired_bootstrap_test, paired_excess_test
+
+    L, H, _ = head_means.shape
+    real = joint_head_effect(backend, prompts, baseline, head_means, heads, metric) if real_effect is None else real_effect
+    null = np.stack([joint_head_effect(backend, prompts, baseline, head_means, s, metric)
+                     for s in random_head_sets(rng, L, H, len(heads), n_null)])
+    test = paired_bootstrap_test(real, np.zeros_like(real), rng, n_boot=n_boot)
+    excess = paired_excess_test(real, null, rng, n_boot=n_boot)
+    return {
+        "n_heads": len(heads),
+        "n_prompts": int(real.shape[0]),
+        "mean_effect": float(np.mean(real)),
+        "test": test.__dict__,
+        "null_mean_effects": [float(x) for x in null.mean(axis=1)],
+        "excess_test": excess.__dict__,
+        "alpha": alpha,
+        "supported": bool(test.p_value <= alpha and test.mean_diff > 0 and excess.p_value <= alpha),
+    }

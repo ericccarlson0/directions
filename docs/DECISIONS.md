@@ -627,3 +627,119 @@ algebra, which is where non-determinism would enter. What it does not cover
 is unchanged: reproducibility across GPU architectures is a tolerance
 question (`directions compare --atol`), and a replicate on a reduced config
 remains the tool if the check ever fails and the cause has to be located.
+
+## 2026-09-15 — Iteration 5: damage, first-order depth profile, head count
+
+### D24. A damage measure beside every steering effect
+
+Context: every calibration on 1.7B, 4B and 8B kept improving the target
+log-probability up to the grid ceiling, four times the vector's norm and up
+to fifteen times the residual stream at the injection layer, and nothing in
+the pipeline said whether the model was still producing a distribution at
+that point. The steering literature pairs every effect with a damage
+measure (perplexity on generic text, a coherence judge, or a divergence from
+the unsteered model); this pipeline had none.
+
+Decision: every steered forward pass whose unsteered counterpart exists
+records the **KL divergence from the unsteered next-token distribution at
+the query token**, `KL(p_base || p_steered)`, per example, and whether the
+most likely next token changed. The query token is where the intervention
+acts and where the first answer token is decided, so this is the
+distribution the steering is supposed to move; a large KL with a small
+target gain is the signature of an injection that has stopped being a
+perturbation. Recorded for every calibration grid point (with the matched
+random screen's controls, and a paired excess test of the real direction's
+KL against theirs, on its own bootstrap stream so no existing draw moves),
+for the held-out steered run and every control kind (`evaluation.json/
+damage`: means, the excess against the gate controls and per kind,
+per-example values), for the strength-robustness alternatives, and in the
+determinism check. Cost: one `(B, V)` log-softmax that the scoring already
+computes, and the baseline's `(N, V)` distribution kept per task (117 MB on
+the Qwen3 vocabulary, freed after the task). Not a gate: three models' worth
+of values are needed before a threshold or a matched-control criterion can
+be preregistered; the by-kind excess is the candidate criterion ("no more
+damage than a random direction of the same norm"). A perplexity on generic
+text was considered and left out for now: it needs a second prompt set and
+its own forward passes, and the query-token KL answers the immediate
+question, whether the calibration's strongest points still perturb rather
+than replace the stream.
+
+### D25. The functional depth profile: the first-order effect per read point and per block, compared against the nulls
+
+Context: the geometric profile (S, log G, C, A, d_eff, d90, N) has come back
+indistinguishable from the random-direction nulls on every model and at
+every strength, while the behavioural effect is direction-specific. The
+geometry describes how a perturbation grows and rotates; it does not say
+where along the depth the perturbation acquires its effect on the answer.
+The per-example readout `δ_l · g_l` (D17), the first-order predicted change
+of the target's log-probability at read point `l` given the baseline
+gradient `g_l`, was recorded but neither summarised nor compared.
+
+Decision: two per-example metrics join the compared set. `gradient_projection`
+is `δ_l(x) · g_l(x)` at every read point, and `first_order_increment` is its
+change across block `l`, `δ_{l+1}·g_{l+1} − δ_l·g_l`: the first-order
+contribution of block `l` to the behavioural effect, positive where the
+block moves the perturbation toward the answer and negative where it moves
+it away. Both are summarised like every other per-example metric (median
+with a bootstrap CI for the real direction, medians for the controls) and
+compared per layer against every null (z, empirical p), with
+`gradient_projection_z_mean` and `first_order_increment_z_mean` in the
+signature, the by-kind table and the aggregate. The signature also reports
+the first-order effect at the injection layer and at the final layer and
+the centre of mass of the positive increments in normalised depth, which is
+"where the effect is created" in one number. Interpretation caveat: the
+gradient is the baseline's, so the first-order prediction is exact only for
+small perturbations; at the canonical strengths it is a projection, not a
+prediction, and the final-layer value should be read next to the measured
+behavioural change. The bootstrap draws of the two new metrics come from a
+child stream of the profile's generator, so every existing CI and every
+later draw is unchanged. Cost: none beyond the two subtractions; the figures
+gain two panels.
+
+### D26. The head count is chosen by a joint-effect sweep, and a head-support gate replaces the fixed ten
+
+Context: D21 took the paper's ten heads. On 0.6B and 1.7B one head carries
+most of the indirect effect and the other nine add mostly generic
+in-context content; on 4B and 8B no head moves any task's deranged prompts
+by more than a few hundredths, and arithmetic's heads move it by nothing on
+every model, yet every task received a ten-head "function vector" and could
+qualify on the behavioural gates alone. Ten was the paper's saturation
+point on GPT-J, not a property of function vectors, and nothing in the
+pipeline checked that the selected heads carry the task they are used for.
+
+Decisions:
+
+* **Head count by sweep** (`function_vector.n_heads: null`,
+  `head_count_candidates: [1, 2, 4, 8, 16, 32]`). With the universal
+  ranking in hand, the top-`k` sets are patched *jointly* into each task's
+  deranged prompts (one forward pass per `k` per task, all heads at once)
+  and the per-prompt change of the answer probability is pooled over
+  tasks. The count with the largest pooled mean effect is found, every
+  smaller count is tested against it with the paired bootstrap, and the
+  smallest count whose deficit is not significant (p > 0.05) is chosen:
+  the fewest heads that do what the best set does. A fixed `n_heads` keeps
+  the paper's construction available. With `head_selection: per_task` the
+  choice is made per task.
+* **Head-support gate.** For each task the chosen set's joint effect on its
+  deranged prompts must be positive (paired bootstrap, p ≤ 0.05) and exceed
+  that of `head_support_null` = 16 random sets of the same size patched the
+  same way (paired excess test, p ≤ 0.05; own seed). A task that fails has
+  no function vector in the paper's sense: its outputs up to and including
+  the vector, the sweep and the test are written, and with gates enforced it
+  is not calibrated or measured. The same thresholds as every other gate;
+  no effect-size threshold, since the effect scale differs by model.
+
+Rationale for testing the set rather than single heads: the paper's causal
+evidence is per head, but its object is the sum, and a task carried jointly
+by several heads should pass. Rationale for the saturation rule: a fixed
+tolerance on the effect would need a different number per model; "not
+significantly below the best" is the same criterion at every scale. Cost:
+`|candidates| + 16` patched passes over 64 prompts per task, seconds on 0.6B
+and about a minute on 8B, against the ranking's 448–1152 passes.
+
+Consequences: the head set can be smaller than ten and can differ in size
+between models; arithmetic (and, if the 4B/8B effects are as small as they
+look, more tasks there) will fail the gate, and a model where no task passes
+is a model with no function vectors under this construction, which is a
+result. Runs after this decision are not head-for-head comparable with
+iteration 4b.

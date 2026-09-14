@@ -26,9 +26,14 @@ SCALARS = (
     "gradient_alignment_at_intervention",
     "gradient_alignment_downstream_mean",
     "gradient_alignment_z_mean",
+    "first_order_final",
+    "first_order_increment_centre_of_mass",
+    "gradient_projection_z_mean",
+    "first_order_increment_z_mean",
 )
 BY_KIND_KEYS = ("new_subspace_uncentered_z_mean", "log_gain_z_mean", "alignment_z_mean", "d_eff_z_mean",
-                "cumulative_log_gain_z", "task_alignment_z_mean", "gradient_alignment_z_mean")
+                "cumulative_log_gain_z", "task_alignment_z_mean", "gradient_alignment_z_mean",
+                "gradient_projection_z_mean", "first_order_increment_z_mean")
 
 
 def _mean_sd(values: list[float | None]) -> dict[str, Any]:

@@ -44,7 +44,17 @@ from .extraction import (
     extract_differences,
     permuted_head_means,
 )
-from .function_vector import FunctionVector, build_function_vector, compose, effect_values, head_effects, select_heads
+from .function_vector import (
+    FunctionVector,
+    build_function_vector,
+    choose_head_count,
+    compose,
+    effect_values,
+    head_effects,
+    head_support_test,
+    joint_head_effect,
+    select_heads,
+)
 from .geometry import (
     covariance_matched_unit_vector,
     normalize,
@@ -71,6 +81,7 @@ class ControlResult:
     metrics: dict[str, float]
     profile: LayerwiseProfile | None = None
     per_example_diff: np.ndarray | None = None  # steered - baseline log p per token, per evaluation example
+    per_example_kl: np.ndarray | None = None  # KL(baseline || steered) at the query token, per evaluation example (D24)
 
 
 @dataclass
@@ -86,6 +97,8 @@ class TaskState:
     head_effects_n_prompts: int = 0
     permuted_head_means: list[np.ndarray] = field(default_factory=list)  # demo_variation null inputs
     fv: FunctionVector | None = None
+    aie_prompts: list[Prompt] = field(default_factory=list)  # the deranged-label prompts the indirect effects use
+    aie_baseline: np.ndarray | None = None  # their unpatched metric values
     gradients: np.ndarray | None = None  # (L+1, n_eval, d) d log p(target) / d resid at the query token (D17)
     demo_variation: dict[int, list[np.ndarray]] = field(default_factory=dict)
     stable_layers: list[int] = field(default_factory=list)
@@ -199,7 +212,7 @@ class Pipeline:
 
     def _seed_table(self) -> dict[str, Any]:
         s = self.cfg.seed
-        table: dict[str, Any] = {"run_seed": s, "torch": derive_seed(s, "torch")}
+        table: dict[str, Any] = {"run_seed": s, "torch": derive_seed(s, "torch"), "head_count": derive_seed(s, "head_count")}
         n_dv = int(self.cfg.evaluation.controls.get("demo_variation", 0))
         for t in self.cfg.tasks:
             table[t.name] = {
@@ -209,6 +222,9 @@ class Pipeline:
                 "demo_variation": [derive_seed(s, "demo_variation", t.name, k) for k in range(n_dv)],
                 "calibration": derive_seed(s, "calibration", t.name),
                 "calibration_screen": {str(l): derive_seed(s, "calibration_screen", t.name, l) for l in self.layers},
+                "calibration_damage": derive_seed(s, "calibration_damage", t.name),
+                "damage_bootstrap": derive_seed(s, "damage_bootstrap", t.name),
+                "head_support": derive_seed(s, "head_support", t.name),
                 "random_controls": derive_seed(s, "random_controls", t.name),
                 "covariance_controls": derive_seed(s, "covariance_controls", t.name),
                 "bootstrap": derive_seed(s, "bootstrap", t.name),
@@ -262,7 +278,7 @@ class Pipeline:
             fs = self.backend.run(fs_prompts)
             zs_prompts = [zero_shot_prompt(cfg.prompt, x) for x in splits.evaluation]
             st.eval_prompts = zs_prompts
-            st.base = self.backend.run(zs_prompts, capture=True)
+            st.base = self.backend.run(zs_prompts, capture=True, capture_logprobs=True)
         q["fewshot"] = fs.metrics_dict()
         q["zeroshot_baseline"] = st.base.metrics_dict()
         q["example_prompt"] = {"fewshot": fs_prompts[0].prompt, "zeroshot": zs_prompts[0].prompt, "target": zs_prompts[0].target}
@@ -309,6 +325,7 @@ class Pipeline:
             with self.prof.section("head_effects", name):
                 st.head_effects = head_effects(self.backend, neg, base, st.seed_head_means.mean(axis=0), metric=fvc.aie_metric)
             st.head_effects_n_prompts = len(neg)
+            st.aie_prompts, st.aie_baseline = neg, base
             top = np.dstack(np.unravel_index(np.argsort(-st.head_effects, axis=None)[:5], st.head_effects.shape))[0]
             log.info("[%s] head effects (%s) over %d deranged prompts in %.0fs: baseline mean %.4f, max effect %.4f, "
                      "top (layer, head) %s", name, fvc.aie_metric, len(neg), self.prof.sections[f"head_effects:{name}"]["seconds"],
@@ -396,10 +413,42 @@ class Pipeline:
         cfg = self.cfg
         fvc = cfg.extraction.function_vector
         effects = {n: st.head_effects for n, st in states.items() if st.head_effects is not None}
-        selection = select_heads(effects, fvc.n_heads, fvc.head_selection)
+        n_total = 0 if not effects else int(np.prod(next(iter(effects.values())).shape))
+        candidates = [k for k in fvc.head_count_candidates if k <= n_total] or ([n_total] if n_total else [])
+        k_max = fvc.n_heads if fvc.n_heads is not None else (max(candidates) if candidates else 1)
+        ranking = select_heads(effects, k_max, fvc.head_selection)  # the top-k_max heads per task, in rank order
+        head_count: dict[str, Any] = {"fixed": fvc.n_heads is not None, "candidates": candidates}
+        joint_by_task: dict[str, dict[int, np.ndarray]] = {}
+        if fvc.n_heads is None and ranking:
+            # D26: the joint patched effect of the top-k sets, per task; the count is chosen on the prompts
+            # pooled over tasks (universal ranking) or per task (per_task ranking).
+            with self.prof.section("head_count"):
+                for name, sel in ranking.items():
+                    st = states[name]
+                    assert st.seed_head_means is not None and st.aie_baseline is not None
+                    joint_by_task[name] = {k: joint_head_effect(self.backend, st.aie_prompts, st.aie_baseline, st.seed_head_means.mean(axis=0),
+                                                                [(l, h) for l, h, _, _ in sel[:k]], fvc.aie_metric) for k in candidates}
+            rng = rng_for(cfg.seed, "head_count")
+            if fvc.head_selection == "universal":
+                pooled = {k: np.concatenate([joint_by_task[n][k] for n in sorted(joint_by_task)]) for k in candidates}
+                choice = choose_head_count(pooled, rng, alpha=fvc.head_support_alpha, n_boot=cfg.calibration.n_boot)
+                chosen = {n: choice["chosen"] for n in ranking}
+                head_count.update(choice)
+            else:
+                per_task = {n: choose_head_count(joint_by_task[n], rng, alpha=fvc.head_support_alpha, n_boot=cfg.calibration.n_boot)
+                            for n in sorted(joint_by_task)}
+                chosen = {n: c["chosen"] for n, c in per_task.items()}
+                head_count["per_task"] = per_task
+            head_count["mean_effect_by_k_per_task"] = {n: {str(k): float(np.mean(v)) for k, v in d.items()} for n, d in joint_by_task.items()}
+            self.log.info("head count (D26): pooled joint effect by k %s; chosen k = %s",
+                          {k: round(v, 4) for k, v in head_count.get("mean_effect_by_k", {}).items()}, sorted(set(chosen.values())))
+        else:
+            chosen = {n: k_max for n in ranking}
+        selection = {n: sel[: chosen[n]] for n, sel in ranking.items()}
         self.metadata["function_vector"] = {
             "head_selection": fvc.head_selection,
-            "n_heads": fvc.n_heads,
+            "n_heads": None if not chosen else (next(iter(chosen.values())) if len(set(chosen.values())) == 1 else chosen),
+            "head_count": {k: v for k, v in head_count.items() if k != "mean_effect_by_k_per_task"},
             "tasks_ranked": sorted(effects),
             "universal_heads": None if fvc.head_selection != "universal" or not selection else
             [[l, h, r] for l, h, r, _ in next(iter(selection.values()))],
@@ -410,7 +459,19 @@ class Pipeline:
         for name, sel in selection.items():
             st = states[name]
             q = st.qualification
-            assert st.seed_head_means is not None and st.head_effects is not None
+            assert st.seed_head_means is not None and st.head_effects is not None and st.aie_baseline is not None
+            # D26: does this set of heads carry this task? (its joint effect, against random sets of the same size)
+            with self.prof.section("head_support", name):
+                support = head_support_test(
+                    self.backend, st.aie_prompts, st.aie_baseline, st.seed_head_means.mean(axis=0), [(l, h) for l, h, _, _ in sel],
+                    rng_for(cfg.seed, "head_support", name), n_null=fvc.head_support_null, metric=fvc.aie_metric,
+                    n_boot=cfg.calibration.n_boot, alpha=fvc.head_support_alpha,
+                    real_effect=joint_by_task.get(name, {}).get(len(sel)))
+            q["head_support"] = support
+            q["gates"]["head_support"] = support["supported"]
+            self.log.info("[%s] head support: %d heads move the deranged prompts by %+.4f (p=%.3f); random sets %+.4f; excess p=%.3f -> %s",
+                          name, len(sel), support["mean_effect"], support["test"]["p_value"], float(np.mean(support["null_mean_effects"])),
+                          support["excess_test"]["p_value"], "supported" if support["supported"] else "NOT supported")
             st.fv = build_function_vector(self.backend, st.seed_head_means, sel)
             heads = [(h["layer"], h["head"]) for h in st.fv.heads]
             st.directions = {
@@ -430,7 +491,10 @@ class Pipeline:
             cos_pca_all = [float(st.fv.direction @ u) for u in normalize(st.all_layer_directions, axis=1)]
             info = {
                 "head_selection": fvc.head_selection,
-                "n_heads": fvc.n_heads,
+                "n_heads": len(sel),
+                "head_count": {**{k: v for k, v in head_count.items() if k != "mean_effect_by_k_per_task"},
+                               "mean_effect_by_k": head_count.get("mean_effect_by_k_per_task", {}).get(name)},
+                "head_support": support,
                 **st.fv.summary(),
                 "head_effects": st.head_effects.tolist(),
                 "head_effects_n_prompts": st.head_effects_n_prompts,
@@ -455,6 +519,12 @@ class Pipeline:
                     st.ready = False
                 else:
                     st.stable_layers = list(self.layers)
+            if not support["supported"]:
+                self.rejections.add("head_support", name, "no_head_support",
+                                    {"mean_effect": support["mean_effect"], "p": support["test"]["p_value"],
+                                     "excess_p": support["excess_test"]["p_value"], "n_heads": len(sel)})
+                if cfg.qualification.enforce:
+                    st.ready = False
 
     # ---- phase B ------------------------------------------------------ #
 
@@ -534,8 +604,12 @@ class Pipeline:
         v = st.directions[sel.layer].direction
         do_layerwise = self.stop_after in ("layerwise", "exploratory", "figures")
         with self.prof.section("controls_setup", name):
-            st.steered = self.backend.run(zs_prompts, interventions=[Intervention(sel.layer, v, sel.alpha)], capture=True)
+            # the damage check's reference (D24): the baseline's next-token distribution at the query token
+            ref = self.backend.reference_tensor(st.base.query_logprobs)
+            st.steered = self.backend.run(zs_prompts, interventions=[Intervention(sel.layer, v, sel.alpha)], capture=True,
+                                          reference_logprobs=ref)
             brng = rng_for(cfg.seed, "bootstrap", name)
+            krng = rng_for(cfg.seed, "damage_bootstrap", name)
             prng = rng_for(cfg.seed, "profile_bootstrap", name)
             if do_layerwise:
                 # Direction-specific readouts (D17): the baseline target-log-prob gradient at every
@@ -545,10 +619,11 @@ class Pipeline:
             test = paired_bootstrap_test(st.steered.logprob_per_token, st.base.logprob_per_token, brng, n_boot=cfg.calibration.n_boot)
         if cfg.determinism_check and "determinism_check" not in self.metadata:
             with self.prof.section("determinism_check", name):
-                self._determinism_check(st, v, do_layerwise, readout_kw)
+                self._determinism_check(st, v, do_layerwise, readout_kw, ref)
         for kind, label, u in self._build_controls(st, states, sel.layer, v):
             with self.prof.section("controls_forward", name):
-                r = self.backend.run(zs_prompts, interventions=[Intervention(sel.layer, u, sel.alpha)], capture=do_layerwise)
+                r = self.backend.run(zs_prompts, interventions=[Intervention(sel.layer, u, sel.alpha)], capture=do_layerwise,
+                                     reference_logprobs=ref)
                 rt = paired_bootstrap_test(r.logprob_per_token, st.base.logprob_per_token, brng, n_boot=cfg.calibration.n_boot)
             prof = None
             if do_layerwise:
@@ -557,7 +632,7 @@ class Pipeline:
                     prof = compute_profile(st.base.residuals, r.residuals, u, sel.layer, cfg.evaluation, prng, with_ci=False,
                                            **readout_kw)
             st.controls.append(ControlResult(kind, label, rt.mean_diff, rt.p_value, r.metrics_dict(), prof,
-                                             r.logprob_per_token - st.base.logprob_per_token))
+                                             r.logprob_per_token - st.base.logprob_per_token, r.kl_from_reference))
         sec = self.prof.sections
         log.info("[%s] %d controls: steered run + gradients %.0fs, control forwards %.0fs, control profiles %.0fs", name,
                  len(st.controls), sec[f"controls_setup:{name}"]["seconds"], sec.get(f"controls_forward:{name}", {}).get("seconds", 0.0),
@@ -576,6 +651,18 @@ class Pipeline:
             by_kind_behav[kind] = compare_to_null(test.mean_diff, vals).__dict__
             mat = np.stack([c.per_example_diff for c in st.controls if c.kind == kind])
             by_kind_excess[kind] = paired_excess_test(real_diff, mat, brng, n_boot=cfg.calibration.n_boot).__dict__
+        # Damage (D24): the real direction's disturbance of the next-token distribution against the controls'
+        # at the same norm (positive excess = more damage than random); its own bootstrap stream.
+        real_kl = st.steered.kl_from_reference
+        damage = {
+            "steered": {k: st.steered.metrics_dict()[k] for k in ("kl_mean", "kl_median", "argmax_change_rate")},
+            "gate_excess_test": paired_excess_test(real_kl, np.stack([c.per_example_kl for c in st.controls if c.kind in behav_gate_kinds]),
+                                                   krng, n_boot=cfg.calibration.n_boot).__dict__,
+            "by_kind": {kind: {"kl_mean": float(np.mean([c.metrics["kl_mean"] for c in st.controls if c.kind == kind])),
+                               "excess_test": paired_excess_test(real_kl, np.stack([c.per_example_kl for c in st.controls if c.kind == kind]),
+                                                                 krng, n_boot=cfg.calibration.n_boot).__dict__}
+                        for kind in sorted({c.kind for c in st.controls})},
+        }
         ev = {
             "selection": q["selection"],
             "control": cfg.extraction.control,
@@ -592,17 +679,25 @@ class Pipeline:
             "excess_test": excess.__dict__,
             "by_kind_comparison": by_kind_behav,
             "by_kind_excess": by_kind_excess,
+            "damage": damage,
             "per_example": {
                 "baseline_logprob_per_token": st.base.logprob_per_token.tolist(),
                 "steered_logprob_per_token": st.steered.logprob_per_token.tolist(),
                 "baseline_exact_match": st.base.exact_match.tolist(),
                 "steered_exact_match": st.steered.exact_match.tolist(),
                 "controls_logprob_per_token_diff": {c.label: c.per_example_diff.tolist() for c in st.controls},
+                "steered_kl": real_kl.tolist(),
+                "controls_kl": {c.label: c.per_example_kl.tolist() for c in st.controls},
             },
         }
         write_json(out / "evaluation.json", ev)
         q["steering"] = {"test": test.__dict__, "random_comparison": null.__dict__, "excess_test": excess.__dict__,
                          "by_kind": by_kind_behav, "by_kind_excess": by_kind_excess}
+        q["damage"] = {**damage["steered"], "gate_excess_mean": damage["gate_excess_test"]["excess_mean"],
+                       "gate_excess_p": damage["gate_excess_test"]["p_value"]}
+        log.info("[%s] damage: KL(base||steered) at the query token mean %.3f (argmax changed for %.0f%%); excess over the gate "
+                 "controls %+.3f (p=%.3f)", name, q["damage"]["kl_mean"], 100 * q["damage"]["argmax_change_rate"],
+                 q["damage"]["gate_excess_mean"], q["damage"]["gate_excess_p"])
         q["gates"]["steering"] = bool(test.p_value <= cfg.qualification.steering_alpha and test.mean_diff > 0)
         if cfg.qualification.gate_test == "paired_excess":
             q["gates"]["random_controls"] = bool(excess.p_value <= cfg.qualification.random_control_max_p)
@@ -669,14 +764,16 @@ class Pipeline:
             log.error("[%s] exploratory stage failed: %s", name, e)
             self.rejections.add("error", name, f"exploratory: {type(e).__name__}: {e}", {"traceback": traceback.format_exc()})
 
-    def _determinism_check(self, st: TaskState, v: np.ndarray, do_layerwise: bool, readout_kw: dict[str, Any]) -> None:
+    def _determinism_check(self, st: TaskState, v: np.ndarray, do_layerwise: bool, readout_kw: dict[str, Any],
+                           reference: Any = None) -> None:
         """Repeat the steered pass, the gradient pass and one profile of this task; require bit identity (D23)."""
         from .determinism import compare_arrays, determinism_report, forward_arrays, profile_check_arrays
 
         cfg = self.cfg
         sel = st.selection
         assert sel is not None and st.steered is not None and st.base is not None and st.base.residuals is not None
-        again = self.backend.run(st.eval_prompts, interventions=[Intervention(sel.layer, v, sel.alpha)], capture=True)
+        again = self.backend.run(st.eval_prompts, interventions=[Intervention(sel.layer, v, sel.alpha)], capture=True,
+                                 reference_logprobs=reference)
         forward = compare_arrays(forward_arrays(st.steered), forward_arrays(again))
         gradients = profile = None
         if do_layerwise:
@@ -700,6 +797,8 @@ class Pipeline:
             self.rejections.add("determinism", st.name, "repeat_not_bit_identical", {"max_abs_diff_by_array": failed})
 
     def _finish_task(self, st: TaskState) -> None:
+        if st.base is not None:
+            st.base.query_logprobs = None  # (N, V) per task; not needed after the measurement
         q = st.qualification
         q["qualified"] = bool(st.qualified)
         q["enforce"] = self.cfg.qualification.enforce
@@ -725,7 +824,8 @@ class Pipeline:
                     if alt is None or alt.rho == sel.rho:
                         rob["profiles"][label] = None
                         continue
-                    r = self.backend.run(st.eval_prompts, interventions=[Intervention(alt.layer, v, alt.alpha)], capture=True)
+                    r = self.backend.run(st.eval_prompts, interventions=[Intervention(alt.layer, v, alt.alpha)], capture=True,
+                                         reference_logprobs=self.backend.reference_tensor(st.base.query_logprobs))
                     assert r.residuals is not None
                     p = compute_profile(st.base.residuals, r.residuals, v, alt.layer, cfg.evaluation, prng,
                                         task_directions=st.all_layer_directions, gradients=st.gradients)
@@ -767,6 +867,7 @@ class Pipeline:
                     "gates": s.qualification.get("gates", {}),
                     "selection": s.qualification.get("selection"),
                     "labels": None if s.signature is None else s.signature["labels"],
+                    "damage": s.qualification.get("damage"),
                     "function_vector": None if s.fv is None else {
                         "natural_rho_at_selection": None if s.selection is None else
                         s.qualification["function_vector"]["natural_rho"][str(s.selection.layer)],

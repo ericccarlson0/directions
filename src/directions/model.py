@@ -118,15 +118,24 @@ class ForwardResult:
     residuals: np.ndarray | None  # (L+1, N, d) float32 at the final query token, if captured
     head_outputs: np.ndarray | None = None  # (L, N, n_heads, head_dim) float32 at the query token, if captured
     first_token_logprob: np.ndarray | None = None  # (N,) log p of the first target token (D21 head ranking)
+    query_logprobs: np.ndarray | None = None  # (N, V) float32 next-token log-probabilities at the query token, if captured
+    # Damage against a reference run's query-token distribution (docs/DECISIONS.md D24), if one was given:
+    kl_from_reference: np.ndarray | None = None  # (N,) KL(reference || this run) at the query token
+    argmax_changed: np.ndarray | None = None  # (N,) bool: the most likely next token differs from the reference's
 
     def metrics_dict(self) -> dict[str, float]:
-        return {
+        out = {
             "logprob_per_token_mean": float(np.mean(self.logprob_per_token)),
             "logprob_sum_mean": float(np.mean(self.logprob_sum)),
             "accuracy": float(np.mean(self.exact_match)),
             "first_token_margin_mean": float(np.mean(self.first_token_margin)),
             "n": int(self.logprob_sum.shape[0]),
         }
+        if self.kl_from_reference is not None:
+            out["kl_mean"] = float(np.mean(self.kl_from_reference))
+            out["kl_median"] = float(np.median(self.kl_from_reference))
+            out["argmax_change_rate"] = float(np.mean(self.argmax_changed))
+        return out
 
 
 # --------------------------------------------------------------------------- #
@@ -346,10 +355,22 @@ class ModelBackend:
         batch_size: int | None = None,
         head_patches: Sequence[HeadPatch] = (),
         capture_heads: bool = False,
+        capture_logprobs: bool = False,
+        reference_logprobs: Any = None,
     ) -> ForwardResult:
-        """Teacher-forced forward over ``prompts`` with optional interventions/patches/capture."""
+        """Teacher-forced forward over ``prompts`` with optional interventions/patches/capture.
+
+        ``capture_logprobs`` keeps the full next-token log-probabilities at the query token (``(N, V)``);
+        ``reference_logprobs`` (the same array from an unsteered run of the same prompts, as returned by
+        :meth:`reference_tensor` or as a NumPy array) makes the run record the KL divergence from that
+        distribution and whether the most likely token changed (the damage check, D24).
+        """
         bs = batch_size or self.cfg.batch_size
         outs: list[ForwardResult] = []
+        if reference_logprobs is not None and not isinstance(reference_logprobs, torch.Tensor):
+            reference_logprobs = self.reference_tensor(reference_logprobs)
+        if reference_logprobs is not None and reference_logprobs.shape[0] != len(prompts):
+            raise ValueError("reference_logprobs must have one row per prompt")
         for start in range(0, len(prompts), bs):
             batch = prompts[start : start + bs]
             self.counters["forward_examples"] += len(batch)
@@ -366,8 +387,13 @@ class ModelBackend:
                 )
                 for hp in head_patches
             ]
-            outs.append(self._run_batch(batch, sliced, capture, patches, capture_heads))
+            ref = None if reference_logprobs is None else reference_logprobs[start : start + bs]
+            outs.append(self._run_batch(batch, sliced, capture, patches, capture_heads, capture_logprobs, ref))
         return _concat_results(outs)
+
+    def reference_tensor(self, query_logprobs: np.ndarray) -> torch.Tensor:
+        """``query_logprobs`` of a captured run as a float32 tensor on the model's device (kept for several runs)."""
+        return torch.as_tensor(np.asarray(query_logprobs, dtype=np.float32), device=self.device)
 
     def gradients(self, prompts: Sequence[Prompt], batch_size: int | None = None) -> np.ndarray:
         """Gradient of the summed target log-probability with respect to the residual
@@ -414,7 +440,8 @@ class ModelBackend:
             "Tt": Tt,
         }
 
-    def _forward_scores(self, batch: dict[str, Any], session: _HookSession) -> dict[str, torch.Tensor]:
+    def _forward_scores(self, batch: dict[str, Any], session: _HookSession, capture_logprobs: bool = False,
+                        reference: torch.Tensor | None = None) -> dict[str, torch.Tensor]:
         """Teacher-forced forward with ``session`` installed; target-position scores."""
         T, Tt = batch["T"], batch["Tt"]
         query_pos_dev = batch["query_pos"]
@@ -444,7 +471,15 @@ class ModelBackend:
         masked = first.detach().clone()
         masked.scatter_(1, tgt_dev[:, :1], float("-inf"))
         margin = gold - masked.max(dim=1).values
-        return {"lp_sum": lp_sum, "lp_tok": lp_tok, "em": em, "margin": margin, "first_lp": tok_lp[:, 0]}
+        out = {"lp_sum": lp_sum, "lp_tok": lp_tok, "em": em, "margin": margin, "first_lp": tok_lp[:, 0]}
+        query_lp = logprobs[:, 0, :]  # the next-token distribution at the query token
+        if capture_logprobs:
+            out["query_logprobs"] = query_lp
+        if reference is not None:
+            ref = reference.to(query_lp.dtype)
+            out["kl"] = (ref.exp() * (ref - query_lp)).sum(dim=1)
+            out["argmax_changed"] = query_lp.argmax(dim=1) != ref.argmax(dim=1)
+        return out
 
     def _run_batch(
         self,
@@ -453,6 +488,8 @@ class ModelBackend:
         capture: bool,
         head_patches: Sequence[HeadPatch] = (),
         capture_heads: bool = False,
+        capture_logprobs: bool = False,
+        reference: torch.Tensor | None = None,
     ) -> ForwardResult:
         batch = self._prepare_batch(prompts)
         session = _HookSession(
@@ -466,7 +503,7 @@ class ModelBackend:
             n_heads=self.n_heads,
             head_dim=self.head_dim,
         )
-        sc = self._forward_scores(batch, session)
+        sc = self._forward_scores(batch, session, capture_logprobs, reference)
         residuals = session.stacked() if capture else None
         heads = session.stacked_heads() if capture_heads else None
         return ForwardResult(
@@ -478,6 +515,9 @@ class ModelBackend:
             residuals=residuals,
             head_outputs=heads,
             first_token_logprob=sc["first_lp"].cpu().numpy().astype(np.float64),
+            query_logprobs=sc["query_logprobs"].cpu().numpy().astype(np.float32) if capture_logprobs else None,
+            kl_from_reference=sc["kl"].cpu().numpy().astype(np.float64) if reference is not None else None,
+            argmax_changed=sc["argmax_changed"].cpu().numpy().astype(bool) if reference is not None else None,
         )
 
     def _gradient_batch(self, prompts: Sequence[Prompt]) -> np.ndarray:
@@ -609,6 +649,9 @@ def _concat_results(parts: list[ForwardResult]) -> ForwardResult:
         residuals=None if parts[0].residuals is None else np.concatenate([p.residuals for p in parts], axis=1),
         head_outputs=None if parts[0].head_outputs is None else np.concatenate([p.head_outputs for p in parts], axis=1),
         first_token_logprob=None if parts[0].first_token_logprob is None else np.concatenate([p.first_token_logprob for p in parts]),
+        query_logprobs=None if parts[0].query_logprobs is None else np.concatenate([p.query_logprobs for p in parts]),
+        kl_from_reference=None if parts[0].kl_from_reference is None else np.concatenate([p.kl_from_reference for p in parts]),
+        argmax_changed=None if parts[0].argmax_changed is None else np.concatenate([p.argmax_changed for p in parts]),
     )
 
 

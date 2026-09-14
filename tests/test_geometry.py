@@ -268,12 +268,15 @@ def test_direction_readouts_hand_computed():
             g = G[l, x]
             assert out["gradient_alignment"][l, x] == pytest.approx(dv @ g / (np.linalg.norm(dv) * np.linalg.norm(g)))
             assert out["gradient_projection"][l, x] == pytest.approx(dv @ g)
+            if l + 1 < delta.shape[0]:  # the block increment of the first-order effect (D25)
+                assert out["first_order_increment"][l, x] == pytest.approx(delta[l + 1, x] @ G[l + 1, x] - dv @ g)
     # the sign is kept (a direction pointing against v gives -1) and missing inputs give nan
     delta2 = -np.broadcast_to(V[:, None, :], (L1, n, d)).copy()
     assert np.allclose(direction_readouts(delta2, V, None)["task_alignment"], -1.0)
     partial = direction_readouts(delta, None, G)
     assert np.all(np.isnan(partial["task_alignment"])) and not np.any(np.isnan(partial["gradient_alignment"]))
     assert np.all(np.isnan(direction_readouts(delta, None, None)["gradient_projection"]))
+    assert direction_readouts(delta, None, None)["first_order_increment"].shape == (delta.shape[0] - 1, delta.shape[1])
     # a zero perturbation is undefined, not an error
     zero = np.zeros((L1, n, d))
     assert np.all(np.isnan(direction_readouts(zero, V, G)["task_alignment"]))

@@ -135,19 +135,32 @@ def random_screen(
     controls: list[tuple[str, np.ndarray]],
     cfg: CalibrationConfig,
     rng: np.random.Generator,
+    reference: Any = None,
+    real_kl: np.ndarray | None = None,
+    kl_rng: np.random.Generator | None = None,
 ) -> dict[str, Any]:
     """Improvement of each matched random direction at ``(layer, alpha)``, and the
-    rank comparison plus the paired excess test of the real direction against them."""
+    rank comparison plus the paired excess test of the real direction against them.
+    With ``reference`` (the baseline's query-token distribution) the controls' damage is
+    recorded too and the real direction's per-example KL ``real_kl`` is tested against it."""
     diffs = []
     per_example = []
+    kls = []
     for kind, u in controls:
-        r = backend.run(prompts, interventions=[Intervention(layer, u, alpha)])
+        r = backend.run(prompts, interventions=[Intervention(layer, u, alpha)], reference_logprobs=reference)
         t = paired_bootstrap_test(r.logprob_per_token, base.logprob_per_token, rng, n_boot=cfg.n_boot)
         diffs.append({"kind": kind, "mean_diff": t.mean_diff, "p_value": t.p_value, "metrics": r.metrics_dict()})
         per_example.append(r.logprob_per_token - base.logprob_per_token)
+        if r.kl_from_reference is not None:
+            kls.append(r.kl_from_reference)
     comp = compare_to_null(real_mean_diff, np.array([d["mean_diff"] for d in diffs]))
     excess = paired_excess_test(real_diff, np.stack(per_example), rng, n_boot=cfg.n_boot)
-    return {"controls": diffs, "comparison": comp.__dict__, "excess_test": excess.__dict__}
+    out = {"controls": diffs, "comparison": comp.__dict__, "excess_test": excess.__dict__}
+    if real_kl is not None and kls:
+        # damage excess (D24): positive means the real direction disturbs the next-token distribution more
+        # than the matched random directions of the same norm do
+        out["kl_excess_test"] = paired_excess_test(real_kl, np.stack(kls), kl_rng or rng, n_boot=cfg.n_boot).__dict__
+    return out
 
 
 def pick_strength(reliable: list[GridPoint], reference_rho: float | None) -> GridPoint:
@@ -202,7 +215,8 @@ def calibrate(
     task_name: str,
 ) -> CalibrationResult:
     prompts = [zero_shot_prompt(prompt_cfg, q) for q in pool]
-    base = backend.run(prompts, capture=True)
+    base = backend.run(prompts, capture=True, capture_logprobs=True)
+    reference = backend.reference_tensor(base.query_logprobs)  # the damage check's baseline distribution (D24)
     layers = sorted(directions)
     norms = median_layer_norms(base, layers)
     if cfg.strength_unit == "natural":
@@ -212,6 +226,7 @@ def calibrate(
     else:
         units = dict(norms)
     rng = rng_for(run_seed, "calibration", task_name)
+    kl_rng = rng_for(run_seed, "calibration_damage", task_name)  # its own stream: the damage tests never move the others' draws
 
     grid: list[GridPoint] = []
     first_reliable_layer: int | None = None
@@ -225,7 +240,7 @@ def calibrate(
         while i < len(rhos):
             rho = rhos[i]
             alpha = rho * units[layer]
-            r = backend.run(prompts, interventions=[Intervention(layer, v, alpha)])
+            r = backend.run(prompts, interventions=[Intervention(layer, v, alpha)], reference_logprobs=reference)
             t = paired_bootstrap_test(r.logprob_per_token, base.logprob_per_token, rng, n_boot=cfg.n_boot)
             gp = GridPoint(
                 layer=layer,
@@ -251,7 +266,8 @@ def calibrate(
                         tuple(cfg.screen_kinds),
                     )
                 gp.screen = random_screen(backend, prompts, base, layer, alpha, v, t.mean_diff,
-                                          r.logprob_per_token - base.logprob_per_token, controls, cfg, rng)
+                                          r.logprob_per_token - base.logprob_per_token, controls, cfg, rng,
+                                          reference=reference, real_kl=r.kl_from_reference, kl_rng=kl_rng)
                 if cfg.screen_test == "paired_excess":
                     gp.passes_screen = bool(gp.screen["excess_test"]["p_value"] <= cfg.random_screen_max_p)
                 else:
