@@ -865,23 +865,79 @@ Against the smaller models:
   exists, the log G curve rank-correlates 0.85–0.98 with the selected
   profile, and 0.90–0.95 with the strongest (grid-ceiling) one.
 
+### Iteration 4b, model 4 (Qwen3-8B)
+
+```
+# workflow run 34859201216 (push-triggered request), H100 80GB HBM3 (ADA_80_PRO), US-CA-2
+uv run directions pilot --config configs/pilot_qwen3_8b.yaml --run-id pilot4b_qwen3_8b_seed20260907
+```
+
+Same protocol and seed (36 layers, d = 4096, 32 heads; candidate layers
+7/11/14/18/22). Wall time 52.7 min on an H100 (head effects 77 %,
+190–320 s per task; control profiles 13 s per task); peak allocated
+26.6 GB, reserved 27.5 GB, so the 24 GB tier would not have held batch 128.
+Four requests preceded this one (`docs/INFRA.md`): two sat in the queue
+for the whole timeout because EUR-NO-1 has no 48/80 GB card (runs
+34778958703, 34794257716), two failed at deploy because the data center
+was not one Flash or RunPod volumes accept (runs 34858497382, 34858770757).
+The determinism check passed on antonym (1.7 s).
+
+**10 of 10** tasks qualify. Universal heads (block, head; mean effect):
+(20, 26; 0.026), (20, 24; 0.018), (22, 10; 0.017), (20, 30; 0.016),
+(22, 30; 0.012), (25, 28; 0.012), (20, 25; 0.010), (21, 26; 0.010),
+(22, 13; 0.010), (23, 21; 0.009): blocks 20–25 of 36, seven of the ten
+(block, head) indices shared with 4B, effects as small as on 4B (the best
+single head moves any task's deranged prompts by at most 0.08; arithmetic
+and arithmetic_words by 0.000/0.001).
+
+Selection: layer 7 for every task; ρ = 1 (natural, 0.68–1.03 × the median
+residual norm) for seven tasks and ρ = 2 for arithmetic, last_antonym and
+number_to_words, where the canonical injection is *not* reliable: at ρ = 1
+it changes the calibration metric by −0.05, −1.25 and −0.02 nats
+respectively (last_antonym is hurt by it) and only 2 × the vector's norm
+improves. The best grid point is at the ceiling (3.91) for seven tasks.
+
+| task | sel ρ | Δ log p/token | acc base → steered | gap recovered | excess vs cov / other-task / demo (p) | cum log G (z iso/cov) | d_eff | T_L final |
+|---|---|---|---|---|---|---|---|---|
+| antonym | 1.0 | +0.52 | 0.00 → 0.01 | 0.07 | +0.49 (0.002) / +0.16 (0.003) / +0.48 (0.000) | 2.59 (−0.5/−0.9) | 8 → 5 | +0.26 |
+| arithmetic | 2.0 | +0.27 | 0.00 → 0.00 | 0.16 | +0.21 (0.000) / +0.15 (0.000) / +0.26 (0.000) | 1.65 (−1.1/−1.3) | 6 → 4 | −0.31 |
+| arithmetic_words | 1.0 | +0.08 | 0.00 → 0.00 | 0.02 | +0.07 (0.017) / +0.02 (0.29) / +0.14 (0.000) | 1.63 (−3.0/−4.4) | 10 → 3 | −0.17 |
+| last_antonym | 2.0 | +0.78 | 0.00 → 0.01 | 0.12 | +1.55 (0.000) / +0.09 (0.32) / +0.65 (0.000) | 2.04 (+0.9/−0.8) | 35 → 5 | +0.25 |
+| number_to_words | 2.0 | +0.28 | 0.00 → 0.00 | 0.08 | +0.49 (0.000) / +0.14 (0.08) / +0.34 (0.000) | 1.59 (−3.1/−2.0) | 15 → 6 | −0.42 |
+| past_tense | 1.0 | +0.58 | 0.00 → 0.02 | 0.08 | +0.88 (0.000) / +0.25 (0.001) / +0.48 (0.000) | 2.27 (−1.3/−1.9) | 10 → 10 | +0.09 |
+| plural | 1.0 | +0.76 | 0.00 → 0.01 | 0.13 | +1.06 (0.000) / +0.40 (0.000) / +0.21 (0.000) | 2.53 (−0.3/−0.8) | 12 → 12 | +0.12 |
+| present_participle | 1.0 | +0.38 | 0.00 → 0.00 | 0.06 | +0.85 (0.000) / +0.00 (0.49) / +0.28 (0.000) | 2.42 (+0.4/−0.8) | 8 → 12 | +0.05 |
+| singular | 1.0 | +0.56 | 0.01 → 0.02 | 0.12 | +0.93 (0.000) / +0.29 (0.001) / +0.75 (0.000) | 2.47 (−0.1/−1.0) | 14 → 15 | +0.28 |
+| uppercase | 1.0 | +0.57 | 0.00 → 0.00 | 0.11 | +0.44 (0.000) / +0.13 (0.000) / +0.32 (0.000) | 2.60 (+1.2/−0.7) | 10 → 9 | −0.24 |
+
+8B repeats the 4B picture rather than the 1.7B one: at the canonical
+strength the vector recovers 2–16 % of the few-shot gap with no change of
+accuracy, the improvement keeps rising to the grid ceiling (+4 to +6 nats
+at 3.9 × ‖FV‖), the task's own vector beats the other tasks' vectors by
+small margins (+0.13 to +0.40 for seven tasks, not for arithmetic_words,
+last_antonym, present_participle) and beats the deranged-prompt vectors
+for all ten (+0.14 to +0.75), and the profile is cascade + amplification
+inside the nulls for every task, with `d_eff` contracting for six tasks and
+`T_L` between −0.42 and +0.28. Across the four models the vector's norm
+relative to the residual stream at the injection layer falls from 1.7–3.9
+(0.6B, 1.7B) to 0.7–1.0 (4B, 8B), and the behavioural effect of the
+canonical injection falls with it, while the strength that moves each
+model stays at 2–4 × the stream.
+
 ## Not yet run / known limitations
 
-- Iteration 4b has run on 0.6B, 1.7B and 4B, seed 20260907; 8B not yet.
+- Iteration 4b has run once on each of the four models, seed 20260907
+  (8B on an H100 in US-CA-2, the others on RTX 4090s in EUR-NO-1).
   Iteration 4 (weakest-reliable calibration, first-token ranking) is
   superseded by 4b for the head ranking and the strength.
-- 8B on ADA_24 at batch 128 is a memory risk: 4B peaked at 11.2 GB
-  allocated (7.5 GB of weights + 3.7 GB of batch-128 activations) and
-  17.8 GB reserved; 8B has 15.3 GB of weights and d = 4096, so the
-  allocated peak lands near 21–22 GB of the 24 GB card. Its head-effect
-  stage (36 × 32 patches, as on 4B, on a 2 × larger model) should take
-  about 3 h, so the 5 h job timeout is also close. Options: a 48 GB tier
-  at batch 128 (the reason AGENTS.md allows for going up a tier), or
-  ADA_24 at batch 64 with a longer timeout (a per-model batch size, which
-  `tests/test_configs.py` currently forbids).
-- On 1.7B and 4B the calibration effect was still growing at the grid
-  ceiling (`max_rho` 4.0 in natural units) for seven of nine and nine of
-  ten tasks; the reference rule still selects the reliable point nearest
+- Data centers: EUR-NO-1 (the volume with the 0.6B–4B cache) currently
+  offers nothing above 24 GB, and only US-CA-2, US-IL-1, US-MO-2, US-NC-2,
+  EU-RO-1 and EUR-NO-1 can host a run at all (`docs/INFRA.md`;
+  `scripts/runpod_availability.py` shows the current stock per tier). The
+  8B run created a second volume in US-CA-2. The default data center of
+  the request file has not been changed.
+- On 1.7B, 4B and 8B the calibration effect was still growing at the grid
+  ceiling (`max_rho` 4.0 in natural units) for seven to nine of the tasks; the reference rule still selects the reliable point nearest
   ρ = 1, but the strongest-strength robustness profile is taken at the
   ceiling rather than at a peak. Raising `max_rho` costs one screened grid
   point per extension and would be a config change (D22). The pipeline
@@ -932,7 +988,6 @@ gh run list --workflow=run-gpu.yml --branch fable --limit 1 && gh run watch <RUN
 gh run download <RUN_ID> --dir results/remote/<name>
 # iteration 4b (D21 + D22: function-vector control at the canonical strength; the configs default to it)
 # on the other models and seeds, as request-file commands (the PCA-control protocol is `extraction.control: pca` with `calibration.strength_unit: layer_norm`):
-uv run directions pilot --config configs/pilot_qwen3_8b.yaml   --run-id pilot4b_qwen3_8b_seed20260907     # tier / batch size: see the memory note in known limitations
 uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --seed 1 --run-id pilot4b_qwen3_0.6b_seed1
 uv run directions aggregate results/remote/<a>/... results/remote/<b>/... --out results/aggregate4b_qwen3_0.6b.json
 uv run directions compare results/<run_a> results/<run_b>                # diff two runs (only after a change of the numerical path, D23)
