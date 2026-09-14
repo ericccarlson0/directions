@@ -74,8 +74,14 @@ def wait(
     deadline_s: float,
     poll_s: float,
     progress: Callable[[], None] | None = None,
+    queue_deadline_s: float | None = None,
 ) -> dict:
-    """Poll ``/status``; call ``progress`` after each poll; cancel on deadline."""
+    """Poll ``/status``; call ``progress`` after each poll; cancel on deadline.
+
+    ``queue_deadline_s`` bounds the time the job may sit in ``IN_QUEUE`` before a worker takes it: when no
+    worker exists for the endpoint's GPU tier and data center (or none with the required CUDA driver) the
+    job never leaves the queue, and without this bound the run waits the full deadline (docs/INFRA.md).
+    """
     last = None
     start = time.time()
     while True:
@@ -92,10 +98,17 @@ def wait(
             progress()
         if status in TERMINAL:
             return body
-        if time.time() - start > deadline_s:
+        elapsed = time.time() - start
+        if elapsed > deadline_s:
             print(f"deadline of {deadline_s:.0f}s exceeded; cancelling job {job_id}", file=sys.stderr)
             cancel(endpoint_url, api_key, job_id)
             return {"status": "TIMED_OUT", "error": "local deadline exceeded"}
+        if queue_deadline_s is not None and status == "IN_QUEUE" and elapsed > queue_deadline_s:
+            print(f"no worker took job {job_id} within {queue_deadline_s:.0f}s (still IN_QUEUE): the endpoint's GPU tier "
+                  f"has no available worker in its data center, or none with the required CUDA driver; cancelling",
+                  file=sys.stderr)
+            cancel(endpoint_url, api_key, job_id)
+            return {"status": "NO_WORKER", "error": f"still IN_QUEUE after {queue_deadline_s:.0f}s"}
         time.sleep(poll_s)
 
 
@@ -154,6 +167,7 @@ def run(
     job_id_file: Path | None = None,
     stale_retries: int = 3,
     stale_wait_s: float = 90,
+    queue_deadline_s: float | None = None,
 ) -> dict:
     """Submit and wait; when a stale worker answers, let it scale down and resubmit (up to ``stale_retries``).
 
@@ -169,7 +183,8 @@ def run(
         print(f"submitted job {job_id}" + (f" (resubmission {attempt} of {stale_retries})" if attempt else ""), flush=True)
         if job_id_file:
             job_id_file.write_text(job_id)
-        final = wait(endpoint_url, api_key, job_id, deadline_s - (time.time() - start), poll_s, progress)
+        final = wait(endpoint_url, api_key, job_id, deadline_s - (time.time() - start), poll_s, progress,
+                     queue_deadline_s=queue_deadline_s)
         if not is_stale(final, expected_source) or attempt == stale_retries:
             return final
         output = final.get("output") or {}
@@ -307,6 +322,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-output-mb", type=float, default=8.0)
     parser.add_argument("--timeout-minutes", type=float, default=300)
     parser.add_argument("--poll-seconds", type=float, default=30)
+    parser.add_argument("--queue-timeout-minutes", type=float, default=20,
+                        help="give up when no worker has taken the job after this long (0 = wait the full timeout)")
     parser.add_argument("--job-id-file", type=Path, default=None, help="write the job id here right after submit")
     parser.add_argument("--stale-retries", type=int, default=3, help="resubmissions after a stale worker answers")
     parser.add_argument("--stale-wait-seconds", type=float, default=90, help="pause before each resubmission")
@@ -357,6 +374,7 @@ def main(argv: list[str] | None = None) -> int:
         job_id_file=args.job_id_file,
         stale_retries=args.stale_retries,
         stale_wait_s=args.stale_wait_seconds,
+        queue_deadline_s=args.queue_timeout_minutes * 60 if args.queue_timeout_minutes > 0 else None,
     )
     return collect(final, args.out, download, expected_source=source["source_sha256"])
 
