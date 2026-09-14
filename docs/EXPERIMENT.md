@@ -119,16 +119,17 @@ With `extraction.control: function_vector` the direction carried forward is the 
 
 * for every attention head \((l, j)\), the mean output at the final query token over the positive prompts, \(\bar a_{l,j}\), taken before the attention output projection;
 * the average indirect effect of each head: the mean change of the probability of the correct target (teacher-forced over the whole target, which is the paper's first-token probability whenever the target is one token; docs/DECISIONS.md D22) on the deranged-label prompts when the head's output at the query token is replaced by \(\bar a_{l,j}\);
-* one universal head set \(S\): the top \(k = 10\) heads by the mean indirect effect over all tasks that reached extraction;
-* \(\mathrm{FV}_t = \sum_{(l,j) \in S} W_o^{l}[:, j]\, \bar a^{t}_{l,j}\), normalised to unit norm and used at every candidate layer.
+* one universal head set \(S\): the top \(k\) heads by the mean indirect effect over all tasks that reached extraction, with \(k\) chosen by the joint-effect sweep (docs/DECISIONS.md D26): the top-\(k\) sets are patched jointly into the deranged prompts for \(k \in \{1, 2, 4, 8, 16, 32\}\), and the smallest \(k\) whose pooled effect is not significantly below the best count's is taken (the paper fixes \(k = 10\); `function_vector.n_heads` keeps that option);
+* \(\mathrm{FV}_t = \sum_{(l,j) \in S} W_o^{l}[:, j]\, \bar a^{t}_{l,j}\), normalised to unit norm and used at every candidate layer;
+* a **head-support gate** (D26): the chosen set's joint patched effect on the task's deranged prompts must be positive (paired bootstrap, \(p \le 0.05\)) and exceed that of 16 random head sets of the same size (paired excess test, \(p \le 0.05\)); a task that fails has no function vector and is not measured.
 
-Gates, controls and layerwise measurements are unchanged. The calibration grid is in units of the vector's own norm with the canonical (unscaled) injection as the reference strength (see "Intervention Calibration"). Report the natural strength \(\|\mathrm{FV}_t\| / \operatorname{median}\|h_l\|\) at each candidate layer, the cross-seed stability of the per-seed function vectors (the stability gate applies to it), and \(\cos(\mathrm{FV}_t, v_{t,l})\) as a descriptive comparison with PC1. PC1 is still extracted at every read point and remains \(v_{t,l}\) in the direction-specific readouts.
+Gates, controls and layerwise measurements are otherwise unchanged. The calibration grid is in units of the vector's own norm with the canonical (unscaled) injection as the reference strength (see "Intervention Calibration"). Report the natural strength \(\|\mathrm{FV}_t\| / \operatorname{median}\|h_l\|\) at each candidate layer, the cross-seed stability of the per-seed function vectors (the stability gate applies to it), and \(\cos(\mathrm{FV}_t, v_{t,l})\) as a descriptive comparison with PC1. PC1 is still extracted at every read point and remains \(v_{t,l}\) in the direction-specific readouts.
 
 ## Intervention Calibration
 
 Candidate intervention layers:
 
-* approximately 20%, 30%, 40%, 50%, 60% through model depth
+* approximately 20%, 30%, 40%, 50% through model depth (D27: never past half depth; the function-vector heads sit at 55–70 % of depth on every model tested, and an injection inside or after their band would not have to propagate through the network to act)
 
 Relative strength:
 
@@ -152,7 +153,9 @@ For the function-vector control (docs/DECISIONS.md D22) the unit of \(\rho\) is 
 
 Select the earliest layer and, within it, the smallest strength that reliably improves the decision metric on the calibration pool, where "reliably" is operationalised statistically: a paired one-sided bootstrap over calibration examples (\(p \le 0.05\)), a minimum improvement over the unsteered baseline, and a matched random-control screen (16 random directions at the same layer and norm) using the same paired excess test as the qualification gate (D18).
 
-For the function-vector control the strength within the selected layer is instead the reliable grid point nearest the reference \(\rho = 1\) (in log distance; `calibration.reference_rho`), i.e. the paper's injection whenever it is reliable, and the weakest reliable strength is measured in the exploratory strength-robustness stage beside the middle and strongest ones. The layer rule is unchanged (`calibration.layer_rule: earliest`; `best`, the layer whose selected point improves most, is available).
+For the function-vector control the strength within a layer is instead the reliable grid point nearest the reference \(\rho = 1\) (in log distance; `calibration.reference_rho`), i.e. the paper's injection whenever it is reliable, and the weakest reliable strength is measured in the exploratory strength-robustness stage beside the middle and strongest ones. The layer is the candidate whose selected point improves the calibration metric most (`calibration.layer_rule: best`, the paper's layer sweep; D27), among the candidates up to half depth. `earliest` (the D1 rule) remains available and is what the PCA-control configs use.
+
+Every steered pass also records a damage measure (D24): the KL divergence from the unsteered next-token distribution at the query token, the same divergence with the answer's first token removed (collateral KL) and whether the most likely token changed, for every grid point (with its random screen), for the selected condition and every control kind on the held-out pool (paired excess tests against the controls at the same norm), and for the strength-robustness alternatives. Because the query-token KL mixes the intended change with the damage, every condition is also applied to the last token of a fixed set of 48 task-free prose sentences (`evaluation.neutral_prompts`) and the KL from their unsteered continuation is recorded and tested against the controls in the same way (`damage/neutral`). Reported, not a gate.
 
 Intervene at the final query token.
 
@@ -410,6 +413,14 @@ Effective dimensionality and new-subspace creation are computed from the full he
 
 We preregister the *smallest* reliable strength (for the PCA control; the canonical strength for the function vector, D22), which is correct for measuring propagation with minimal off-distribution distortion but leaves open whether the measured profile is a property of the direction or of the injection magnitude. Repeat the full layerwise measurement at the other reliable strengths of the same layer that differ from the selected one, (a) the **weakest**, (b) the **strongest** and (c) a strength between the weakest and the strongest, and report rank correlations with the selected profile for \(\log G_l\), \(d_{\mathrm{eff}}\) and \(N_l\).
 This should be written to the exploratory outputs (not the core outputs).
+
+### Functional depth profile (docs/DECISIONS.md D25)
+
+Beside the geometric metrics, the first-order predicted change of the target's log-probability, \(\delta_l(x) \cdot g_l(x)\) with \(g_l\) the baseline gradient at read point \(l\), and its increment across each block, are per-example metrics summarised and compared against every null like the others. The increment is the block's first-order contribution to the behavioural effect: where along the depth the perturbation acquires its effect on the answer. The signature reports the value at the injection layer and at the final layer, the centre of mass of the positive increments, and the z-means against the nulls.
+
+### Decomposition into the common and the task-specific part (docs/DECISIONS.md D28)
+
+For each task, the **leave-one-out common direction** \(c_{-t}\) is the normalised mean of the other tasks' unit control directions at the layer (the tasks that reached phase B; for the function vector, one direction, since the vector is layer-independent). It is injected as a control kind (`common`, at the real direction's norm) so the layerwise nulls include it, and the unit vector is split additively, \(v_t = (v_t \cdot c_{-t})\, c_{-t} + r_t\), with each part injected at its natural share of the selected strength (the two injections sum to the real one). Each part gets the held-out effect, the damage measure, the excess against the gate controls and against the real direction, the full layerwise profile against the same control profiles, its signature and labels, and rank correlations with the real profile (`decomposition.json`). The question it answers: how much of the behavioural effect and of the profile the shared in-context component carries, and whether the residual steers at all.
 
 ## Qualitative Profile Labels
 

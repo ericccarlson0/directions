@@ -64,6 +64,7 @@ from .geometry import (
 )
 from .layerwise import LayerwiseProfile, compare_by_kind, compute_profile, metric_curves, null_summary, profile_arrays
 from .model import ForwardResult, Intervention, ModelBackend, environment_metadata, set_torch_determinism
+from .neutral import neutral_prompts
 from .profiling import Profiler
 from .prompts import Prompt, few_shot_prompt, zero_shot_prompt
 from .runinfo import RejectionLog, git_info, make_run_dir, setup_logging, write_json, write_resolved_config
@@ -83,6 +84,7 @@ class ControlResult:
     per_example_diff: np.ndarray | None = None  # steered - baseline log p per token, per evaluation example
     per_example_kl: np.ndarray | None = None  # KL(baseline || steered) at the query token, per evaluation example (D24)
     per_example_collateral_kl: np.ndarray | None = None  # the same with the answer token removed (D24)
+    per_example_neutral_kl: np.ndarray | None = None  # KL on the neutral prose prompts, per prompt (D24)
 
 
 @dataclass
@@ -170,6 +172,13 @@ class Pipeline:
         set_linalg_device(self.backend.device if self.backend.device.type == "cuda" else None)
         self.metadata["model"] = self.backend.metadata()
         self.metadata["linalg_device"] = str(self.backend.device) if self.backend.device.type == "cuda" else "numpy"
+        # the neutral prose set for the damage measure (D24): its unsteered distributions, once per run
+        self.neutral = neutral_prompts(cfg.evaluation.neutral_prompts) if cfg.evaluation.neutral_prompts > 0 else []
+        self.neutral_ref = None
+        if self.neutral:
+            with self.prof.section("neutral_baseline"):
+                self.neutral_ref = self.backend.reference_tensor(self.backend.run(self.neutral, capture_logprobs=True).query_logprobs)
+        self.metadata["neutral_prompts"] = len(self.neutral)
         self.layers = candidate_layers(self.backend.n_layers, cfg.extraction.candidate_depth_fractions)
         self.metadata["candidate_layers"] = self.layers
         self.metadata["control"] = cfg.extraction.control
@@ -227,6 +236,7 @@ class Pipeline:
                 "calibration_damage": derive_seed(s, "calibration_damage", t.name),
                 "damage_bootstrap": derive_seed(s, "damage_bootstrap", t.name),
                 "head_support": derive_seed(s, "head_support", t.name),
+                "decomposition_bootstrap": derive_seed(s, "decomposition_bootstrap", t.name),
                 "random_controls": derive_seed(s, "random_controls", t.name),
                 "covariance_controls": derive_seed(s, "covariance_controls", t.name),
                 "bootstrap": derive_seed(s, "bootstrap", t.name),
@@ -371,6 +381,12 @@ class Pipeline:
             st.stable_layers = list(self.layers)
         st.ready = True
         return st
+
+    def _neutral_probe(self, layer: int, u: np.ndarray, alpha: float) -> np.ndarray:
+        """Per-prompt KL from the unsteered distribution on the neutral prose set with ``alpha * u`` added at ``layer``."""
+        r = self.backend.run(self.neutral, interventions=[Intervention(layer, u, alpha)], reference_logprobs=self.neutral_ref)
+        assert r.kl_from_reference is not None
+        return r.kl_from_reference
 
     def _target_tokenisation(self, items: list[Any], target_template: str) -> dict[str, Any]:
         """How the kept items' formatted targets tokenise (counts, and what the first token is)."""
@@ -560,7 +576,22 @@ class Pipeline:
         if counts.get("demo_variation", 0):
             for i, u in enumerate(st.demo_variation.get(layer, [])[: counts["demo_variation"]]):
                 out.append(("demo_variation", f"demo_variation_{i}", u))
+        if counts.get("common", 0):
+            c, others = self._common_direction(st, states, layer)
+            if c is not None:
+                out.append(("common", "common", c))
         return out
+
+    def _common_direction(self, st: TaskState, states: dict[str, TaskState], layer: int) -> tuple[np.ndarray | None, list[str]]:
+        """The leave-one-out common direction at ``layer`` (D28): the normalised mean of the other ready tasks'
+        unit control directions there. ``(None, [])`` when no other task reached phase B."""
+        others = sorted(n for n, s2 in states.items() if n != st.name and s2.ready and layer in s2.directions)
+        if not others:
+            return None, []
+        mean = np.mean([normalize(states[n].directions[layer].direction) for n in others], axis=0)
+        if not np.linalg.norm(mean) > 0:
+            return None, others
+        return normalize(mean), others
 
     def _measure_task(self, st: TaskState, states: dict[str, TaskState]) -> None:
         cfg = self.cfg
@@ -575,7 +606,8 @@ class Pipeline:
         # 4. calibration -------------------------------------------------
         with self.prof.section("calibration", name):
             cal = calibrate(self.backend, cfg.prompt, cfg.calibration, cfg.evaluation,
-                            {l: st.directions[l] for l in st.stable_layers}, splits.calibration, cfg.seed, name)
+                            {l: st.directions[l] for l in st.stable_layers}, splits.calibration, cfg.seed, name,
+                            neutral_probe=self._neutral_probe if self.neutral else None)
         st.calibration = cal
         write_json(out / "calibration.json", cal.as_dict())
         q["gates"]["calibration"] = cal.selected is not None
@@ -618,6 +650,7 @@ class Pipeline:
                                           reference_logprobs=ref)
             brng = rng_for(cfg.seed, "bootstrap", name)
             krng = rng_for(cfg.seed, "damage_bootstrap", name)
+            steered_nkl = self._neutral_probe(sel.layer, v, sel.alpha) if self.neutral else None
             prng = rng_for(cfg.seed, "profile_bootstrap", name)
             if do_layerwise:
                 # Direction-specific readouts (D17): the baseline target-log-prob gradient at every
@@ -639,9 +672,15 @@ class Pipeline:
                 with self.prof.section("controls_profiles", name):
                     prof = compute_profile(st.base.residuals, r.residuals, u, sel.layer, cfg.evaluation, prng, with_ci=False,
                                            **readout_kw)
-            st.controls.append(ControlResult(kind, label, rt.mean_diff, rt.p_value, r.metrics_dict(), prof,
+            metrics = r.metrics_dict()
+            nkl = None
+            if self.neutral:
+                with self.prof.section("controls_neutral", name):
+                    nkl = self._neutral_probe(sel.layer, u, sel.alpha)
+                metrics["neutral_kl_mean"], metrics["neutral_kl_median"] = float(np.mean(nkl)), float(np.median(nkl))
+            st.controls.append(ControlResult(kind, label, rt.mean_diff, rt.p_value, metrics, prof,
                                              r.logprob_per_token - st.base.logprob_per_token, r.kl_from_reference,
-                                             r.collateral_kl))
+                                             r.collateral_kl, nkl))
         sec = self.prof.sections
         log.info("[%s] %d controls: steered run + gradients %.0fs, control forwards %.0fs, control profiles %.0fs", name,
                  len(st.controls), sec[f"controls_setup:{name}"]["seconds"], sec.get(f"controls_forward:{name}", {}).get("seconds", 0.0),
@@ -680,6 +719,20 @@ class Pipeline:
                                    krng, n_boot=cfg.calibration.n_boot).__dict__}
                         for kind in sorted({c.kind for c in st.controls})},
         }
+        if steered_nkl is not None:
+            # damage on neutral prose (D24): the direction at the selected layer and norm, on task-free sentences
+            damage["neutral"] = {
+                "n_prompts": int(steered_nkl.shape[0]),
+                "steered": {"kl_mean": float(np.mean(steered_nkl)), "kl_median": float(np.median(steered_nkl))},
+                "gate_excess_test": paired_excess_test(steered_nkl, np.stack([c.per_example_neutral_kl for c in gate_ctl]),
+                                                       krng, n_boot=cfg.calibration.n_boot).__dict__,
+                "by_kind": {kind: {"kl_mean": float(np.mean([c.metrics["neutral_kl_mean"] for c in st.controls if c.kind == kind])),
+                                   "excess_test": paired_excess_test(
+                                       steered_nkl, np.stack([c.per_example_neutral_kl for c in st.controls if c.kind == kind]),
+                                       krng, n_boot=cfg.calibration.n_boot).__dict__}
+                            for kind in sorted({c.kind for c in st.controls})},
+                "per_prompt": {"steered": steered_nkl.tolist(), "controls": {c.label: c.per_example_neutral_kl.tolist() for c in st.controls}},
+            }
         ev = {
             "selection": q["selection"],
             "control": cfg.extraction.control,
@@ -716,10 +769,16 @@ class Pipeline:
                        "gate_excess_p": damage["gate_excess_test"]["p_value"],
                        "collateral_gate_excess_mean": damage["collateral_gate_excess_test"]["excess_mean"],
                        "collateral_gate_excess_p": damage["collateral_gate_excess_test"]["p_value"]}
+        if "neutral" in damage:
+            q["damage"].update({"neutral_kl_mean": damage["neutral"]["steered"]["kl_mean"],
+                                "neutral_gate_excess_mean": damage["neutral"]["gate_excess_test"]["excess_mean"],
+                                "neutral_gate_excess_p": damage["neutral"]["gate_excess_test"]["p_value"]})
         log.info("[%s] damage: KL(base||steered) at the query token mean %.3f, collateral (answer token removed) %.3f (argmax "
-                 "changed for %.0f%%); collateral excess over the gate controls %+.3f (p=%.3f)", name, q["damage"]["kl_mean"],
+                 "changed for %.0f%%); on neutral prose %s; neutral excess over the gate controls %s", name, q["damage"]["kl_mean"],
                  q["damage"]["collateral_kl_mean"], 100 * q["damage"]["argmax_change_rate"],
-                 q["damage"]["collateral_gate_excess_mean"], q["damage"]["collateral_gate_excess_p"])
+                 "n/a" if "neutral_kl_mean" not in q["damage"] else "%.3f" % q["damage"]["neutral_kl_mean"],
+                 "n/a" if "neutral_kl_mean" not in q["damage"] else
+                 "%+.3f (p=%.3f)" % (q["damage"]["neutral_gate_excess_mean"], q["damage"]["neutral_gate_excess_p"]))
         q["gates"]["steering"] = bool(test.p_value <= cfg.qualification.steering_alpha and test.mean_diff > 0)
         if cfg.qualification.gate_test == "paired_excess":
             q["gates"]["random_controls"] = bool(excess.p_value <= cfg.qualification.random_control_max_p)
@@ -786,6 +845,87 @@ class Pipeline:
             log.error("[%s] exploratory stage failed: %s", name, e)
             self.rejections.add("error", name, f"exploratory: {type(e).__name__}: {e}", {"traceback": traceback.format_exc()})
 
+        # 8. decomposition into the common and the task-specific part (D28) ---
+        if st.fv is not None:
+            try:
+                with self.prof.section("decomposition", name):
+                    self._decomposition(st, states, readout_kw, ref, gate_kinds)
+            except Exception as e:
+                log.error("[%s] decomposition stage failed: %s", name, e)
+                self.rejections.add("error", name, f"decomposition: {type(e).__name__}: {e}", {"traceback": traceback.format_exc()})
+
+    def _decomposition(self, st: TaskState, states: dict[str, TaskState], readout_kw: dict[str, Any], reference: Any,
+                       gate_kinds: list[str]) -> None:
+        """Split the unit function vector into its projection on the leave-one-out common direction and the
+        residual, inject each at its natural share of the selected strength (they sum to the real injection),
+        and measure both like the real direction: held-out effect, damage, layerwise profile against the same
+        control profiles, signature. Writes ``decomposition.json``."""
+        cfg = self.cfg
+        sel = st.selection
+        assert sel is not None and st.fv is not None and st.base is not None and st.steered is not None
+        assert st.base.residuals is not None and st.profile is not None
+        c, others = self._common_direction(st, states, sel.layer)
+        out: dict[str, Any] = {"selection": sel.__dict__, "common_direction": None, "parts": {}}
+        if c is None:
+            out["reason"] = "no other task reached phase B; no common direction"
+            write_json(self._task_dir(st.name) / "decomposition.json", out)
+            return
+        drng = rng_for(cfg.seed, "decomposition_bootstrap", st.name)
+        cos = float(st.fv.direction @ c)
+        parts = {"common": cos * c, "residual": st.fv.direction - cos * c}  # unit-vector coordinates; they sum to the FV
+        out["common_direction"] = {"cos_with_fv": cos, "other_tasks": others, "n_other_tasks": len(others),
+                                   "norm_share_common": abs(cos), "norm_share_residual": float(np.sqrt(max(0.0, 1 - cos**2)))}
+        by_kind: dict[str, list[LayerwiseProfile]] = {}
+        for ctl in st.controls:
+            if ctl.profile is not None:
+                by_kind.setdefault(ctl.kind, []).append(ctl.profile)
+        gate_mat = np.stack([ctl.per_example_diff for ctl in st.controls if ctl.kind in cfg.qualification.gate_control_kinds])
+        real_diff = st.steered.logprob_per_token - st.base.logprob_per_token
+        metrics = ("log_gain", "d_eff", "new_subspace", "new_subspace_uncentered", "conversion", "magnitude",
+                   "task_alignment", "gradient_alignment", "gradient_projection", "first_order_increment")
+        effects: dict[str, float] = {}
+        for label, part in parts.items():
+            norm = float(np.linalg.norm(part))
+            if not norm > 0:
+                out["parts"][label] = {"norm_share": 0.0, "skipped": "zero vector"}
+                effects[label] = 0.0
+                continue
+            u = part / norm
+            alpha = sel.alpha * norm  # the part's natural size under the selected strength
+            r = self.backend.run(st.eval_prompts, interventions=[Intervention(sel.layer, u, alpha)], capture=True,
+                                 reference_logprobs=reference)
+            assert r.residuals is not None
+            diff = r.logprob_per_token - st.base.logprob_per_token
+            test = paired_bootstrap_test(r.logprob_per_token, st.base.logprob_per_token, drng, n_boot=cfg.calibration.n_boot)
+            excess = paired_excess_test(diff, gate_mat, drng, n_boot=cfg.calibration.n_boot)
+            prof = compute_profile(st.base.residuals, r.residuals, u, sel.layer, cfg.evaluation, drng, **readout_kw)
+            comparison = compare_by_kind(prof, by_kind, gate_kinds)
+            sig = profile_signature(prof, comparison["primary"], cfg.analysis, by_kind=comparison["by_kind"])
+            effects[label] = test.mean_diff
+            part_metrics = r.metrics_dict()
+            if self.neutral:
+                nkl = self._neutral_probe(sel.layer, u, alpha)
+                part_metrics["neutral_kl_mean"], part_metrics["neutral_kl_median"] = float(np.mean(nkl)), float(np.median(nkl))
+            out["parts"][label] = {
+                "norm_share": norm, "alpha": alpha, "cos_with_fv": float(u @ st.fv.direction),
+                "metrics": part_metrics, "steering_test": test.__dict__, "excess_vs_gate_controls": excess.__dict__,
+                "excess_vs_fv": paired_excess_test(diff, real_diff[None, :], drng, n_boot=cfg.calibration.n_boot).__dict__,
+                "signature": sig, "curves": metric_curves(prof),
+                "rank_correlations_with_fv": {m: spearman(st.profile.metric_curve(m), prof.metric_curve(m)) for m in metrics},
+            }
+        out["fv"] = {"mean_diff": float(np.mean(real_diff)), "metrics": st.steered.metrics_dict()}
+        out["additivity"] = {"fv_minus_sum_of_parts": float(np.mean(real_diff)) - effects.get("common", 0.0) - effects.get("residual", 0.0)}
+        write_json(self._task_dir(st.name) / "decomposition.json", out)
+        st.qualification["decomposition"] = {
+            "cos_with_common": cos, "n_other_tasks": len(others),
+            "common_part_mean_diff": effects.get("common"), "residual_part_mean_diff": effects.get("residual"),
+            "common_part_labels": out["parts"].get("common", {}).get("signature", {}).get("labels"),
+            "residual_part_labels": out["parts"].get("residual", {}).get("signature", {}).get("labels"),
+        }
+        self.log.info("[%s] decomposition: cos(FV, common of %d tasks) %.3f; held-out d(lp/tok): FV %+.3f, common part %+.3f, "
+                      "residual part %+.3f", st.name, len(others), cos, float(np.mean(real_diff)), effects.get("common", 0.0),
+                      effects.get("residual", 0.0))
+
     def _determinism_check(self, st: TaskState, v: np.ndarray, do_layerwise: bool, readout_kw: dict[str, Any],
                            reference: Any = None) -> None:
         """Repeat the steered pass, the gradient pass and one profile of this task; require bit identity (D23)."""
@@ -851,7 +991,11 @@ class Pipeline:
                     assert r.residuals is not None
                     p = compute_profile(st.base.residuals, r.residuals, v, alt.layer, cfg.evaluation, prng,
                                         task_directions=st.all_layer_directions, gradients=st.gradients)
-                    rob["profiles"][label] = {"selection": alt.__dict__, "metrics": r.metrics_dict(), "profile": p.as_dict()}
+                    metrics = r.metrics_dict()
+                    if self.neutral:
+                        nkl = self._neutral_probe(alt.layer, v, alt.alpha)
+                        metrics["neutral_kl_mean"], metrics["neutral_kl_median"] = float(np.mean(nkl)), float(np.median(nkl))
+                    rob["profiles"][label] = {"selection": alt.__dict__, "metrics": metrics, "profile": p.as_dict()}
                     rob["rank_correlations"][label] = {
                         m: spearman(st.profile.metric_curve(m), p.metric_curve(m))
                         for m in ("log_gain", "d_eff", "new_subspace", "new_subspace_uncentered", "conversion", "magnitude",
@@ -890,6 +1034,7 @@ class Pipeline:
                     "selection": s.qualification.get("selection"),
                     "labels": None if s.signature is None else s.signature["labels"],
                     "damage": s.qualification.get("damage"),
+                    "decomposition": s.qualification.get("decomposition"),
                     "function_vector": None if s.fv is None else {
                         "natural_rho_at_selection": None if s.selection is None else
                         s.qualification["function_vector"]["natural_rho"][str(s.selection.layer)],

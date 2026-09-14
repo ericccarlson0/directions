@@ -63,7 +63,7 @@ calibration:
   strength_unit: natural      # D22 path: rho in units of the function vector's norm, which is tiny on the
   rho_grid: [1.0, 4.0, 8.0]   # random toy model (~1/8 of the residual norm), hence the large grid
   reference_rho: 4.0
-  layer_rule: earliest
+  layer_rule: best
   extend_grid: true
   extension_factor: 1.5
   max_rho: 16.0
@@ -75,7 +75,7 @@ calibration:
   n_boot: 200
 
 evaluation:
-  controls: {isotropic: 2, orthogonal: 1, covariance: 1, other_task: 2, demo_variation: 1}
+  controls: {isotropic: 2, orthogonal: 1, covariance: 1, other_task: 2, demo_variation: 1, common: 1}
   gate_kinds: [isotropic, orthogonal]
   n_boot: 200
   ci_alpha: 0.05

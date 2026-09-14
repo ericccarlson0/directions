@@ -669,6 +669,33 @@ its own forward passes, and the query-token KL answers the immediate
 question, whether the calibration's strongest points still perturb rather
 than replace the stream.
 
+Amendment (batch B, before the batch-B runs): the collateral KL did not
+separate from the raw KL on 0.6B (the two agreed to within a few per cent
+for every task and every control), because on a task prompt the
+intervention moves probability among many task-related tokens, not only
+onto the answer, and removing one token from the distribution does not
+remove the intended change. The measure that does not mix with the
+intended change is the one the steering literature uses: the intervention
+on text that carries no task. Each run therefore also applies the
+direction, at the selected layer and norm, to the last token of a fixed
+set of 48 **neutral prose** sentences cut mid-sentence (`directions.neutral`;
+`evaluation.neutral_prompts`, 0 disables) and records the KL from the
+unsteered next-token distribution there, for every calibration grid point
+with its random screen (`neutral_kl_excess_test`), for the selected
+condition and every control kind on the held-out pool (`evaluation.json/
+damage/neutral`, paired excess tests against the gate controls and per
+kind, on the existing damage bootstrap streams), for the strength-
+robustness alternatives and for the decomposition parts. The sentences
+are the same for every task and model, so the neutral KL is comparable
+across tasks in a way the query-token KL is not. Cost: one forward pass
+of 48 short prompts per condition (grid points, screen controls, held-out
+controls, alternatives, parts), under a tenth of a task's forward work on
+0.6B, where calibration and the control forwards together take a quarter
+of a task. Still not a
+gate, for the same reason as above; the by-kind excess on neutral prose
+("no more disturbance of unrelated text than a random direction of the
+same norm") replaces the collateral excess as the candidate criterion.
+
 ### D25. The functional depth profile: the first-order effect per read point and per block, compared against the nulls
 
 Context: the geometric profile (S, log G, C, A, d_eff, d90, N) has come back
@@ -753,3 +780,65 @@ look, more tasks there) will fail the gate, and a model where no task passes
 is a model with no function vectors under this construction, which is a
 result. Runs after this decision are not head-for-head comparable with
 iteration 4b.
+
+### D27. No injection past half depth; the injection layer is the one whose selected strength improves most
+
+Context: on every model the function-vector heads sit at 54–69 % of depth,
+and the earliest-reliable-layer rule (D1) injected the vector at 20–25 %,
+where every task was reliable. Todd et al. sweep the injection layer and
+take the best one, which for them is in the early-middle layers. The
+candidate layers ran to 60 %, past the start of the heads' band.
+
+Decisions: the candidate layers are 20/30/40/50 % of depth
+(`candidate_depth_fractions: [0.2, 0.3, 0.4, 0.5]`); nothing is injected
+past half depth, because a perturbation placed inside or after the band
+whose outputs the vector is made of would not have to propagate through
+the network to act, which is the thing this project measures. Among those
+candidates the layer is the one whose selected strength (D22's reference
+rule) improves the calibration metric most (`calibration.layer_rule:
+best`), the paper's sweep in the pipeline's statistical terms. The
+earliest-layer rule stays the PCA-control protocol and remains available.
+Consequence: the injection layer can differ between tasks and models, and
+the profiles cover a shorter depth when a later candidate wins; the
+"layer-matched" case of the discussion, one injection immediately upstream
+of the heads, is the 50 % candidate, and whether the sweep prefers it or
+the paper's early-middle layers is a result of the run.
+
+### D28. The vector's common and task-specific parts
+
+Context: on every model the tasks' function vectors have pairwise cosines
+of 0.3–0.9 (median ≈ 0.5) and are 0.5–0.8 aligned with vectors built from
+deranged-label prompts; the other-task and deranged-prompt nulls carry
+most of the behavioural effect at weak and moderate strengths. Whether the
+"control direction" of this construction is a shared in-context component
+plus a task-specific residue, and which of the two the geometry and the
+behaviour belong to, is the question the project's measurement has to
+answer before the propagation question means anything.
+
+Decisions:
+
+* **Leave-one-out common direction.** For task `t`, `c_{-t}` is the
+  normalised mean of the *other* tasks' unit control directions at the
+  layer, over the tasks that reached phase B (so a task's own vector never
+  enters its null). For the function vector, which is layer-independent,
+  it is one direction.
+* **A sixth control kind, `common`** (one per task): `c_{-t}` injected at
+  the real direction's layer and norm, so the layerwise nulls and the
+  behavioural excess tests include "the shared direction alone".
+* **The additive split.** `v_t = (v_t · c_{-t}) c_{-t} + r_t`; each part is
+  injected at its natural share of the selected strength (`α · ‖part‖` for
+  the unit vector's parts), so the two injections sum to the real one, and
+  each is measured exactly like the real direction: held-out effect and
+  damage, the paired excess against the gate controls and against the real
+  direction, the layerwise profile against the same control profiles, its
+  signature and labels, and rank correlations with the real profile. The
+  bootstrap draws come from a separate stream. Written to
+  `decomposition.json`; the summary carries the cosine with the common
+  direction and the two parts' held-out effects.
+
+Cost: one steered pass and one profile per part per task, plus one control.
+Interpretation: the model is not linear in the injection, so the two parts'
+effects need not add to the real one; `additivity` records the gap. The
+distributed, layer-matched injection of each head's contribution at its own
+layer was considered and set aside in favour of the single-layer rule of
+D27, so that every condition stays comparable to the paper's construction.

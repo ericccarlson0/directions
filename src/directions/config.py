@@ -152,7 +152,7 @@ class CalibrationConfig:
     n_boot: int = 2000
 
 
-CONTROL_KINDS = ("isotropic", "orthogonal", "covariance", "other_task", "demo_variation")
+CONTROL_KINDS = ("isotropic", "orthogonal", "covariance", "other_task", "demo_variation", "common")
 
 
 @dataclass
@@ -164,6 +164,8 @@ class EvaluationConfig:
     covariance      random direction drawn from the residual-stream covariance at the layer
     other_task      the control direction of another task at the same layer (up to n)
     demo_variation  PC1 of differences between two correct-demonstration prompts (no task contrast)
+    common          the leave-one-out common direction: the normalised mean of the *other* tasks' unit control
+                    directions (D28; at most 1)
     Every control is injected at the same layer, token and absolute norm as the real direction.
     """
 
@@ -172,6 +174,9 @@ class EvaluationConfig:
     n_boot: int = 1000
     ci_alpha: float = 0.05
     variance_fraction: float = 0.9  # for d90 and the top-subspace projector P_l
+    # Damage on neutral prose (D24): the intervention applied at the last token of this many task-free sentences
+    # (directions.neutral), the KL from their unsteered next-token distribution recorded for every condition; 0 disables
+    neutral_prompts: int = 48
 
 
 @dataclass
@@ -329,6 +334,8 @@ def validate_config(cfg: Config) -> None:
             raise ValueError(f"unknown control kind {k!r}; choose from {CONTROL_KINDS}")
         if int(n) < 0:
             raise ValueError(f"evaluation.controls[{k!r}] must be >= 0")
+    if cfg.evaluation.neutral_prompts < 0:
+        raise ValueError("evaluation.neutral_prompts must be >= 0")
     if not cfg.evaluation.gate_kinds:
         raise ValueError("evaluation.gate_kinds must be non-empty")
     for k in cfg.evaluation.gate_kinds:

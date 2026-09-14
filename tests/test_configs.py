@@ -38,7 +38,7 @@ def test_pilot_configs_match_preregistered_sizes():
     assert {"last_antonym", "arithmetic_words"} <= names and not ({"add_two", "en_fr"} & names)  # D19
     assert cfg.extraction.n_seeds == 3 and not cfg.extraction.center
     assert sum(cfg.evaluation.controls[k] for k in cfg.evaluation.gate_kinds) >= 32 and cfg.calibration.n_random_screen >= 8  # D20
-    assert set(cfg.evaluation.controls) == {"isotropic", "orthogonal", "covariance", "other_task", "demo_variation"}
+    assert set(cfg.evaluation.controls) == {"isotropic", "orthogonal", "covariance", "other_task", "demo_variation", "common"}  # D28
     assert cfg.qualification.enforce
     assert cfg.model.dtype == "bfloat16"
     # D18: paired-excess gate and screen against all three random-direction kinds
@@ -53,6 +53,9 @@ def test_pilot_configs_match_preregistered_sizes():
     assert cfg.extraction.function_vector.head_support_min_restored == 0.1
     assert cfg.extraction.function_vector.aie_seeds == 1 and cfg.extraction.function_vector.aie_metric == "target_probability"
     assert cfg.qualification.random_control_max_p <= 0.05 and cfg.calibration.random_screen_max_p <= 0.05
+    # D27: no injection past half depth; the layer is the one whose selected strength improves most
+    assert cfg.extraction.candidate_depth_fractions == [0.2, 0.3, 0.4, 0.5] and cfg.calibration.layer_rule == "best"
+    assert cfg.evaluation.controls["common"] == 1
 
 
 def test_config_validation_errors():
