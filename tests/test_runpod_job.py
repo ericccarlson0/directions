@@ -123,6 +123,23 @@ def test_wait_cancels_on_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
     assert calls[-1].endswith(f"/cancel/{JOB_ID}")
 
 
+def test_wait_gives_up_when_no_worker_takes_the_job(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = _patch_requests(monkeypatch, itertools.repeat("IN_QUEUE"))
+    clock = itertools.chain([0, 5, 15], itertools.repeat(100))
+    monkeypatch.setattr(runpod_job.time, "time", lambda: next(clock))
+
+    final = runpod_job.wait(ENDPOINT, API_KEY, JOB_ID, deadline_s=1000, poll_s=0, queue_deadline_s=50)
+
+    assert final["status"] == "NO_WORKER" and "IN_QUEUE" in final["error"]
+    assert calls[-1].endswith(f"/cancel/{JOB_ID}")
+    # a job that a worker has taken is not subject to the queue bound
+    calls = _patch_requests(monkeypatch, itertools.chain(["IN_QUEUE", "IN_PROGRESS", "IN_PROGRESS"], itertools.repeat("COMPLETED")))
+    clock = itertools.chain([0], itertools.repeat(100))
+    monkeypatch.setattr(runpod_job.time, "time", lambda: next(clock))
+    final = runpod_job.wait(ENDPOINT, API_KEY, JOB_ID, deadline_s=1000, poll_s=0, queue_deadline_s=50)
+    assert final["status"] == "COMPLETED"
+
+
 def test_main_rejects_bad_argv(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("RUNPOD_API_KEY", API_KEY)
     assert runpod_job.main(["--endpoint-url", ENDPOINT, "--argv-json", "[]"]) == 1
