@@ -983,17 +983,82 @@ D26 gained the restored fraction before this run.
   than they transform a random direction of the same norm. The
   deranged-prompt vectors are the exception (projection z 21–44 for six
   tasks, −8 for antonym): they carry a first-order effect of their own.
-- Everything else is as in iteration 4b with 16 heads instead of 10:
-  layer 6 and ρ = 1 selected for six tasks (antonym ρ = 0.5), held-out
-  +0.7 to +4.3 nats, cascade + amplification inside the nulls, `d_eff`
+- **The 16-head vector is a stronger vector.** Its norm is 47–65 (ten
+  heads: 34–49), 2.9–3.3 × the median residual norm at layer 6, and at
+  ρ = 1 (selected for six tasks; antonym ρ = 0.5) it recovers 43–89 % of
+  the few-shot gap (4b: 12–71 %) with accuracy 0.29–0.94 for four tasks
+  (4b: singular only); held-out +0.7 to +4.3 nats. The profile is
+  unchanged: cascade + amplification inside the nulls, `d_eff`
   contracting (17–39 → 6–21).
+
+```
+# workflow run 34870249769 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
+uv run directions pilot --config configs/pilot_qwen3_1.7b.yaml --run-id pilot5_qwen3_1.7b_seed20260907
+```
+
+Same protocol on 1.7B. Wall time 35.2 min (4b: 26.9; load average 109;
+the plural measurement and its control forwards took 300 and 240 s
+against 120–190 s for the other tasks, host contention again). PC1
+directions, head effects and extraction are **bit-identical to the
+iteration-4b 1.7B run** (54 arrays and blocks); the determinism check
+passed on antonym.
+
+- **Head count: the sweep hit the ceiling.** The pooled joint effect
+  rises 0.32 → 0.36 → 0.51 → 0.55 → 0.60 → 0.63 for k = 1 … 32 and every
+  k < 32 is significantly below 32 (p = 0.0005), so **32 heads** are used,
+  the largest candidate: whether 64 would do better is not known on this
+  model. Heads 11–32 have effects 0.004 → 0.001 and spread over blocks
+  12–26 (the first ten are the 4b ten). The set restores 77–98 % of the
+  gap for seven lexical tasks, 42 % for last_antonym and 0.34 % for
+  arithmetic, which is again rejected by the head-support gate;
+  arithmetic_words fails the few-shot gate (0.25) as before, so **8 of 10**
+  qualify (4b: 9 of 9 few-shot-passing tasks).
+- **The 32-head vector is stronger again.** Norm 240–337 (ten heads:
+  149–198), 4.6–6.6 × the residual norm at layer 6; ρ = 1 selected for
+  every task and reliable everywhere; held-out +3.1 to +5.9 nats, 68–92 %
+  of the few-shot gap (4b: 43–85 %), accuracy 0.41–0.92 for seven tasks
+  (number_to_words 0.10). Every task beats the other tasks' vectors
+  (+2.5 to +5.3) and the deranged-prompt vectors (+1.9 to +4.4).
+- **Damage.** KL at the query token 1.7–4.5 nats at ρ = 1, argmax changed
+  for 94–99 % (number_to_words 12 %); collateral 5–20 % below the raw KL.
+  The vector's KL is **below the 48 gate controls' for seven of eight
+  tasks** (−0.2 to −2.9 nats, p ≥ 0.76) and not different for
+  number_to_words (+0.2, p = 0.15); against the deranged-prompt vectors it
+  is higher for five tasks (+0.2 to +2.5, p = 0). Along the grid the KL reaches
+  1 nat at ρ = 0.5–0.75 (uppercase at 0.3) and 2.8–8.8 at ρ = 2.
+- **First-order depth profile.** `δ·g` at the injection layer is +5.5 to
+  +15 nats for seven tasks (the realised effect is +3.1 to +5.9) and ends
+  at +3.6 to +6.9; increments z −0.8 to +0.7 against the gate kinds
+  (projection level z +4.7 to +9.0). last_antonym is the one task whose
+  projection is built downstream: −1.7 at layer 6, +8.9 across block 7,
+  +6.6 at the end. Blocks 6–7 carry the largest increments for six tasks
+  (here mostly negative, −1 to −7, after a projection that starts far above
+  the realised effect: the first block after the injection removes the
+  part of the perturbation the model will not act on), with the
+  increment's centre of mass at 18–50 % of the downstream depth
+  (conversion: 73–79 %).
+- Profile: cascade or delayed activation + amplification, cumulative
+  log G 1.6–2.4 with z −0.6 to −4.9 against the isotropic null (the vector
+  amplifies less than random directions of its norm), `d_eff` expanding
+  for five tasks (6–15 → 22–47) and contracting for present_participle.
+
+Batch A on both models, in one line: the head-count sweep asks for more
+heads than the paper's ten (16 on 0.6B, ≥ 32 on 1.7B), the resulting
+vectors are 1.4–1.7 × larger and recover most of the few-shot gap at the
+canonical strength, the damage at that strength is no larger than a random
+direction's of the same norm for most tasks, and the first-order effect is
+present at the injection layer and not built downstream except for
+last_antonym.
 
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
   (8B on an H100 in US-CA-2, the others on RTX 4090s in EUR-NO-1).
   Iteration 4 (weakest-reliable calibration, first-token ranking) is
-  superseded by 4b for the head ranking and the strength.
+  superseded by 4b for the head ranking and the strength. Iteration 5,
+  batch A, has run on 0.6B and 1.7B; the head-count sweep chose the
+  largest candidate (32) on 1.7B, so `head_count_candidates` should be
+  extended (64) before the sweep is trusted on 4B and 8B.
 - Data centers: EUR-NO-1 (the volume with the 0.6B–4B cache) currently
   offers nothing above 24 GB, and only US-CA-2, US-IL-1, US-MO-2, US-NC-2,
   EU-RO-1 and EUR-NO-1 can host a run at all (`docs/INFRA.md`;
