@@ -19,12 +19,19 @@ def _write(tmp_path: Path, text: str) -> Path:
     return p
 
 
+def test_validate_rejects_a_data_center_flash_or_volumes_cannot_use():
+    params = dict(runpod_request.DEFAULTS, request="r", command="python -c 1", datacenter="US-NE-1")
+    with pytest.raises(runpod_request.RequestError):
+        runpod_request.validate(params)
+    assert runpod_request.validate(dict(params, datacenter="US-CA-2"))["datacenter"] == "US-CA-2"
+
+
 def test_committed_request_file_is_valid() -> None:
     params = runpod_request.load_request(REPO / ".github" / "gpu-run.yaml")
     assert params["command"]
     assert params["gpu_tier"] in runpod_request.GPU_TIERS
     assert params["gpu_type"] == ""  # `gpu_type: ""  # comment` must not keep the quotes (run 34491675423)
-    assert params["flash_env"] == "ci" and params["datacenter"] == "EUR-NO-1"
+    assert params["flash_env"] == "ci" and params["datacenter"] in runpod_request.DATACENTERS
 
 
 def test_push_reads_the_file_and_fills_defaults(tmp_path: Path) -> None:

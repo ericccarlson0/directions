@@ -23,7 +23,11 @@ import sys
 from pathlib import Path
 
 REQUEST_FILE = Path(".github/gpu-run.yaml")
-GPU_TIERS = ("AMPERE_16", "AMPERE_24", "ADA_24", "AMPERE_48", "ADA_48_PRO", "AMPERE_80", "ADA_80_PRO")
+GPU_TIERS = ("AMPERE_16", "AMPERE_24", "ADA_24", "ADA_32_PRO", "AMPERE_48", "ADA_48_PRO", "AMPERE_80", "ADA_80_PRO",
+             "BLACKWELL_96", "HOPPER_141")
+# Data centers a run can use: those Flash 1.19 accepts for a network volume (runpod_flash DataCenter enum) that
+# RunPod also lets a network volume be created in (the REST error of run 34858770757 lists them). docs/INFRA.md.
+DATACENTERS = ("US-CA-2", "US-IL-1", "US-MO-2", "US-NC-2", "EU-RO-1", "EUR-NO-1")
 DEFAULTS = {
     "gpu_tier": "ADA_24",
     "gpu_type": "",
@@ -123,8 +127,9 @@ def validate(params: dict[str, str]) -> dict[str, str]:
             raise RequestError(f"`{key}` must be a single line")
     if params["gpu_tier"] not in GPU_TIERS:
         raise RequestError(f"gpu_tier {params['gpu_tier']!r} is not one of {GPU_TIERS}")
-    if not params["datacenter"]:
-        raise RequestError("`datacenter` must be non-empty")
+    if params["datacenter"] not in DATACENTERS:
+        raise RequestError(f"datacenter {params['datacenter']!r} is not one of {DATACENTERS} (the data centers both Flash "
+                           "and RunPod network volumes accept; docs/INFRA.md)")
     if not _FLASH_ENV_RE.match(params["flash_env"]):
         raise RequestError(f"flash_env {params['flash_env']!r} must match {_FLASH_ENV_RE.pattern}")
     for key in ("timeout_minutes", "max_output_mb"):

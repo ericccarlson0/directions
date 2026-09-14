@@ -3,7 +3,7 @@
     uv run python scripts/runpod_availability.py                    # every tier, every data center with stock
     uv run python scripts/runpod_availability.py --tier ADA_80_PRO  # one tier
     uv run python scripts/runpod_availability.py --datacenter EUR-NO-1
-    uv run python scripts/runpod_availability.py --all             # also the data centers Flash cannot deploy to
+    uv run python scripts/runpod_availability.py --all             # also the data centers a run cannot use
 
 Reads ``RUNPOD_API_KEY`` (a read-only key suffices). The signal is RunPod's per-data-center GPU
 availability (``dataCenters.gpuAvailability`` in the GraphQL API, the same one the console shows, with
@@ -37,10 +37,9 @@ TIERS: dict[str, tuple[str, ...]] = {
     "BLACKWELL_180": ("NVIDIA B200",),
 }
 
-# runpod_flash.core.resources.datacenter.DataCenter (1.19): the only data centers a Flash network volume
-# (hence an endpoint of this workflow) can be placed in
-FLASH_DATACENTERS = ("US-CA-2", "US-IL-1", "US-KS-2", "US-MO-1", "US-MO-2", "US-NC-2", "US-NE-1", "US-WA-1",
-                     "EU-CZ-1", "EU-RO-1", "EUR-NO-1")
+# the data centers a run can use (scripts/runpod_request.py: accepted by Flash for a network volume and by
+# RunPod for creating one)
+FLASH_DATACENTERS = ("US-CA-2", "US-IL-1", "US-MO-2", "US-NC-2", "EU-RO-1", "EUR-NO-1")
 
 QUERY = "{ dataCenters { id listed gpuAvailability { gpuTypeId available stockStatus } } }"
 
@@ -89,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--tier", default=None, choices=sorted(TIERS))
     parser.add_argument("--datacenter", default=None)
-    parser.add_argument("--all", action="store_true", help="every data center, not only the ones Flash can deploy to")
+    parser.add_argument("--all", action="store_true", help="every data center, not only the ones a run can use")
     args = parser.parse_args(argv)
     api_key = os.environ.get("RUNPOD_API_KEY")
     if not api_key:
