@@ -87,6 +87,10 @@ class FunctionVectorConfig:
     head_support_null      random head sets of the chosen size against which the selected set is tested (the
                     head_support gate: the set's joint effect must be positive and exceed the random sets')
     head_support_alpha     p threshold of both tests
+    head_count_min_gain  a larger candidate replaces a smaller one only if its pooled effect exceeds the
+                    smaller one's by this fraction of it *and* significantly (D26 amendment: with hundreds of
+                    pooled prompts a 5 % gain is significant, and the sweep would otherwise always take the
+                    largest candidate)
     head_support_min_restored  the set must also restore this fraction of the gap between the deranged prompts'
                     answer probability and the positive prompts' (scale-free; 0 disables)
     head_selection  "universal": one head set for all tasks, ranked by the mean indirect effect over the
@@ -101,7 +105,8 @@ class FunctionVectorConfig:
     """
 
     n_heads: int | None = None
-    head_count_candidates: list[int] = field(default_factory=lambda: [1, 2, 4, 8, 16, 32])
+    head_count_candidates: list[int] = field(default_factory=lambda: [1, 2, 4, 8, 16, 32, 64])
+    head_count_min_gain: float = 0.1
     head_support_null: int = 16
     head_support_alpha: float = 0.05
     head_support_min_restored: float = 0.1
@@ -180,6 +185,24 @@ class EvaluationConfig:
 
 
 @dataclass
+class CommitmentConfig:
+    """Depth of commitment (docs/DECISIONS.md D29): at every read point after the injection, the perturbation is
+    edited along the injected direction (removed, or kept alone) and the surviving held-out effect measured
+    against the same edit along random directions.
+
+    n_prompts   evaluation prompts used (the first n of the pool; 0 = all); the base and steered captures are
+                re-run on exactly these prompts so the edits are exact
+    n_controls  random unit directions the edits are matched against
+    """
+
+    enabled: bool = True
+    n_prompts: int = 96
+    n_controls: int = 8
+    alpha: float = 0.05
+    n_boot: int = 1000
+
+
+@dataclass
 class BlockAblationConfig:
     enabled: bool = True
     n_blocks: int = 2
@@ -228,6 +251,7 @@ class Config:
     extraction: ExtractionConfig = field(default_factory=ExtractionConfig)
     calibration: CalibrationConfig = field(default_factory=CalibrationConfig)
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
+    commitment: CommitmentConfig = field(default_factory=CommitmentConfig)
     exploratory: ExploratoryConfig = field(default_factory=ExploratoryConfig)
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
     figures: FiguresConfig = field(default_factory=FiguresConfig)
@@ -308,6 +332,10 @@ def validate_config(cfg: Config) -> None:
         raise ValueError("extraction.function_vector.head_support_null must be >= 1")
     if not (0 < fv.head_support_alpha < 1):
         raise ValueError("extraction.function_vector.head_support_alpha must lie in (0, 1)")
+    if fv.head_count_min_gain < 0:
+        raise ValueError("extraction.function_vector.head_count_min_gain must be >= 0")
+    if cfg.commitment.n_prompts < 0 or cfg.commitment.n_controls < 1 or not (0 < cfg.commitment.alpha < 1) or cfg.commitment.n_boot < 1:
+        raise ValueError("commitment: n_prompts >= 0, n_controls >= 1, 0 < alpha < 1, n_boot >= 1")
     if not (0 <= fv.head_support_min_restored < 1):
         raise ValueError("extraction.function_vector.head_support_min_restored must lie in [0, 1)")
     if fv.head_selection not in ("universal", "per_task"):

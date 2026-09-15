@@ -179,7 +179,8 @@ def test_smoke_function_vector_outputs(smoke_fv_run):
         assert hs["n_heads"] == n_heads and len(hs["null_mean_effects"]) == 4 and hs["n_prompts"] == 6
         assert "restored_fraction" in hs and hs["positive_mean"] is not None and hs["min_restored"] == 0.1
         assert set(hs["test"]) >= {"mean_diff", "p_value"} and "excess_mean" in hs["excess_test"] and isinstance(hs["supported"], bool)
-        assert set(fv["head_count"]["mean_effect_by_k"]) == {"1", "2", "4", "8"}
+        assert set(fv["head_count"]["mean_effect_by_k"]) == {"1", "2", "4", "8"} and fv["head_count"]["min_gain"] == 0.1
+        assert set(fv["head_count"]["gain_fraction_by_k"]) == {"1", "2", "4", "8"}
         assert set(fv["cos_with_pca"]) == {"1", "2"} and len(fv["cos_with_pca_all_layers"]) == 5
         assert len(fv["demo_variation_cos_with_control"]) == 1
         if heads is None:
@@ -217,6 +218,13 @@ def test_smoke_function_vector_outputs(smoke_fv_run):
             assert p is None or "neutral_kl_mean" in p["metrics"]
         lw = json.loads((d / "layerwise.json").read_text())
         assert sorted({c["kind"] for c in lw["controls"]}) == ["common", "covariance", "demo_variation", "isotropic", "orthogonal", "other_task"]
+        # D29: the depth of commitment (remove / keep the injected direction at every later read point)
+        com = json.loads((d / "commitment.json").read_text())
+        assert com["read_points"] == list(range(com["intervention_layer"] + 1, com["n_read_points"])) and com["n_prompts"] == 6
+        assert set(com["curves"]) == {"remove:injected", "keep:injected", "remove:task_pc1", "keep:task_pc1"}
+        assert all(len(rows) == len(com["read_points"]) and "excess_vs_random" in rows[-1] for rows in com["curves"].values())
+        assert q["commitment"]["injected"]["commitment_layer"] is None or q["commitment"]["injected"]["commitment_layer"] > com["intervention_layer"]
+        assert "carried_by_direction_final" in q["commitment"]["task_pc1"]
         # D28: the leave-one-out common direction and the additive split of the vector into common and residual parts
         dec = json.loads((d / "decomposition.json").read_text())
         assert dec["common_direction"]["n_other_tasks"] == 2 and -1 <= dec["common_direction"]["cos_with_fv"] <= 1
@@ -239,3 +247,23 @@ def test_smoke_function_vector_is_reproducible(smoke_fv_run, tmp_path):
     cfg.output_dir = str(tmp_path)
     second = run_pipeline(cfg, "pilot")
     assert main(["compare", str(smoke_fv_run), str(second)]) == 0
+
+
+def test_choose_head_count_needs_a_significant_and_non_marginal_gain():
+    from directions.function_vector import choose_head_count
+
+    rng = np.random.default_rng(0)
+    n = 512
+    noise = rng.standard_normal(n) * 0.05
+    # doubling 1 -> 2 -> 4 gains a lot; 4 -> 8 gains 3 % (significant with 512 prompts); 8 -> 16 gains nothing
+    effects = {1: 0.10 + noise, 2: 0.20 + noise, 4: 0.30 + noise, 8: 0.309 + noise, 16: 0.309 + noise}
+    strict = choose_head_count(effects, np.random.default_rng(1), alpha=0.05, n_boot=400, min_gain=0.0)
+    assert strict["p_vs_best_by_k"][4] <= 0.05 and strict["chosen"] == 8  # significance alone takes the 3 %
+    marginal = choose_head_count(effects, np.random.default_rng(1), alpha=0.05, n_boot=400, min_gain=0.1)
+    assert marginal["chosen"] == 4 and marginal["gain_fraction_by_k"][4] == pytest.approx(0.03, abs=0.005)
+    assert marginal["gain_fraction_by_k"][16] is None and marginal["p_vs_best_by_k"][16] is None and marginal["min_gain"] == 0.1
+    assert marginal["k_best"] in (8, 16) and marginal["candidates"] == [1, 2, 4, 8, 16]
+    # a large but noisy gain that is not significant does not count either
+    wide = rng.standard_normal(n) * 2.0
+    effects = {1: 0.10 + noise, 2: 0.10 + noise, 4: 0.30 + wide}
+    assert choose_head_count(effects, np.random.default_rng(1), alpha=0.05, n_boot=400, min_gain=0.1)["chosen"] == 1

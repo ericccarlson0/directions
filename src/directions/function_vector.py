@@ -187,14 +187,18 @@ def random_head_sets(rng: np.random.Generator, n_layers: int, n_heads: int, k: i
 
 
 def choose_head_count(
-    effects_by_k: dict[int, np.ndarray], rng: np.random.Generator, alpha: float = 0.05, n_boot: int = 2000
+    effects_by_k: dict[int, np.ndarray], rng: np.random.Generator, alpha: float = 0.05, n_boot: int = 2000,
+    min_gain: float = 0.1,
 ) -> dict[str, Any]:
-    """The smallest head count whose joint effect is not significantly below the largest one.
+    """The smallest head count that no larger candidate improves on by more than a marginal gain.
 
     ``effects_by_k[k]`` holds the per-prompt joint effect of the top-``k`` heads (prompts pooled over tasks;
-    the same prompts for every ``k``). The largest mean effect is found, then every smaller ``k`` is
-    tested against it with the paired bootstrap; the smallest ``k`` whose deficit is not significant
-    (``p > alpha``) is chosen. Returns the choice with the per-``k`` means and p-values.
+    the same prompts for every ``k``). Candidates are visited in ascending order; ``k`` is chosen unless the
+    best larger candidate beats it both significantly (paired bootstrap, ``p <= alpha``) and by at least
+    ``min_gain`` of its own mean effect (D26 amendment: with hundreds of pooled prompts a few per cent are
+    significant, so significance alone would always take the largest candidate). Returns the choice with the
+    per-``k`` means, the p-value and gain fraction of each ``k`` against the best larger candidate, and the
+    overall best.
     """
     from .stats import paired_bootstrap_test
 
@@ -202,18 +206,24 @@ def choose_head_count(
     means = {k: float(np.mean(effects_by_k[k])) for k in ks}
     k_best = max(ks, key=lambda k: means[k])
     p_vs_best: dict[int, float | None] = {}
-    chosen = k_best
-    for k in ks:
-        if k == k_best:
+    gain: dict[int, float | None] = {}
+    chosen: int | None = None
+    for i, k in enumerate(ks):  # every k is tested, so the marginal gain of each doubling is on record
+        larger = ks[i + 1:]
+        if not larger:
             p_vs_best[k] = None
-            break
-        t = paired_bootstrap_test(effects_by_k[k_best], effects_by_k[k], rng, n_boot=n_boot)
-        p_vs_best[k] = t.p_value  # small: the top-k_best set is reliably better than the top-k set
-        if t.p_value > alpha:
+            gain[k] = None
+            continue
+        k_up = max(larger, key=lambda kk: means[kk])
+        t = paired_bootstrap_test(effects_by_k[k_up], effects_by_k[k], rng, n_boot=n_boot)
+        p_vs_best[k] = t.p_value  # small: the best larger set is reliably better than the top-k set
+        gain[k] = float((means[k_up] - means[k]) / means[k]) if means[k] > 0 else (float("inf") if means[k_up] > 0 else 0.0)
+        if chosen is None and not (t.p_value <= alpha and gain[k] >= min_gain):
             chosen = k
-            break
+    if chosen is None:
+        chosen = ks[-1]
     return {"candidates": ks, "mean_effect_by_k": means, "k_best": k_best, "p_vs_best_by_k": p_vs_best,
-            "chosen": chosen, "alpha": alpha}
+            "gain_fraction_by_k": gain, "chosen": chosen, "alpha": alpha, "min_gain": min_gain}
 
 
 def head_support_test(

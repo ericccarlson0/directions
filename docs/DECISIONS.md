@@ -842,3 +842,82 @@ effects need not add to the real one; `additivity` records the gap. The
 distributed, layer-matched injection of each head's contribution at its own
 layer was considered and set aside in favour of the single-layer rule of
 D27, so that every condition stays comparable to the paper's construction.
+
+## 2026-09-15 — Iteration 6: depth of commitment, the head count bounded
+
+### D26, amended: a larger head count must earn its place
+
+Context: the sweep chose the largest candidate (32) on 1.7B, 4B and 8B. Its
+rule, "the smallest count not significantly below the best", cannot stop
+once the pooled test has 512 prompts: on 1.7B the gain from 16 to 32 heads
+was 5 % and significant at p = 0.0005, on 4B 10 %, and on 8B the effect was
+still rising by a third per doubling. Heads past the tenth have individual
+effects at the noise floor; jointly they still add.
+
+Decision: the candidates are extended to 64 (`head_count_candidates:
+[1, 2, 4, 8, 16, 32, 64]`), and a larger candidate replaces a smaller one
+only if the best larger candidate beats it *both* significantly (paired
+bootstrap, p ≤ 0.05, as before) *and* by at least `head_count_min_gain` =
+10 % of the smaller one's pooled effect. The candidates are visited in
+ascending order and the first one that no larger candidate beats on both
+counts is chosen; every candidate's p-value and gain fraction against the
+best larger one are recorded (`function_vector.json/head_count`), so the
+marginal gain of each doubling is on record whether or not it was taken.
+The gain fraction is an effect-size threshold, which the project's
+principles reserve for cases where sampling noise is not the issue; here it
+is not (every deficit is significant), and a 10 % gain for a doubling of
+the heads is what "marginal" means in this context. On the batch-B data the
+rule would choose 8 heads on 0.6B, 16 on 1.7B and 4B, and 32 or more on 8B.
+
+### D29. Depth of commitment: where the injected direction stops being needed as a direction
+
+Context: the project's question is where the control signal is turned into
+computation. The geometric profile has mostly sat inside the random-direction
+nulls, and the first-order readouts are correlational: they say that the
+perturbation's projection on the target's gradient grows downstream on
+some models, not that the original direction has stopped mattering. The
+block ablation (exploratory) removes whole block contributions, which
+conflates the direction with everything the block does.
+
+Decision: a causal sweep along the depth, preregistered, on every qualified
+task (`commitment` config; `commitment.json`). With the vector injected at
+`l*`, at every later read point `m` the perturbation `δ_m = h_m^steer −
+h_m^base` at the query token is edited on top of the injection and the
+held-out effect that survives is measured on the first `n_prompts` = 96
+evaluation prompts (the base and steered captures are re-run on exactly
+those prompts, so the edits land on the captured residuals exactly, which
+the determinism of the forward pass guarantees and a test checks):
+
+* **remove**: `δ_m ← δ_m − (δ_m·u)u`. If the effect survives, `u` is no
+  longer carrying it at `m`; it has been converted into other features.
+* **keep**: `δ_m ← (δ_m·u)u`. If the effect survives, the direction itself
+  still carries it.
+
+`u` is the injected direction (the same vector at every `m`) and, as a
+second direction, the task's PC1 at `m` (the contrast direction the task
+itself uses at that depth). Each edit is matched against the same edit
+along `n_controls` = 8 random unit directions applied to the same steered
+run (own seed): removing a random component changes nothing and keeping
+only a random component keeps nothing, so the paired excess of the real
+edit over the random ones (D18's test) says whether the direction matters
+at `m` beyond the noise of editing. Per read point the surviving effect,
+its share of the full effect, its bootstrap CI, the cost against the
+unedited run and the excess test are recorded. The summary gives, per
+direction, the last read point at which removing it still costs effect
+beyond random removal (`needed_until`), the first read point after it
+(`commitment_layer`, also as a fraction of the downstream depth; `None`
+when the direction is needed to the end), the share of the effect
+retained after removal at the end, and the share the direction alone
+carries at the end (`carried_by_direction_final`) with the last read point
+at which it carries more than a random component (`carried_until`).
+
+Reading: an early commitment layer with a small `carried_by_direction`
+at the end is conversion (the direction was the trigger, the effect lives
+elsewhere); a direction needed to the end with a large carried share is
+conserved transmission (the effect is the direction's own projection on
+the readout); a direction needed to the end with a small carried share is
+the direction acting through what it has recruited at every layer. Cost:
+(2 directions × 2 edits + 2 edits × 8 random directions) forward passes
+over 96 prompts per read point after `l*`, about three times the
+control-forward stage of a task, so the 4B and 8B runs grow by a third to
+a half.

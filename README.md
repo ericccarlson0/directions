@@ -55,6 +55,8 @@ results/<run_id>/
                            (covariance, other_task, demo_variation)
       layerwise_arrays.npz per-example arrays
       decomposition.json   the vector's common and task-specific parts (D28): effect, damage, profile, labels of each
+      commitment.json      depth of commitment (D29): the effect surviving the removal (or sole keeping) of the
+                           injected direction at every later read point, against random directions
   exploratory/tasks/<task>/
       strength_robustness.json   profiles at the other reliable strengths (weakest / middle / strongest)
                                  + rank correlations with the selected one

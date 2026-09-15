@@ -81,6 +81,8 @@ evaluation:
   ci_alpha: 0.05
   variance_fraction: 0.9
 
+commitment: {enabled: true, n_prompts: 0, n_controls: 2, alpha: 0.05, n_boot: 50}
+
 exploratory:
   strength_robustness: true
   block_ablation: {enabled: true, n_blocks: 1, criterion: conversion, rank_by: z}

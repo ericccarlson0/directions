@@ -34,6 +34,7 @@ from ._version import __version__
 from .ablation import block_ablation, select_blocks
 from .analysis import cross_task_table, profile_signature
 from .calibration import CalibrationResult, Selection, calibrate
+from .commitment import depth_of_commitment
 from .config import Config, config_to_dict
 from .extraction import (
     LayerDirection,
@@ -450,11 +451,13 @@ class Pipeline:
             rng = rng_for(cfg.seed, "head_count")
             if fvc.head_selection == "universal":
                 pooled = {k: np.concatenate([joint_by_task[n][k] for n in sorted(joint_by_task)]) for k in candidates}
-                choice = choose_head_count(pooled, rng, alpha=fvc.head_support_alpha, n_boot=cfg.calibration.n_boot)
+                choice = choose_head_count(pooled, rng, alpha=fvc.head_support_alpha, n_boot=cfg.calibration.n_boot,
+                                           min_gain=fvc.head_count_min_gain)
                 chosen = {n: choice["chosen"] for n in ranking}
                 head_count.update(choice)
             else:
-                per_task = {n: choose_head_count(joint_by_task[n], rng, alpha=fvc.head_support_alpha, n_boot=cfg.calibration.n_boot)
+                per_task = {n: choose_head_count(joint_by_task[n], rng, alpha=fvc.head_support_alpha, n_boot=cfg.calibration.n_boot,
+                                                 min_gain=fvc.head_count_min_gain)
                             for n in sorted(joint_by_task)}
                 chosen = {n: c["chosen"] for n, c in per_task.items()}
                 head_count["per_task"] = per_task
@@ -837,6 +840,15 @@ class Pipeline:
         if self.stop_after == "layerwise":
             return
 
+        # 6b. depth of commitment (D29): where the injected direction stops being needed as a direction ---
+        if cfg.commitment.enabled:
+            try:
+                with self.prof.section("commitment", name):
+                    self._commitment(st, v)
+            except Exception as e:
+                log.error("[%s] commitment stage failed: %s", name, e)
+                self.rejections.add("error", name, f"commitment: {type(e).__name__}: {e}", {"traceback": traceback.format_exc()})
+
         # 7. exploratory -------------------------------------------------
         try:
             with self.prof.section("exploratory", name):
@@ -853,6 +865,35 @@ class Pipeline:
             except Exception as e:
                 log.error("[%s] decomposition stage failed: %s", name, e)
                 self.rejections.add("error", name, f"decomposition: {type(e).__name__}: {e}", {"traceback": traceback.format_exc()})
+
+    def _commitment(self, st: TaskState, v: np.ndarray) -> None:
+        """Edit the perturbation along the injected direction at every later read point and measure what
+        survives, against the same edits along random directions (D29). Writes ``commitment.json``."""
+        cfg = self.cfg
+        sel = st.selection
+        assert sel is not None and st.base is not None and st.steered is not None
+        n = cfg.commitment.n_prompts or len(st.eval_prompts)
+        prompts = st.eval_prompts[:n]
+        if n >= len(st.eval_prompts):
+            base, steered = st.base, st.steered
+        else:
+            # the edits must land on the captured residuals exactly, so the captures are taken on this very prompt list
+            base = self.backend.run(prompts, capture=True)
+            steered = self.backend.run(prompts, interventions=[Intervention(sel.layer, v, sel.alpha)], capture=True)
+        res = depth_of_commitment(self.backend, prompts, base, steered, sel.layer, v, sel.alpha, st.all_layer_directions,
+                                  cfg.commitment, rng_for(cfg.seed, "commitment_controls", st.name),
+                                  rng_for(cfg.seed, "commitment_bootstrap", st.name))
+        res["selection"] = sel.__dict__
+        write_json(self._task_dir(st.name) / "commitment.json", res)
+        st.qualification["commitment"] = res["summary"]
+        s = res["summary"]["injected"]
+        fmt = lambda x: "n/a" if x is None else f"{x:.2f}"  # noqa: E731
+        self.log.info("[%s] commitment: the injected direction is needed until read point %s (%s of the downstream depth; "
+                      "commitment layer %s, still needed at the end: %s); effect retained after removing it at the end %s "
+                      "(min %s); carried by the direction alone at the end %s (max %s); full effect %+.3f on %d prompts",
+                      st.name, s["needed_until"], fmt(s["needed_until_fraction"]), s["commitment_layer"], s["needed_at_end"],
+                      fmt(s["retained_after_removal_final"]), fmt(s["retained_after_removal_min"]),
+                      fmt(s["carried_by_direction_final"]), fmt(s["carried_by_direction_max"]), res["full_effect"], res["n_prompts"])
 
     def _decomposition(self, st: TaskState, states: dict[str, TaskState], readout_kw: dict[str, Any], reference: Any,
                        gate_kinds: list[str]) -> None:
@@ -1035,6 +1076,7 @@ class Pipeline:
                     "labels": None if s.signature is None else s.signature["labels"],
                     "damage": s.qualification.get("damage"),
                     "decomposition": s.qualification.get("decomposition"),
+                    "commitment": s.qualification.get("commitment"),
                     "function_vector": None if s.fv is None else {
                         "natural_rho_at_selection": None if s.selection is None else
                         s.qualification["function_vector"]["natural_rho"][str(s.selection.layer)],
