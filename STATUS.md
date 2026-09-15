@@ -1177,6 +1177,63 @@ the few-shot gate, 8 of 10 qualify.
   for seven of eight tasks (`d_eff` 3–9 → 10–47), cumulative log G 1.5–2.3
   at z −0.2 to −4.8 against the isotropic null, `T_L` +0.02 to +0.67.
 
+```
+# workflow run 34925203393 (push-triggered request), H100 80GB HBM3 (ADA_80_PRO), US-CA-2, Flash environment ci-8b
+uv run directions pilot --config configs/pilot_qwen3_8b.yaml --run-id pilot5b_qwen3_8b_seed20260907
+```
+
+Same protocol on 8B (36 layers; candidate layers 7/11/14/18), run in
+parallel with the 4B run below in a second Flash environment. Pipeline
+62.6 min on an H100 (4b: 52.7; load average 21), determinism check passed
+on antonym. **8 of 10** qualify: arithmetic_words now passes the few-shot
+gate (0.70; 0.6B and 1.7B: 0.02 and 0.25) and, like arithmetic, is
+rejected by the head-support gate (2.8 % and 1.3 % of the gap restored).
+
+- **Head count: the ceiling binds hardest here.** The pooled joint effect
+  is 0.03 / 0.06 / 0.14 / 0.25 / 0.46 / 0.60 for k = 1 … 32: it nearly
+  doubles from 8 to 16 heads and grows by a third more from 16 to 32,
+  with no plateau in sight, so the chosen 32 is censored by the candidate
+  list. The 32 heads sit in blocks 16–27 of 36, thirty of them in blocks
+  19–25 (53–69 % depth); the first ten are the iteration-4b ten.
+- **The 32-head vector changes the 8B picture.** Its norm is 2.1–2.6 ×
+  the ten-head vector's, and at ρ = 1 it recovers 65–94 % of the few-shot
+  gap (4b at layer 7: 2–16 %), held-out +2.2 to +5.4 nats (4b: +0.08 to
+  +0.78), accuracy 0.39–1.00 for seven tasks (4b: no change from 0). The
+  own vector beats the other tasks' by +1.3 to +4.3 and the deranged-prompt
+  vectors by +1.3 to +3.9.
+- **Layer.** Layer 18 (50 %) for seven tasks, layer 7 for plural (a tie,
+  +5.06 at both). At ρ = 1 the improvement rises with depth for every task
+  but dips at layer 11 for all of them (antonym +4.2 / +2.9 / +4.0 / +5.3
+  at 7/11/14/18; past_tense +3.4 / +3.9 / +5.6 / +5.8); the best point of
+  each layer's grid is the same to within 0.1 nats (antonym +6.9 at every
+  layer), so the layer decides how far ρ = 1 is from the ceiling, not the
+  ceiling. At layer 18 the vector is 0.76–1.10 × the median residual norm,
+  at layer 7 2.1 ×.
+- **Common versus residual.** cos(FV, common of the other seven)
+  0.64–0.84 (the highest of the four models). The common direction alone
+  steers +0.5 to +3.7 nats; the common part +0.55 to +3.4 and the residual
+  +1.3 to +4.4, the residual carrying antonym (+4.4 vs +1.2), uppercase
+  (+4.1 vs +0.8), last_antonym, number_to_words, the common part
+  past_tense (+3.4 vs +2.1) and present_participle; additivity gaps −2.4
+  to +2.0. Both parts carry the vector's profile shape (log G rank
+  correlation 0.80–0.97) except uppercase's common part (0.12).
+- **Damage.** Query-token KL 0.5–2.8 nats, above the gate controls' for
+  every task (+0.3 to +1.9). On neutral prose the vector moves the
+  distribution by only 0.15–0.39 nats, the same as random directions of its
+  norm (excess −0.03 to +0.04, p ≥ 0.09) except uppercase (+0.16,
+  p = 0); the neutral KL passes 1 nat only at ρ ≈ 1.5–2.5. At ρ = 1 the
+  8B injection is, on this measure, the gentlest of the four models.
+- **At half depth on 8B the blocks build the effect, strongly.** `δ·g`
+  +0.3 to +5.1 at the injection layer and +5.3 to +10.7 at the end, with
+  the per-block increments above the nulls for every task (z +0.9 to
+  +5.8 against the gate kinds; 0.6B at layer 14: +1.1 to +2.6; 1.7B:
+  inside), centre of mass at 26–53 % of the downstream depth. The
+  geometric profile also leaves the nulls for the first time: cumulative
+  log G 1.8–2.8 with z +0.8 to +4.0 against the isotropic null (4b: −0.5
+  to +1.2), cascade + amplification for six tasks, delayed activation for
+  plural and uppercase, `d_eff` expanding for three tasks and contracting
+  for plural (37 → 6).
+
 Batch B on both models, in one line: with the injection confined to the
 first half of the depth, 0.6B wants the deepest layer allowed and 1.7B
 does not care; the leave-one-out common direction alone steers 0.04–3.1
