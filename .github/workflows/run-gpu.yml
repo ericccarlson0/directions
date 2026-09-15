@@ -45,11 +45,9 @@ on:
         description: "Budget for the base64 results tarball in the job output"
         default: "8"
 
-# Note: one deploy + run at a time per Flash environment.
-# Runs which were triggered by push are grouped under `ci` whatever their request file says.
-concurrency:
-  group: run-gpu-${{ inputs.flash_env || 'ci' }}
-  cancel-in-progress: false
+# Note: one deploy + run at a time per Flash environment (the `run` job's concurrency group is the resolved
+# `flash_env`, from the form or from the request file), so two requests with different `flash_env` values run in
+# parallel on their own endpoints (docs/INFRA.md).
 
 env:
   RUNPOD_FLASH_VERSION: "1.19.0"
@@ -66,6 +64,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       proceed: ${{ steps.check.outputs.proceed }}
+      flash_env: ${{ steps.env.outputs.flash_env }}
     steps:
       - id: check
         env:
@@ -85,10 +84,24 @@ jobs:
           else
             echo "proceed=true" >> "$GITHUB_OUTPUT"
           fi
+      - uses: actions/checkout@v4
+        if: steps.check.outputs.proceed == 'true'
+      - name: resolve the Flash environment (the run job's concurrency group)
+        id: env
+        if: steps.check.outputs.proceed == 'true'
+        env:
+          INPUTS_JSON: ${{ toJSON(inputs) }}
+        run: |
+          python3 scripts/runpod_request.py --file .github/gpu-run.yaml \
+            --event "${GITHUB_EVENT_NAME}" --inputs-json "${INPUTS_JSON}" | grep '^flash_env=' >> "$GITHUB_OUTPUT"
 
   run:
     needs: gate
     if: needs.gate.outputs.proceed == 'true'
+    # One deploy + run at a time per Flash environment; a second request for the same environment waits.
+    concurrency:
+      group: run-gpu-${{ needs.gate.outputs.flash_env }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     # Hosted-runner ceiling.
     timeout-minutes: 360
