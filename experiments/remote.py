@@ -79,7 +79,15 @@ async def run_experiment(
     Unknown inputs are reported, not rejected: a worker may hold an older handler than the runner expects
     (docs/INFRA.md), and a signature error would surface as a FAILED job instead of a diagnosable output.
     """
-    from directions.remote import SOURCE_JOBS_DIR, artifact_fingerprints, execute, stale_worker, unpack_source
+    from directions.remote import (
+        SOURCE_JOBS_DIR,
+        WHEELHOUSE_SUBDIR,
+        artifact_fingerprints,
+        execute,
+        offline_argv,
+        stale_worker,
+        unpack_source,
+    )
 
     fingerprints = artifact_fingerprints(ROOT)
     info: dict = {"handler_stale": stale_worker(fingerprints), **fingerprints}
@@ -98,6 +106,12 @@ async def run_experiment(
         extra_env["DIRECTIONS_GIT_COMMIT"] = git_commit
     if VOLUME_ROOT.is_dir():
         extra_env["HF_HOME"] = str(VOLUME_ROOT / "hf")
+    wheelhouse = VOLUME_ROOT / WHEELHOUSE_SUBDIR
+    info["wheelhouse"] = str(wheelhouse) if wheelhouse.is_dir() else None
+    if wheelhouse.is_dir():
+        # the locked wheels are on the volume: build the environment from them instead of from PyPI
+        argv = offline_argv(argv, wheelhouse)
+        print(f"wheelhouse {wheelhouse}: building the environment offline")
     result = execute(
         argv=argv,
         cwd=root,
