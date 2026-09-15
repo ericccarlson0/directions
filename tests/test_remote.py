@@ -244,3 +244,17 @@ def test_unpack_source_rejects_a_wrong_digest(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="digest mismatch"):
         unpack_source(shipped["source_tar_b64"], "0" * 64, tmp_path / "jobs")
     assert not (tmp_path / "jobs").exists()
+
+
+def test_offline_argv_builds_the_environment_from_the_wheelhouse(tmp_path: Path) -> None:
+    from directions.remote import offline_argv
+
+    wrapped = offline_argv(["uv", "run", "directions", "pilot", "--config", "configs/a b.yaml"], tmp_path / "wheels")
+    assert wrapped[:4] == ["bash", "-euo", "pipefail", "-c"]
+    script = wrapped[4]
+    assert "uv venv -q --python 3.11 .venv" in script
+    assert "uv export --frozen --no-hashes --no-emit-project --no-dev" in script
+    assert f"--no-index --find-links {tmp_path / 'wheels'}" in script and " -r .wheelhouse-requirements.txt ." in script
+    assert script.endswith("exec uv run --no-sync directions pilot --config 'configs/a b.yaml'")
+    # anything that is not `uv run` is left alone (probes run with the image's python)
+    assert offline_argv(["python", "scripts/probe_bandwidth.py"], tmp_path) == ["python", "scripts/probe_bandwidth.py"]

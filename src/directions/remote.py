@@ -182,6 +182,32 @@ def stale_worker(fingerprints: dict[str, str | None]) -> bool:
     return bool(code and expected and code != expected)
 
 
+WHEELHOUSE_SUBDIR = "wheels"  # on the network volume: the locked wheels, so the install never touches PyPI
+
+
+def offline_argv(argv: list[str], wheelhouse: Path) -> list[str]:
+    """Turn ``uv run <cmd>`` into a shell command that builds the venv from ``wheelhouse`` and runs the command.
+
+    PyPI's CDN (files.pythonhosted.org) has served RunPod workers at 0.3 MB/s for hours at a time while every
+    other host was fast (docs/INFRA.md), and ``uv run`` fetches ~3 GB of wheels from it on every fresh worker.
+    With the locked wheels staged on the volume (``scripts/runpod_wheelhouse.py``) the environment is built with
+    ``--no-index`` from that directory (the project itself is built with the ``uv_build`` wheel there) and the
+    command runs with ``uv run --no-sync``. Any other command is returned unchanged.
+    """
+    import shlex
+
+    if list(argv[:2]) != ["uv", "run"]:
+        return list(argv)
+    script = (
+        "uv venv -q --python 3.11 .venv"
+        " && uv export --frozen --no-hashes --no-emit-project --no-dev -q -o .wheelhouse-requirements.txt"
+        f" && uv pip install -q --python .venv/bin/python --no-index --find-links {shlex.quote(str(wheelhouse))}"
+        " -r .wheelhouse-requirements.txt ."
+        f" && exec uv run --no-sync {shlex.join(argv[2:])}"
+    )
+    return ["bash", "-euo", "pipefail", "-c", script]
+
+
 def _run_streaming(
     argv: list[str], cwd: Path, env: dict[str, str], log_path: Path, live_copy: Path | None = None
 ) -> tuple[int, str]:
