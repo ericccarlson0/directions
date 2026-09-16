@@ -92,6 +92,26 @@ def test_aggregate_command(tmp_path):
                                  "by_kind": {"isotropic": {"n": 4, "new_subspace_uncentered_z_mean": 0.5}}}},
             "table": {},
         }))
+        (root / "metadata.json").write_text(json.dumps({"function_vector": {"head_count": {"chosen": 8 * (i + 1), "mean_effect_by_k": {"8": 0.5}}}}))
+    # the qualified run has per-task files; the core quantities come from them (and the commitment curves are
+    # re-summarised under the amended D29, so an older run without the hand-over keys still contributes)
+    tdir = tmp_path / "run0" / "core" / "tasks" / "t"
+    tdir.mkdir(parents=True)
+    (tdir / "qualification.json").write_text(json.dumps({
+        "selection": {"layer": 8, "rho": 0.5, "rho_layer_norm": 0.7},
+        "fewshot": {"logprob_per_token_mean": -1.0}, "zeroshot_baseline": {"logprob_per_token_mean": -5.0},
+        "damage": {"neutral_kl_mean": 0.2, "neutral_gate_excess_mean": 0.01},
+        "decomposition": {"cos_with_common": 0.6, "common_part_mean_diff": 1.0, "residual_part_mean_diff": 2.0},
+    }))
+    (tdir / "evaluation.json").write_text(json.dumps({
+        "steering_test": {"mean_diff": 3.0}, "excess_test": {"excess_mean": 2.5}, "steered": {"accuracy": 0.4},
+    }))
+    rows = lambda vals: [{"read_point": 9 + j, "retained": v} for j, v in enumerate(vals)]  # noqa: E731
+    (tdir / "commitment.json").write_text(json.dumps({
+        "intervention_layer": 8, "n_read_points": 13, "directions": ["injected", "task_pc1"], "curves": {
+            "remove:injected": rows([0.1, 0.6, 0.95, 1.0]), "keep:injected": rows([0.9, 0.5, 0.2, 0.05]),
+            "remove:task_pc1": rows([0.9, 0.8, 0.95, 1.0]), "keep:task_pc1": rows([0.1, 0.3, 0.1, 0.0]),
+        }}))
     out = tmp_path / "agg.json"
     assert main(["aggregate", str(tmp_path / "run0"), str(tmp_path / "run1"), "--out", str(out)]) == 0
     agg = json.loads(out.read_text())
@@ -100,3 +120,14 @@ def test_aggregate_command(tmp_path):
     assert t["scalars"]["cumulative_log_gain"] == {"n": 2, "mean": 2.0, "sd": pytest.approx(np.sqrt(2))}
     assert t["by_kind"]["isotropic"]["new_subspace_uncentered_z_mean"]["mean"] == 0.5
     assert t["labels"] == {"cascade": 2}
+    assert [h["chosen"] for h in agg["head_counts"]] == [8, 16]
+    core = t["core"]
+    assert core["held_out_effect"] == {"n": 1, "mean": 3.0, "sd": 0.0, "values": [3.0]}
+    assert core["gap_fraction"]["mean"] == pytest.approx(3.0 / 4.0) and core["layer"]["values"] == [8]
+    # hand-over: removal stays >= 50 % from read point 10 (2/4 of the downstream depth) and >= 90 % from 11 on;
+    # the direction alone carries >= 50 % up to read point 10
+    assert core["handed_over_50_fraction"]["mean"] == pytest.approx(0.5)
+    assert core["handed_over_90_fraction"]["mean"] == pytest.approx(0.75)
+    assert core["carried_alone_until_50_fraction"]["mean"] == pytest.approx(0.5)
+    assert core["retained_after_removal_final"]["mean"] == 1.0 and core["carried_by_direction_final"]["mean"] == 0.05
+    assert core["task_pc1_removal_min_retained"]["mean"] == 0.8 and core["task_pc1_alone_max_retained"]["mean"] == 0.3
