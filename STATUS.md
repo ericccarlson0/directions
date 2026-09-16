@@ -1665,6 +1665,38 @@ common/residual split for a few tasks are not, and the held-out effect
 carries a seed-to-seed spread of up to 0.8 nats that intervals must
 cover.
 
+### Iteration 7a (D30: the add-k family, scored on the changed digits)
+
+The pilot protocol on the arithmetic tasks alone: `arithmetic` (n → n + k,
+n in 0–400) and `arithmetic_words` (n → words(n + k)) for k = 1, 2, 3,
+5, 10, ten labelled tasks per run. The numeric targets are scored on the
+digits the operation changes (1.1–1.6 of their 3.7 tokens; the leading
+space and the untouched digits no longer dilute the metric), so the
+deranged-prompt baseline of the head-effect metric is a one-in-ten
+guess (0.04–0.13) rather than the 0.005 of the earlier runs, and a
+restored fraction means what it says. Universal heads, other-task
+controls and the common direction are taken within the family.
+
+```
+# workflow run 35127046369 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
+uv run directions pilot --config configs/arith_qwen3_0.6b.yaml --run-id arith_qwen3_0.6b_seed20260907
+```
+
+0.6B: pipeline 6.4 min. **0 of 10 qualify.** The five word tasks fail the
+few-shot gate (accuracy 0.48 for add-1 words, ≤ 0.04 for the rest). The
+five numeric tasks pass it (0.93–0.99) and all fail the head-support
+gate: the best single head restores 0.0008–0.009 of a 0.86–0.93 gap in
+answer probability and the 32-head vector 0.5 % (add-3), 0.5 % (add-5),
+0.9 % (add-2), 2.5 % (add-10) and 4.2 % (add-1), against the 10 %
+threshold and the lexical tasks' 78–82 % under the same construction.
+The successor task add-1 is the best of the family but is not carried
+by any head either. The five vectors are nearly the same vector: pairwise
+cosines 0.94–0.99, norms 55–57, and the operand explains 0.46 of the
+small residual variation with successive differences uncorrelated (cos
+−0.35 to +0.05): the head mean keeps the shared numeric content and
+carries nothing about k. The head-count sweep chose 32 on pooled effects
+of 0.003–0.015, i.e. the rule ran on noise.
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
