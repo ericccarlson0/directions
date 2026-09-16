@@ -193,6 +193,9 @@ class CommitmentConfig:
     n_prompts   evaluation prompts used (the first n of the pool; 0 = all); the base and steered captures are
                 re-run on exactly these prompts so the edits are exact
     n_controls  random unit directions the edits are matched against
+    handover_shares  shares of the full effect (0-1) at which the hand-over depths are read off the curves:
+                the first read point from which removing the direction leaves at least that share, and the
+                last read point up to which the direction alone carries at least that share
     """
 
     enabled: bool = True
@@ -200,6 +203,7 @@ class CommitmentConfig:
     n_controls: int = 8
     alpha: float = 0.05
     n_boot: int = 1000
+    handover_shares: list[float] = field(default_factory=lambda: [0.5, 0.9])
 
 
 @dataclass
@@ -336,6 +340,9 @@ def validate_config(cfg: Config) -> None:
         raise ValueError("extraction.function_vector.head_count_min_gain must be >= 0")
     if cfg.commitment.n_prompts < 0 or cfg.commitment.n_controls < 1 or not (0 < cfg.commitment.alpha < 1) or cfg.commitment.n_boot < 1:
         raise ValueError("commitment: n_prompts >= 0, n_controls >= 1, 0 < alpha < 1, n_boot >= 1")
+    shares = list(cfg.commitment.handover_shares)
+    if not shares or any(not (0 < s < 1) for s in shares) or len(set(shares)) != len(shares):
+        raise ValueError("commitment.handover_shares: a non-empty list of distinct shares in (0, 1)")
     if not (0 <= fv.head_support_min_restored < 1):
         raise ValueError("extraction.function_vector.head_support_min_restored must lie in [0, 1)")
     if fv.head_selection not in ("universal", "per_task"):

@@ -1325,10 +1325,11 @@ in seconds.
 - **Depth of commitment.** Removing the injected direction's component
   from the perturbation right after the injection (read point l* + 1)
   leaves −0.20 to +0.12 of the effect: the direction is the whole effect
-  there. The retained share then rises smoothly with depth, passes 50 % at
-  21–57 % of the downstream depth (read points 17–22 for the layer-14
-  injections; 15 for singular's layer-8 injection) and 90 % at 40–93 %,
-  and reaches 0.93–1.00 at the last read point. Keeping only the
+  there. The retained share then rises smoothly with depth, stays at or
+  above 50 % from 21–57 % of the downstream depth on (read points 17–22
+  for the layer-14 injections; 15 for singular's layer-8 injection; the
+  amended D29 summary, applied to all iteration-6 runs) and above 90 %
+  from 50–93 % on, and reaches 0.93–1.00 at the last read point. Keeping only the
   direction's component mirrors it: 0.68–0.97 of the effect right after
   the injection, 50 % until 10–29 % of the downstream depth, −0.04 to
   +0.12 at the end. Against the random-direction edits the direction is
@@ -1363,9 +1364,10 @@ Same protocol on 1.7B: pipeline 32.7 min (batch B: 34.6; commitment
 - **Depth of commitment.** As on 0.6B, removing the direction's component
   right after the injection leaves −0.12 to +0.08 of the effect (and
   −0.50 for past_tense two read points on, where it reverses it), the
-  retained share passes 50 % at 21–55 % of
-  the downstream depth and 90 % at 43–94 %, and reaches 0.88–1.00 at the
-  end; the task's PC1 at each depth is dispensable (removal never costs
+  retained share stays above 50 % from 21–55 % of the downstream depth
+  on and above 90 % from 43–79 % on for six tasks (number_to_words and
+  plural end at 0.88–0.89 and never stay above 90 %), and reaches
+  0.88–1.00 at the end; the task's PC1 at each depth is dispensable (removal never costs
   more than 27 %, keeping it alone retains at most 39 %). The difference
   from 0.6B is how long the direction alone suffices: keeping only its
   component retains 50 % of the effect until 29–65 % of the downstream
@@ -1395,7 +1397,8 @@ passed, 8 of 10 qualify.
   after the injection leaves −0.14 to +0.14 of the effect for seven
   tasks (uppercase +0.44); the retained share passes 50 % at 11–33 % of
   the downstream depth for the layer-18 injections (read points 20–24;
-  plural's layer-7 injection: 59 %), 90 % at 50–79 %, and reaches
+  plural's layer-7 injection: 59 %), 90 % at 50–79 % for seven tasks
+  (uppercase ends at 0.87 and never stays above 90 %), and reaches
   0.87–0.99 at the end. Keeping only the direction's component retains
   0.88–1.04 right after the injection, 50 % until 22–39 % of the
   downstream depth (plural 55 %), 0.03–0.28 at the end. The direction is
@@ -1458,10 +1461,12 @@ perturbation leaves −0.20 to +0.27 of the effect across the 31
 task-model pairs (uppercase on 8B +0.44), keeping only it leaves
 0.68–1.04. The hand-over to other features is then gradual and
 monotone, without a layer at which it happens: the share that survives
-removal passes 50 % at 21–57 % of the downstream depth on 0.6B and 1.7B
-and at 11–33 % on 4B and 8B (8B's plural, injected at layer 7: 59 %),
-90 % at 40–94 %, and reaches 0.87–1.00 at the last read point, where
-the direction alone carries −0.04 to +0.28. Against random directions of
+removal stays at or above 50 % from 21–57 % of the downstream depth on
+for 0.6B and 1.7B and from 11–33 % on for 4B and 8B (8B's plural,
+injected at layer 7: 59 %), above 90 % from 43–93 % on for 28 of the 31
+pairs (the other three end at 0.87–0.89), and reaches 0.87–1.00 at the
+last read point, where the direction alone carries −0.04 to +0.28 (the
+amended D29 summary). Against random directions of
 the same norm the direction is still "needed" at the last read point
 for 27 of the 31 pairs (the other four at the second-to-last), but at a
 cost of 0–13 % of the effect, so the D29 commitment layer is undefined

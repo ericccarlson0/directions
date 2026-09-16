@@ -888,12 +888,14 @@ class Pipeline:
         st.qualification["commitment"] = res["summary"]
         s = res["summary"]["injected"]
         fmt = lambda x: "n/a" if x is None else f"{x:.2f}"  # noqa: E731
-        self.log.info("[%s] commitment: the injected direction is needed until read point %s (%s of the downstream depth; "
-                      "commitment layer %s, still needed at the end: %s); effect retained after removing it at the end %s "
-                      "(min %s); carried by the direction alone at the end %s (max %s); full effect %+.3f on %d prompts",
-                      st.name, s["needed_until"], fmt(s["needed_until_fraction"]), s["commitment_layer"], s["needed_at_end"],
-                      fmt(s["retained_after_removal_final"]), fmt(s["retained_after_removal_min"]),
-                      fmt(s["carried_by_direction_final"]), fmt(s["carried_by_direction_max"]), res["full_effect"], res["n_prompts"])
+        self.log.info("[%s] commitment: handed over (removal leaves >= 50 %% / 90 %% from) read point %s (%s of the downstream "
+                      "depth) / %s (%s); carried by the direction alone (>= 50 %%) until %s (%s); retained after removal at "
+                      "the end %s, carried alone at the end %s; needed against random edits until %s (commitment layer %s); "
+                      "full effect %+.3f on %d prompts",
+                      st.name, s.get("handed_over_50"), fmt(s.get("handed_over_50_fraction")), s.get("handed_over_90"),
+                      fmt(s.get("handed_over_90_fraction")), s.get("carried_alone_until_50"), fmt(s.get("carried_alone_until_50_fraction")),
+                      fmt(s["retained_after_removal_final"]), fmt(s["carried_by_direction_final"]),
+                      s["needed_until"], s["commitment_layer"], res["full_effect"], res["n_prompts"])
 
     def _decomposition(self, st: TaskState, states: dict[str, TaskState], readout_kw: dict[str, Any], reference: Any,
                        gate_kinds: list[str]) -> None:

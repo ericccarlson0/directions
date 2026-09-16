@@ -921,3 +921,27 @@ the direction acting through what it has recruited at every layer. Cost:
 over 96 prompts per read point after `l*`, about three times the
 control-forward stage of a task, so the 4B and 8B runs grow by a third to
 a half.
+
+Amendment (after iteration 6 on the four models): the core summary is an
+effect size, the significance readout is secondary. On 27 of the 31
+task-model pairs the direction was still "needed" at the last read point,
+so `commitment_layer` was undefined, but the cost of removing it there
+was 0–13 % of the effect: a paired test on 96 prompts detects a 2 % cost,
+and a summary that hinges on it says nothing about *where* the effect
+moved. What did carry the result was read off the curves post hoc: the
+depth at which removal leaves half, then 90 %, of the effect. Those are
+now the preregistered summary (`commitment.handover_shares`, default
+`[0.5, 0.9]`): per direction, `handed_over_50` / `handed_over_90` is the
+first read point from which the share retained after removal stays at or
+above the share for every later read point (a single upward blip does
+not count; a curve that ends below the share gives `None`), and
+`carried_alone_until_50` / `_90` is the last read point up to which the
+direction alone retains at least the share at every read point from the
+injection on; each also as a fraction of the downstream depth. Reading:
+`handed_over_50` is where the conversion is half done, `handed_over_90`
+where it is essentially complete, `carried_alone_until_50` how long the
+direction by itself would have sufficed. `needed_until`,
+`commitment_layer` and `carried_until` stay in the summary as the
+matched-null readout of whether the direction matters at all at a depth.
+Both summaries are derived from the saved curves, so earlier runs are
+re-summarised without a rerun.

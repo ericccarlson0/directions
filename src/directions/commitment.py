@@ -18,7 +18,11 @@ the noise of editing. The edits are exact because the forward pass is determinis
 residual on the intended vector.
 
 Outputs per variant and read point: the surviving effect (log p per token over the baseline), its share of
-the full effect, a paired bootstrap CI, and the excess test against the random edits. Summary: the last read
+the full effect, a paired bootstrap CI, and the excess test against the random edits. Summary, per direction:
+the hand-over depths as effect sizes (core; ``handover_shares``): the first read point from which removing the
+direction leaves at least half (90 %) of the effect (``handed_over_50``, ``handed_over_90``) and the last read
+point up to which the direction alone carries at least half (90 %) of it (``carried_alone_until_50``,
+``carried_alone_until_90``), each also as a fraction of the downstream depth; then, secondary, the last read
 point at which removing ``v`` still costs effect beyond random removal (``needed_until``), the first read
 point after it (``commitment_layer``), and the share of the effect the direction alone carries at the end
 (``carried_by_direction_final``).
@@ -125,12 +129,35 @@ def depth_of_commitment(
                     row["excess_vs_random"] = paired_excess_test(real, ctl, boot_rng, n_boot=cfg.n_boot).__dict__
                 rows_by[f"{variant}:{dname}"].append(row)
     out["curves"] = rows_by
-    out["summary"] = summarise(out, cfg.alpha)
+    out["handover_shares"] = [float(s) for s in cfg.handover_shares]
+    out["summary"] = summarise(out, cfg.alpha, out["handover_shares"])
     return out
 
 
-def summarise(out: dict[str, Any], alpha: float) -> dict[str, Any]:
-    """The depth at which the injected direction stops being needed, and what it carries at the end."""
+def handed_over_from(rows: list[dict[str, Any]], share: float) -> int | None:
+    """The first read point from which the share retained after removal stays at or above ``share``."""
+    start = None
+    for r in rows:
+        if r["retained"] is not None and r["retained"] >= share:
+            start = r["read_point"] if start is None else start
+        else:
+            start = None
+    return start
+
+
+def carried_alone_until(rows: list[dict[str, Any]], share: float) -> int | None:
+    """The last read point up to which the direction alone retains at least ``share`` at every read point."""
+    last = None
+    for r in rows:
+        if r["retained"] is None or r["retained"] < share:
+            break
+        last = r["read_point"]
+    return last
+
+
+def summarise(out: dict[str, Any], alpha: float, handover_shares: list[float] = (0.5, 0.9)) -> dict[str, Any]:
+    """Where the effect is handed over (effect sizes, the core summary), then where the direction stops being
+    needed against the random edits (significance, secondary) and what it carries at the end."""
     layer, n_read = out["intervention_layer"], out["n_read_points"]
     downstream = max(1, (n_read - 1) - layer)
 
@@ -141,6 +168,14 @@ def summarise(out: dict[str, Any], alpha: float) -> dict[str, Any]:
     for dname in out["directions"]:
         rem = out["curves"].get(f"remove:{dname}", [])
         keep = out["curves"].get(f"keep:{dname}", [])
+        handover: dict[str, Any] = {}
+        for share in handover_shares:
+            pct = f"{round(100 * share):d}"
+            m_rem, m_keep = handed_over_from(rem, share), carried_alone_until(keep, share)
+            handover[f"handed_over_{pct}"] = m_rem
+            handover[f"handed_over_{pct}_fraction"] = frac(m_rem)
+            handover[f"carried_alone_until_{pct}"] = m_keep
+            handover[f"carried_alone_until_{pct}_fraction"] = frac(m_keep)
         needed = [r["read_point"] for r in rem
                   if "excess_vs_random" in r and r["excess_vs_random"]["excess_mean"] > 0 and r["excess_vs_random"]["p_value"] <= alpha]
         needed_until = max(needed) if needed else None
@@ -152,6 +187,7 @@ def summarise(out: dict[str, Any], alpha: float) -> dict[str, Any]:
         carried = [r["read_point"] for r in keep
                    if "excess_vs_random" in r and r["excess_vs_random"]["excess_mean"] > 0 and r["excess_vs_random"]["p_value"] <= alpha]
         summary[dname] = {
+            **handover,
             "needed_until": needed_until, "needed_until_fraction": frac(needed_until),
             "commitment_layer": commitment, "commitment_fraction": frac(commitment),
             "needed_at_end": bool(needed and needed_until == rem[-1]["read_point"]),
