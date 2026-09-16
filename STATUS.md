@@ -1373,6 +1373,44 @@ Same protocol on 1.7B: pipeline 32.7 min (batch B: 34.6; commitment
   on the model whose blocks did not build the first-order effect above
   the nulls (batch B), and where the injection layer does not matter.
 
+```
+# workflow run 35041155731 (push-triggered request), H100 80GB HBM3 (ADA_80_PRO), US-CA-2, Flash environment ci-8b
+uv run directions pilot --config configs/pilot_qwen3_8b.yaml --run-id pilot6_qwen3_8b_seed20260907
+```
+
+Same protocol on 8B, run in parallel with the 4B run below: pipeline
+65.0 min (batch B: 62.6; commitment 17–32 s per task), determinism check
+passed, 8 of 10 qualify.
+
+- **Head count: 32, now uncensored.** Pooled effect 0.03 / 0.06 / 0.14 /
+  0.25 / 0.46 / 0.60 / 0.62 for k = 1 … 64: the doublings gain 137 %,
+  126 %, 78 %, 85 %, 32 % and then 3.3 % (32 → 64), so the rule keeps
+  32, the batch-B choice that was censored by the candidate list. With
+  the same 32 heads every core number of batch B repeats bit for bit
+  (layer 18 for seven tasks and 7 for plural, held-out +2.2 to +5.4
+  nats, neutral-prose damage 0.15–0.39 nats, only uppercase above the
+  random controls).
+- **Depth of commitment.** Removing the direction's component right
+  after the injection leaves −0.14 to +0.14 of the effect for seven
+  tasks (uppercase +0.44); the retained share passes 50 % at 11–33 % of
+  the downstream depth for the layer-18 injections (read points 20–24;
+  plural's layer-7 injection: 59 %), 90 % at 50–79 %, and reaches
+  0.87–0.99 at the end. Keeping only the direction's component retains
+  0.88–1.04 right after the injection, 50 % until 22–39 % of the
+  downstream depth (plural 55 %), 0.03–0.28 at the end. The direction is
+  "needed" against the random edits until the last read point for every
+  task, at a cost of 1–13 % of the effect there. The task's PC1 at each
+  depth is again dispensable, with one transient: two to three blocks
+  after the injection (read point 21) keeping only the PC1 component
+  retains 0.40–0.61 for antonym and last_antonym and removing it costs
+  up to 51 %; elsewhere removal costs at most 10–31 % and keeping it
+  alone retains at most 16–42 %. Compared with the small models the
+  hand-over starts earlier: half of the effect is carried by other
+  features by 11–33 % of the downstream depth (0.6B: 21–57 %, 1.7B:
+  21–55 %), and the direction alone suffices for 50 % until 22–39 %
+  (0.6B 10–29 %, 1.7B 29–65 %), consistent with the blocks building the
+  first-order effect strongly on 8B (batch B).
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
