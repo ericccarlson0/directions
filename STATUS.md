@@ -1342,6 +1342,37 @@ in seconds.
   features that are not the task's contrast direction at that depth; the
   conversion is neither localised nor delayed.
 
+```
+# workflow run 35037075704 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
+uv run directions pilot --config configs/pilot_qwen3_1.7b.yaml --run-id pilot6_qwen3_1.7b_seed20260907
+```
+
+Same protocol on 1.7B: pipeline 32.7 min (batch B: 34.6; commitment
+12–27 s per task), determinism check passed, 8 of 10 qualify.
+
+- **Head count: 16.** Pooled effect 0.09 / 0.19 / 0.46 / 0.59 / 0.64 /
+  0.67 / 0.68 for k = 1 … 64; the doublings gain 676 %, 261 %, 45 %,
+  14 %, then 5.1 % and 1.2 %, so the rule stops at 16 (batch B took 32).
+  The 16-head vector is 0.86–0.91 × the 32-head one and does the same:
+  held-out +3.1 to +6.4 nats (batch B +3.3 to +5.9), 70–95 % of the gap,
+  accuracy 0.37–0.98 for seven tasks. Layers 14, 11, 8 and 6 for two,
+  one, two and three tasks: the layer still does not matter on 1.7B
+  (per-layer improvements within 0.5 nats for six tasks). Neutral-prose
+  damage 0.4–4.3 nats, below the random controls' for six tasks and above
+  for singular (+0.15, p = 0.007).
+- **Depth of commitment.** As on 0.6B, removing the direction's component
+  right after the injection leaves −0.50 to +0.08 of the effect (for
+  past_tense it reverses it), the retained share passes 50 % at 21–55 % of
+  the downstream depth and 90 % at 43–94 %, and reaches 0.88–1.00 at the
+  end; the task's PC1 at each depth is dispensable (removal never costs
+  more than 27 %, keeping it alone retains at most 39 %). The difference
+  from 0.6B is how long the direction alone suffices: keeping only its
+  component retains 50 % of the effect until 29–65 % of the downstream
+  depth on 1.7B (0.6B: 10–29 %), with 0.93–1.03 right after the injection
+  and 0.00–0.17 at the end. The direction persists longer as the carrier
+  on the model whose blocks did not build the first-order effect above
+  the nulls (batch B), and where the injection layer does not matter.
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
