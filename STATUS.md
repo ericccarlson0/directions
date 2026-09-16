@@ -1755,6 +1755,59 @@ tasks' universal heads.
   handed over; a lower strength (ρ = 0.5, still reliable) would be needed
   to read it.
 
+```
+# workflow run 35128391515 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
+uv run directions pilot --config configs/arith_qwen3_4b.yaml --run-id arith_qwen3_4b_seed20260907
+```
+
+4B: pipeline 115.5 min, determinism check passed. **1 of 10 qualifies,
+add-1 again.** Nine tasks pass the few-shot gate (add-10 words 0.12
+fails); 64 heads on a pooled effect of 0.043.
+
+- **Add-1: 26 % head support** (deranged 0.21 → 1.00; best single head
+  0.013), layer 7 at ρ = 1.5 (ρ = 1 was not reliable on this model,
+  the reliable range is 1.5–3.9), 3.0 × the residual norm; held-out
+  +1.48 nats on the changed digit, 74 % of the gap, accuracy 0.93 from
+  zero; neutral damage 0.44 nats, 0.15 below the random controls'; its
+  vector beats the other operands' by +0.44 nats (p = 0.000) at cosines
+  0.88–0.91 to them.
+- **k = 2, 3, 5, 10 restore 1.2–4.1 %**, the word tasks 2.4–5.8 %. The
+  operand explains 0.38 of the numeric vectors' variation with
+  anticorrelated successive differences (−0.29 to −0.12); the word
+  vectors are one vector (0.96–0.99) at 0.62–0.74 to the numeric ones.
+- **Commitment, again at the ceiling** (steered log-probability −0.5 on
+  the changed digit): removing the direction leaves 0.30–0.50 of the
+  effect for the first five read points after the layer-7 injection and
+  ≥ 0.82 from read point 13 on (0.21 of the downstream depth); keeping
+  only it retains ≥ 0.41 everywhere and 1.00 at the end.
+
+The add-k family on the four models, in one paragraph. With the metric
+restricted to the digits the operation changes, the head-support test
+gives a clean verdict: **the successor task add-1 has a function vector
+on 4B and 8B (26 % and 33 % of the gap restored by the universal heads;
+74 % and 90 % of the few-shot gap recovered by the injection, accuracy
+0.93 and 1.00), almost one on 1.7B (9.9 % against a 10 % threshold) and
+none on 0.6B (4.2 %); no parameterised operand (k = 2, 3, 5, 10) has one
+on any model (0.5–9.1 % restored, the best being add-10 on 8B, whose
+last digit is unchanged and whose tens digit carries the operation), and
+neither does any word task (2–6 %).** The head-mean vectors of the five
+operands are nearly the same vector on every model (cosines 0.87–0.99),
+their differences across k are not a consistent direction (the operand
+explains 0.34–0.46 of a small variation, successive differences
+anticorrelated), yet where add-1 works its own vector beats the other
+operands' by 0.4–0.9 nats: the vector for "next" is a specific vector,
+and the vectors for "add k" are the same numeric-format vector with
+nothing about k in it. This is the boundary the literature predicted
+without testing it: a fixed relation, even a numeric one, is a function
+vector; an operation whose parameter is read from the demonstrations is
+not carried by the mean output of any set of heads, on any of the four
+models. The add-1 vectors also differ from the lexical ones in kind: they
+need 2–3 × the residual norm, and at that strength their effect
+saturates, so the commitment sweep reads 1.0 for both removing and
+keeping the direction from mid-depth on and cannot say how the effect is
+carried. Whether a rank-k operator or a learned vector can carry an
+operand (the next rung) is open; the head-mean construction cannot.
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
@@ -1770,6 +1823,14 @@ tasks' universal heads.
   between them (the 1.7B layer, a few common/residual splits, held-out
   effects by up to 0.8 nats) would need more seeds before a write-up
   states them with error bars.
+- The add-k family (iteration 7a, D30) has run once per model. Its
+  metric (the changed digits) is not comparable with the pilot runs'
+  arithmetic numbers, and its two qualifying cases (add-1 on 4B and 8B)
+  sit at the metric's ceiling at the selected strength, so their
+  commitment curves are censored; a run at a lower strength would be
+  needed to read them. The pilot configs still carry `arithmetic` and
+  `arithmetic_words` at k = 3, which cost a third of the 4B wall time
+  for two guaranteed rejections.
 - Data centers: EUR-NO-1 (the volume with the 0.6B–4B cache) currently
   offers nothing above 24 GB, and only US-CA-2, US-IL-1, US-MO-2, US-NC-2,
   EU-RO-1 and EUR-NO-1 can host a run at all (`docs/INFRA.md`;
