@@ -1697,6 +1697,25 @@ small residual variation with successive differences uncorrelated (cos
 carries nothing about k. The head-count sweep chose 32 on pooled effects
 of 0.003–0.015, i.e. the rule ran on noise.
 
+```
+# workflow run 35127207193 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
+uv run directions pilot --config configs/arith_qwen3_1.7b.yaml --run-id arith_qwen3_1.7b_seed20260907
+```
+
+1.7B: pipeline 14.5 min. **0 of 10 qualify**, but the successor task
+comes closest. Add-1 words now passes the few-shot gate (0.71; the other
+word tasks 0.00–0.31 and rejected), so six tasks reach the head sweep.
+The 16-head vector restores 9.9 % of add-1's gap (0.18 → 0.99 in answer
+probability; the threshold is 10 %), 5.7 % of add-1 words', and 0.7–1.9 %
+for k = 2, 3, 5, 10; the best single head 0.011 for add-1 and
+0.003–0.004 for the rest. The two universal heads of the lexical tasks
+on this model, (15, 6) and (18, 4), top the add-1, add-2, add-3 and add-5
+rankings, so what little the family has is the lexical tasks' task-format
+signal, not an operand. The numeric vectors are less alike than on 0.6B
+(pairwise cosines 0.87–0.94; add-1 words at 0.55–0.58 to them), the
+operand explains 0.34 of their variation, and successive differences are
+anticorrelated (−0.34 to −0.09): still no operand direction.
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
