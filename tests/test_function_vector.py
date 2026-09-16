@@ -157,11 +157,16 @@ def test_smoke_function_vector_outputs(smoke_fv_run):
     summary = json.loads((root / "core" / "summary.json").read_text())
     assert summary["control"] == "function_vector"
     heads = None
-    for task in ("antonym", "arithmetic", "number_to_words"):
+    for task in ("antonym", "add_3", "number_to_words"):
         d = root / "core" / "tasks" / task
         splits = json.loads((d / "splits.json").read_text())
         tok = splits["target_tokenisation"]
         assert tok["n_tokens_mean"] > 1 and tok["first_token_is_space_fraction"] == 1.0 and tok["examples"][0][0] == " "  # char tokens
+        if task == "add_3":  # a labelled task scored on the changed digits (D30): fewer scored tokens than tokens
+            assert splits["registry_task"] == "arithmetic" and splits["target_scoring"] == "changed_tokens"
+            assert 0 < tok["n_scored_mean"] < tok["n_tokens_mean"]
+        else:
+            assert splits["target_scoring"] == "all" and tok["n_scored_mean"] == tok["n_tokens_mean"]
         ext = json.loads((d / "extraction.json").read_text())["function_vector"]
         assert ext["aie_metric"] == "target_probability" and 0 <= ext["aie_baseline_mean"] <= ext["aie_baseline_first_token_probability_mean"] <= 1
         cal = json.loads((d / "calibration.json").read_text())

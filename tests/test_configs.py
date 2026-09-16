@@ -78,3 +78,46 @@ def test_config_validation_errors():
     assert legacy.qualification.gate_test == "rank"
     cfg = config_from_dict({"tasks": [{"name": "antonym"}, {"name": "arithmetic", "params": {"operand": 7}}]})
     assert cfg.tasks[1].params == {"operand": 7}
+
+
+def test_task_labels_and_target_scoring():
+    # one registry task twice needs distinct labels; the label is the task's identity in the run
+    with pytest.raises(ValueError):
+        config_from_dict({"tasks": [{"name": "arithmetic", "params": {"operand": 1}}, {"name": "arithmetic", "params": {"operand": 2}}]})
+    cfg = config_from_dict({"tasks": [{"name": "arithmetic", "label": "add_1", "params": {"operand": 1}},
+                                      {"name": "arithmetic", "label": "add_2", "params": {"operand": 2}, "target_scoring": "changed_tokens"}]})
+    assert [t.key for t in cfg.tasks] == ["add_1", "add_2"] and cfg.tasks[0].name == "arithmetic"
+    assert cfg.tasks[0].target_scoring is None and cfg.tasks[1].target_scoring == "changed_tokens"
+    with pytest.raises(ValueError):
+        config_from_dict({"tasks": [{"name": "antonym", "target_scoring": "last_token"}]})
+    with pytest.raises(ValueError):
+        config_from_dict({"tasks": [{"name": "antonym"}], "prompt": {"target_scoring": "last_token"}})
+    with pytest.raises(ValueError):
+        config_from_dict({"tasks": [{"name": "antonym", "label": "a/b"}]})
+
+
+ARITH_CONFIGS = {
+    "arith_qwen3_0.6b.yaml": "Qwen/Qwen3-0.6B-Base",
+    "arith_qwen3_1.7b.yaml": "Qwen/Qwen3-1.7B-Base",
+    "arith_qwen3_4b.yaml": "Qwen/Qwen3-4B-Base",
+    "arith_qwen3_8b.yaml": "Qwen/Qwen3-8B-Base",
+}
+
+
+def test_arith_configs_are_the_pilot_with_the_add_k_family():
+    """The arithmetic configs differ from the pilot only in the tasks (D30) and the run name."""
+    pilot = config_to_dict(load_config(CONFIGS / "pilot_qwen3_0.6b.yaml"))
+    a = config_to_dict(load_config(CONFIGS / "arith_qwen3_0.6b.yaml"))
+    for fname, model_name in ARITH_CONFIGS.items():
+        b = config_to_dict(load_config(CONFIGS / fname))
+        assert b["model"]["name"] == model_name, fname
+        b["model"]["name"] = a["model"]["name"]
+        assert a == b, fname
+    labels = [t["label"] for t in a["tasks"]]
+    assert labels == [f"add_{k}" for k in (1, 2, 3, 5, 10)] + [f"add_{k}_words" for k in (1, 2, 3, 5, 10)]
+    assert all(t["name"] in ("arithmetic", "arithmetic_words") for t in a["tasks"])
+    assert all(t["target_scoring"] == "changed_tokens" for t in a["tasks"] if t["name"] == "arithmetic")
+    assert [t["params"]["operand"] for t in a["tasks"]] == [1, 2, 3, 5, 10] * 2
+    for key in ("model", "prompt", "data", "qualification", "extraction", "calibration", "evaluation", "commitment",
+                "exploratory", "analysis", "figures", "seed"):
+        assert a[key] == pilot[key], key

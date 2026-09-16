@@ -24,7 +24,7 @@ from __future__ import annotations
 import sys
 import time
 import traceback
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -35,7 +35,7 @@ from .ablation import block_ablation, select_blocks
 from .analysis import cross_task_table, profile_signature
 from .calibration import CalibrationResult, Selection, calibrate
 from .commitment import depth_of_commitment
-from .config import Config, config_to_dict
+from .config import Config, PromptConfig, TaskConfig, config_to_dict
 from .extraction import (
     LayerDirection,
     candidate_layers,
@@ -67,7 +67,7 @@ from .layerwise import LayerwiseProfile, compare_by_kind, compute_profile, metri
 from .model import ForwardResult, Intervention, ModelBackend, environment_metadata, set_torch_determinism
 from .neutral import neutral_prompts
 from .profiling import Profiler
-from .prompts import Prompt, few_shot_prompt, zero_shot_prompt
+from .prompts import Prompt, few_shot_prompt, score_reference, zero_shot_prompt
 from .runinfo import RejectionLog, git_info, make_run_dir, setup_logging, write_json, write_resolved_config
 from .seeds import derive_seed, rng_for
 from .stats import compare_to_null, paired_bootstrap_test, paired_excess_test, spearman
@@ -92,6 +92,8 @@ class ControlResult:
 class TaskState:
     name: str
     splits: Splits
+    prompt_cfg: PromptConfig | None = None  # the run's prompt configuration with this task's target scoring (D30)
+    registry_name: str = ""  # the registry task this one was built from (the config's `name`; `label` is `name` here)
     directions: dict[int, LayerDirection] = field(default_factory=dict)  # the control at each candidate layer
     pca_directions: dict[int, LayerDirection] = field(default_factory=dict)  # PC1 at each candidate layer (always)
     all_layer_directions: np.ndarray | None = None  # (L+1, d) pooled PC1 at every read point (D17 readouts)
@@ -191,12 +193,12 @@ class Pipeline:
 
         states: dict[str, TaskState] = {}
         for tcfg in cfg.tasks:
-            with self.prof.section("prepare", tcfg.name):
+            with self.prof.section("prepare", tcfg.key):
                 try:
-                    states[tcfg.name] = self._prepare_task(tcfg.name, tcfg.params, tcfg.max_target_tokens)
+                    states[tcfg.key] = self._prepare_task(tcfg)
                 except Exception as e:
-                    self.log.error("task %s failed in phase A: %s", tcfg.name, e)
-                    self.rejections.add("error", tcfg.name, f"{type(e).__name__}: {e}", {"traceback": traceback.format_exc()})
+                    self.log.error("task %s failed in phase A: %s", tcfg.key, e)
+                    self.rejections.add("error", tcfg.key, f"{type(e).__name__}: {e}", {"traceback": traceback.format_exc()})
         if cfg.extraction.control == "function_vector":
             with self.prof.section("function_vectors"):
                 self._build_function_vectors(states)
@@ -254,17 +256,20 @@ class Pipeline:
 
     # ---- phase A ------------------------------------------------------ #
 
-    def _prepare_task(self, name: str, params: dict[str, Any], max_target_tokens: int | None) -> TaskState:
+    def _prepare_task(self, tcfg: TaskConfig) -> TaskState:
         cfg = self.cfg
         log = self.log
+        name = tcfg.key  # the task's identity in the run; tcfg.name is the registry task it is built from
         out = self._task_dir(name)
-        q: dict[str, Any] = {"task": name, "gates": {}}
+        q: dict[str, Any] = {"task": name, "registry_task": tcfg.name, "gates": {}}
+        # the prompt configuration of this task: the run's, with the task's own target scoring (D30)
+        prompt_cfg = replace(cfg.prompt, target_scoring=tcfg.target_scoring or cfg.prompt.target_scoring)
 
         # 1. data --------------------------------------------------------
         with self.prof.section("data", name):
-            task = build_task(name, params)
-            max_tok = max_target_tokens if max_target_tokens is not None else cfg.data.max_target_tokens
-            kept, rejected = filter_items(task, self.backend.target_token_count, cfg.prompt.target_template, max_tok)
+            task = build_task(tcfg.name, tcfg.params)
+            max_tok = tcfg.max_target_tokens if tcfg.max_target_tokens is not None else cfg.data.max_target_tokens
+            kept, rejected = filter_items(task, self.backend.target_token_count, prompt_cfg.target_template, max_tok)
             for r in rejected:
                 self.rejections.add(r.stage, r.task, r.reason, r.details)
             splits = make_splits(kept, cfg.seed, name, cfg.data.n_extraction, cfg.data.n_calibration,
@@ -272,24 +277,27 @@ class Pipeline:
         if splits.reduced:
             self.rejections.add("data", name, "pools_reduced", {"n_items": len(kept), "sizes": {
                 "extraction": len(splits.extraction), "calibration": len(splits.calibration), "evaluation": len(splits.evaluation)}})
-        st = TaskState(name=name, splits=splits)
+        st = TaskState(name=name, splits=splits, prompt_cfg=prompt_cfg, registry_name=tcfg.name)
         st.qualification = q
         # How the formatted targets tokenise: the first token of a multi-token target may carry no answer
         # (a lone space before digits), which matters for first-token metrics (docs/DECISIONS.md D22).
-        tok = self._target_tokenisation(kept, cfg.prompt.target_template)
+        tok = self._target_tokenisation(kept, prompt_cfg)
         write_json(out / "splits.json", {"n_items_total": len(task.items), "n_items_kept": len(kept),
                                          "n_items_rejected": len(rejected), "max_target_tokens": max_tok,
-                                         "params": task.params, "target_tokenisation": tok, **splits.as_dict()})
+                                         "registry_task": tcfg.name, "params": task.params,
+                                         "target_scoring": prompt_cfg.target_scoring, "target_tokenisation": tok,
+                                         **splits.as_dict()})
         log.info("[%s] %d items kept (%d rejected); pools %d/%d/%d; target tokens: mean %.2f, first-token share of "
-                 "single-space %.2f", name, len(kept), len(rejected), len(splits.extraction), len(splits.calibration),
-                 len(splits.evaluation), tok["n_tokens_mean"], tok["first_token_is_space_fraction"])
+                 "single-space %.2f, scored %.2f (%s)", name, len(kept), len(rejected), len(splits.extraction),
+                 len(splits.calibration), len(splits.evaluation), tok["n_tokens_mean"], tok["first_token_is_space_fraction"],
+                 tok["n_scored_mean"], prompt_cfg.target_scoring)
 
         # 2. few-shot qualification -------------------------------------
         with self.prof.section("fewshot", name):
             rng = rng_for(cfg.seed, "fewshot_eval", name)
-            fs_prompts = [few_shot_prompt(cfg.prompt, splits.evaluation, x, rng) for x in splits.evaluation]
+            fs_prompts = [few_shot_prompt(prompt_cfg, splits.evaluation, x, rng) for x in splits.evaluation]
             fs = self.backend.run(fs_prompts)
-            zs_prompts = [zero_shot_prompt(cfg.prompt, x) for x in splits.evaluation]
+            zs_prompts = [zero_shot_prompt(prompt_cfg, x) for x in splits.evaluation]
             st.eval_prompts = zs_prompts
             st.base = self.backend.run(zs_prompts, capture=True, capture_logprobs=True)
         q["fewshot"] = fs.metrics_dict()
@@ -313,7 +321,7 @@ class Pipeline:
         # 3. extraction --------------------------------------------------
         fv_mode = cfg.extraction.control == "function_vector"
         with self.prof.section("extraction", name):
-            seeds = extract_differences(self.backend, cfg.prompt, splits.extraction, cfg.seed, name, cfg.extraction.n_seeds,
+            seeds = extract_differences(self.backend, prompt_cfg, splits.extraction, cfg.seed, name, cfg.extraction.n_seeds,
                                         capture_heads=fv_mode)
             st.pca_directions = directions_from_differences(seeds, self.layers, cfg.extraction)
             st.directions = st.pca_directions
@@ -350,11 +358,11 @@ class Pipeline:
                                       float(np.mean(np.concatenate([np.exp(s.permuted_result.first_token_logprob) for s in seeds[:k]])))}
             if n_dv > 0:
                 with self.prof.section("demo_variation", name):
-                    st.permuted_head_means = permuted_head_means(self.backend, cfg.prompt, splits.extraction, cfg.seed, name, n_dv)
+                    st.permuted_head_means = permuted_head_means(self.backend, prompt_cfg, splits.extraction, cfg.seed, name, n_dv)
                 ext["demo_variation"] = {"n": n_dv, "construction": "function vector of deranged-label prompts (D21)"}
         elif n_dv > 0:
             with self.prof.section("demo_variation", name):
-                dv = extract_demo_variation(self.backend, cfg.prompt, splits.extraction, cfg.seed, name, n_dv)
+                dv = extract_demo_variation(self.backend, prompt_cfg, splits.extraction, cfg.seed, name, n_dv)
             st.demo_variation = demo_variation_directions(dv, self.layers, cfg.extraction)
             ext["demo_variation"] = {
                 "n": n_dv,
@@ -389,20 +397,25 @@ class Pipeline:
         assert r.kl_from_reference is not None
         return r.kl_from_reference
 
-    def _target_tokenisation(self, items: list[Any], target_template: str) -> dict[str, Any]:
-        """How the kept items' formatted targets tokenise (counts, and what the first token is)."""
+    def _target_tokenisation(self, items: list[Any], prompt_cfg: PromptConfig) -> dict[str, Any]:
+        """How the kept items' formatted targets tokenise (counts, what the first token is, how many tokens
+        the task's target scoring counts)."""
         n_tokens = []
+        n_scored = []
         first_space = 0
         examples: list[list[str]] = []
         for it in items:
-            pieces = self.backend.target_tokens(target_template.format(output=it.output))
+            pieces = self.backend.target_tokens(prompt_cfg.target_template.format(output=it.output))
             n_tokens.append(len(pieces))
+            n_scored.append(self.backend.scored_token_count(prompt_cfg.target_template.format(output=it.output),
+                                                            score_reference(prompt_cfg, it)))
             first_space += pieces[0].strip() == ""
             if len(examples) < 3:
                 examples.append(pieces)
         n = max(1, len(items))
         return {
             "n_tokens_mean": float(np.mean(n_tokens)) if n_tokens else 0.0,
+            "n_scored_mean": float(np.mean(n_scored)) if n_scored else 0.0,
             "n_tokens_histogram": {str(k): int(v) for k, v in sorted(zip(*np.unique(n_tokens, return_counts=True)))} if n_tokens else {},
             "first_token_is_space_fraction": first_space / n,
             "examples": examples,
@@ -608,7 +621,7 @@ class Pipeline:
 
         # 4. calibration -------------------------------------------------
         with self.prof.section("calibration", name):
-            cal = calibrate(self.backend, cfg.prompt, cfg.calibration, cfg.evaluation,
+            cal = calibrate(self.backend, st.prompt_cfg, cfg.calibration, cfg.evaluation,
                             {l: st.directions[l] for l in st.stable_layers}, splits.calibration, cfg.seed, name,
                             neutral_probe=self._neutral_probe if self.neutral else None)
         st.calibration = cal

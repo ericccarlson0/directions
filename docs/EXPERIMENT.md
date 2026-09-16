@@ -39,6 +39,8 @@ Tasks must admit automatic scoring.
 
 Tasks the models solve zero-shot (two-operand addition) or whose direction never calibrates (English → French on the smallest model) were dropped in the third iteration (docs/DECISIONS.md D19).
 
+A registry task may appear several times in a config under different labels (`tasks[].label`, the task's identity in the run); the add-k family (docs/DECISIONS.md D30; `configs/arith_qwen3_*.yaml`) runs `arithmetic` and `arithmetic_words` with operands 1, 2, 3, 5 and 10 on their own, so the universal heads and the other-task and common controls are taken within the family.
+
 Each task needs enough unique items for three disjoint query pools (see *Data Splits*). An item whose target does not tokenize within a configured maximum number of tokens should be dropped automatically, and every dropped item should be written to the run's rejection log.
 
 ## Prompt Regimes
@@ -66,7 +68,7 @@ Selecting the intervention layer and strength is itself a fit to data, so it mus
 
 All metrics come from a single teacher-forced forward pass over `prompt + target`:
 
-* **target log-probability per token** — teacher-forced log-probability of the target sequence divided by its token count. This is the decision metric for calibration and for the held-out steering test.
+* **target log-probability per token** — teacher-forced log-probability of the target sequence divided by its token count. This is the decision metric for calibration and for the held-out steering test. A task may restrict it to the **changed tokens** (`target_scoring: changed_tokens`, docs/DECISIONS.md D30): the target tokens that differ from the input rendered as a target, under the left and the right alignment, so a digit-by-digit number is scored on the digits the operation changes rather than on the shared leading space and the untouched digits. The sum follows the same tokens; accuracy and the first-token metrics do not change.
 * target log-probability (sum);
 * teacher-forced exact-match accuracy — the argmax at every target position equals the target;
 * first-target-token logit margin — gold logit minus the largest competing logit.

@@ -945,3 +945,69 @@ direction by itself would have sufficed. `needed_until`,
 matched-null readout of whether the direction matters at all at a depth.
 Both summaries are derived from the saved curves, so earlier runs are
 re-summarised without a rerun.
+
+### D30. The add-k family, scored on the digits the operation changes
+
+Context: `arithmetic` (n → n + 3) and `arithmetic_words` have been
+rejected by the head-support gate on every model and seed, while the
+lexical tasks pass it with room to spare (8B: the best single head
+restores 0.0003 of the deranged-to-positive gap for arithmetic against
+0.02–0.08 for the lexical tasks, and the universal vector 1–3 % against
+80 %). No function-vector or task-vector paper has extracted a vector for
+an operation whose parameter is read from the demonstrations; their
+numeric successes are successor tasks (Todd et al.'s Next-Item, Hendel et
+al.'s Next Letter), fixed relations like antonym. Yang et al. (2025) argue
+a task vector acts as a single synthetic demonstration, a rank-one
+predictor, and fails on mappings that need more than one degree of
+freedom. Whether add-3 fails because the head-mean vector cannot carry an
+operand, or because numbers are different, was not testable with one
+operand.
+
+Two things were wrong with the measurement before the question could be
+asked. First, Qwen tokenises numbers digit by digit and the target
+template adds a leading space, so the decision metric averaged the
+log-probability of four tokens of which one carries the operation (for
+add-3, the last digit in 90 % of the items; two or three when it
+carries); the easy digits and the space diluted any effect, and exact
+match, which is all or nothing over four tokens, could not see a partial
+one. Second, the config keyed tasks by registry name, so one task could
+not appear with several operands.
+
+Decision:
+
+* **Changed-token scoring** (`prompt.target_scoring`, per task
+  `tasks[].target_scoring`; default `all`, the behaviour to date). With
+  `changed_tokens` the prompt carries the input rendered through the
+  target template as a scoring reference, and a target token is not
+  scored when the reference has the same token at the same position
+  under the left alignment (the shared leading space) or under the right
+  alignment (the digits the operation leaves untouched); a target
+  identical to its reference keeps every token. The target's
+  log-probability sum and per-token mean, and with them calibration, the
+  held-out effect, the gap fraction, the head-support metric (the product
+  of the scored tokens' probabilities), the commitment sweep and the
+  gradient of the first-order readouts, all use the scored tokens. Exact
+  match, the first-token metrics and the token counts are unchanged.
+  `splits.json` records the scoring and the mean number of scored tokens.
+* **Task labels** (`tasks[].label`): the task's identity in the run
+  (directory, seeds, other-task and common controls) when set, so a
+  registry task can appear several times; the registry name is recorded
+  as `registry_task`.
+* **The add-k family**: `configs/arith_qwen3_*.yaml` are the pilot
+  configs with the tasks replaced by `arithmetic` for k = 1, 2, 3, 5, 10
+  under changed-token scoring and `arithmetic_words` for the same k (its
+  targets are words, every token changes). The universal heads, the
+  other-task controls and the common direction are then taken within the
+  family, which is what the question needs: is there any head whose
+  output carries "add k", and does the vector for one k transfer to the
+  others.
+
+Reading: if add-1 passes the head-support gate and larger k do not, the
+vector can name the relation but not carry the operand; if the vectors
+for different k differ by a consistent direction, the operand does live
+in one direction and the head mean averages it against the numeric
+content; if nothing passes, the boundary is numbers, not parameters. The
+per-token metric of the arithmetic tasks is not comparable with the
+earlier runs' (their four-token average), and the family's head count and
+universal heads are the family's own, so these runs are a separate
+iteration, not a re-run of the pilot.

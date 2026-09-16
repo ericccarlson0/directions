@@ -340,6 +340,11 @@ class ModelBackend:
         ids = self.tokenizer.encode(target_text, add_special_tokens=False)
         return [self.tokenizer.decode([i]) for i in ids]
 
+    def scored_token_count(self, target_text: str, score_reference: str | None) -> int:
+        """How many of the target's tokens its log-probability counts (all, or the changed ones; D30)."""
+        ids = self.tokenizer.encode(target_text, add_special_tokens=False)
+        return int(sum(self._scored_tokens(ids, score_reference)))
+
     def _encode_prompt(self, p: Prompt) -> tuple[list[int], list[int]]:
         prompt_ids = self.tokenizer.encode(p.prompt, add_special_tokens=True)
         target_ids = self.tokenizer.encode(p.target, add_special_tokens=False)
@@ -427,21 +432,45 @@ class ModelBackend:
         n_tgt = torch.tensor([len(b) for _, b in encoded], dtype=torch.long)
         Tt = int(n_tgt.max())
         target_ids = torch.full((B, Tt), pad, dtype=torch.long)
-        for i, (a, b) in enumerate(encoded):
+        scored = torch.zeros((B, Tt), dtype=torch.bool)
+        for i, ((a, b), p) in enumerate(zip(encoded, prompts)):
             ids = a + b
             input_ids[i, : len(ids)] = torch.tensor(ids)
             attn[i, : len(ids)] = 1
             query_pos[i] = len(a) - 1
             target_ids[i, : len(b)] = torch.tensor(b)
+            scored[i, : len(b)] = torch.tensor(self._scored_tokens(b, p.score_reference))
         return {
             "input_ids": input_ids.to(self.device),
             "attn": attn.to(self.device),
             "query_pos": query_pos.to(self.device),
             "target_ids": target_ids.to(self.device),
+            "scored": scored.to(self.device),
             "n_tgt": n_tgt,
             "T": T,
             "Tt": Tt,
         }
+
+    def _scored_tokens(self, target_ids: list[int], score_reference: str | None) -> list[bool]:
+        """Which target tokens count towards the target's log-probability (docs/DECISIONS.md D30).
+
+        All of them, unless the prompt carries a ``score_reference`` (the input rendered as a target): then a
+        token is unchanged, and not scored, when the reference has the same token at the same position under
+        the left alignment (a shared leading space) or under the right alignment (the digits of a number an
+        operation leaves untouched); the rest are scored. A target identical to its reference keeps every token.
+        """
+        if score_reference is None:
+            return [True] * len(target_ids)
+        ref = self.tokenizer.encode(score_reference, add_special_tokens=False)
+        shift = len(target_ids) - len(ref)
+
+        def unchanged(j: int, t: int) -> bool:
+            left = j < len(ref) and ref[j] == t
+            right = 0 <= j - shift < len(ref) and ref[j - shift] == t
+            return left or right
+
+        mask = [not unchanged(j, t) for j, t in enumerate(target_ids)]
+        return mask if any(mask) else [True] * len(target_ids)
 
     def _forward_scores(self, batch: dict[str, Any], session: _HookSession, capture_logprobs: bool = False,
                         reference: torch.Tensor | None = None) -> dict[str, torch.Tensor]:
@@ -463,10 +492,11 @@ class ModelBackend:
         logprobs = torch.log_softmax(logits, dim=-1)
         tgt_dev = batch["target_ids"]
         valid = torch.arange(Tt, device=self.device)[None, :] < n_tgt_dev[:, None]
+        scored = batch["scored"]  # subset of valid: the tokens that count (D30; all of them by default)
         tok_lp = torch.gather(logprobs, 2, tgt_dev[:, :, None]).squeeze(-1)
         tok_lp = torch.where(valid, tok_lp, torch.zeros_like(tok_lp))
-        lp_sum = tok_lp.sum(dim=1)
-        lp_tok = lp_sum / n_tgt_dev
+        lp_sum = torch.where(scored, tok_lp, torch.zeros_like(tok_lp)).sum(dim=1)
+        lp_tok = lp_sum / scored.sum(dim=1)
         argmax = logits.argmax(dim=-1)
         em = ((argmax == tgt_dev) | ~valid).all(dim=1)
         first = logits[:, 0, :]

@@ -30,6 +30,38 @@ def test_metadata_and_capture_shape(backend, prompts):
     assert res.logprob_per_token.shape == (6,)
 
 
+def test_changed_token_scoring(backend):
+    """With a score reference only the target tokens that differ from the input's (right-aligned) count (D30)."""
+    from dataclasses import replace
+
+    from directions.prompts import zero_shot_prompt
+    from directions.tasks import Item
+
+    tok = backend.tokenizer  # character-level: " 154" -> [" ", "1", "5", "4"]
+    assert backend._scored_tokens(tok.encode(" 154"), " 151") == [False, False, False, True]
+    assert backend._scored_tokens(tok.encode(" 201"), " 198") == [False, True, True, True]
+    assert backend._scored_tokens(tok.encode(" 100"), " 97") == [False, True, True, True]  # longer target: leading tokens count
+    assert backend._scored_tokens(tok.encode(" 7"), " 7") == [True, True]  # identity keeps every token
+    assert backend._scored_tokens(tok.encode(" 7"), None) == [True, True]
+    assert backend.scored_token_count(" 154", " 151") == 1 and backend.scored_token_count(" 154", None) == 4
+    cfg = PromptConfig(n_shots=2, target_scoring="changed_tokens")
+    p = zero_shot_prompt(cfg, Item("151", "154"))
+    assert p.score_reference == " 151"
+    scored = backend.run([p])
+    plain = backend.run([replace(p, score_reference=None)])
+    # the plain score averages four tokens; the changed-token score is the last digit's log-probability alone
+    ids = tok.encode(p.prompt)
+    tg = tok.encode(p.target)
+    with torch.no_grad():
+        out = backend.model(input_ids=torch.tensor([ids + tg]))
+    lp = torch.log_softmax(out.logits[0].float(), -1)
+    per_token = [float(lp[len(ids) - 1 + j, tg[j]]) for j in range(len(tg))]
+    assert scored.logprob_sum[0] == pytest.approx(per_token[-1], abs=1e-5)
+    assert scored.logprob_per_token[0] == pytest.approx(per_token[-1], abs=1e-5)
+    assert plain.logprob_per_token[0] == pytest.approx(sum(per_token) / 4, abs=1e-5)
+    assert scored.exact_match[0] == plain.exact_match[0] and scored.n_target_tokens[0] == 4
+
+
 def test_logprob_matches_native_forward(backend, prompts):
     res = backend.run(prompts)
     for k in range(3):

@@ -38,7 +38,9 @@ data:
 tasks:
   - name: antonym
   - name: arithmetic
+    label: add_3                     # D30: a label is the task's identity in the run; scored on the changed digits
     params: {operation: add, operand: 3, min: 0, max: 60}
+    target_scoring: changed_tokens
   - name: number_to_words
     params: {min: 0, max: 99}
     max_target_tokens: 24

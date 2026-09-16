@@ -42,6 +42,10 @@ class PromptConfig:
     target_template: str = " {output}"
     separator: str = "\n\n"
     n_shots: int = 8
+    # How the target's log-probability is scored (docs/DECISIONS.md D30): "all" tokens, or only the
+    # "changed_tokens", those that differ from the input's token at the same right-aligned position (for
+    # digit-by-digit numbers this drops the digits the operation leaves untouched; identity items keep all)
+    target_scoring: str = "all"
 
 
 @dataclass
@@ -55,9 +59,16 @@ class DataConfig:
 
 @dataclass
 class TaskConfig:
-    name: str
+    name: str  # registry name (directions.tasks.TASKS)
     params: dict[str, Any] = field(default_factory=dict)
     max_target_tokens: int | None = None  # per-task override of data.max_target_tokens
+    label: str | None = None  # the task's identity in the run (directories, controls, seeds); default: name.
+    # Lets one registry task appear several times with different params, e.g. arithmetic with operands 1..10.
+    target_scoring: str | None = None  # per-task override of prompt.target_scoring
+
+    @property
+    def key(self) -> str:
+        return self.label or self.name
 
 
 @dataclass
@@ -315,9 +326,6 @@ def validate_config(cfg: Config) -> None:
         raise ValueError(f"model.backend must be 'hf' or 'toy', got {cfg.model.backend!r}")
     if not cfg.tasks:
         raise ValueError("at least one task is required")
-    names = [t.name for t in cfg.tasks]
-    if len(set(names)) != len(names):
-        raise ValueError(f"duplicate task names: {names}")
     if cfg.extraction.n_seeds < 1:
         raise ValueError("extraction.n_seeds must be >= 1")
     if not cfg.extraction.candidate_depth_fractions:
@@ -398,6 +406,17 @@ def validate_config(cfg: Config) -> None:
         raise ValueError("exploratory.block_ablation.rank_by must be 'value' or 'z'")
     if cfg.prompt.n_shots < 1:
         raise ValueError("prompt.n_shots must be >= 1")
+    scorings = ("all", "changed_tokens")
+    if cfg.prompt.target_scoring not in scorings:
+        raise ValueError(f"prompt.target_scoring must be one of {scorings}")
+    keys = [t.key for t in cfg.tasks]
+    if len(set(keys)) != len(keys):
+        raise ValueError(f"task labels must be unique (a registry task used twice needs a `label`): {keys}")
+    for t in cfg.tasks:
+        if t.target_scoring is not None and t.target_scoring not in scorings:
+            raise ValueError(f"tasks[{t.key}].target_scoring must be one of {scorings}")
+        if t.label is not None and (not t.label or "/" in t.label or t.label != t.label.strip()):
+            raise ValueError(f"tasks[{t.name}].label must be a plain name usable as a directory: {t.label!r}")
     for tmpl, needed in (
         (cfg.prompt.demo_template, ("{input}", "{output}")),
         (cfg.prompt.query_template, ("{input}",)),
