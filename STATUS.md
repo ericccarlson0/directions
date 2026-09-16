@@ -1609,17 +1609,77 @@ qualify. Everything reproduces.
   for every task. The seed-1 transient (the task PC1 carrying up to 0.61
   three blocks after the injection for last_antonym) recurs at 0.58.
 
+```
+# workflow run 35051925394 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
+uv run directions pilot --config configs/pilot_qwen3_4b.yaml --seed 20260916 --run-id pilot6_qwen3_4b_seed20260916
+uv run directions aggregate <run of seed 20260907> <run of seed 20260916> --out results/aggregate6_qwen3_4b.json
+```
+
+4B: pipeline 115.9 min, determinism check passed, the same 8 of 10
+qualify.
+
+- **Head count 32 again** (pooled 0.01 / 0.05 / 0.14 / 0.37 / 0.54 /
+  0.61 / 0.64; 32 → 64 gains 4.8 %, seed 1: 3.6 %).
+- **Layer 18 for all eight tasks in both seeds.**
+- **Effects.** Held-out +1.9 to +4.1 nats, lower than seed 1 for every
+  task by 0.1–0.8 (past_tense 4.23 → 3.45, present_participle 3.84 →
+  3.28, the rest ≤ 0.45); gap fractions lower by 0.01–0.14 and accuracy
+  by 0.03–0.19, in the same direction for every task, so the second
+  seed's held-out pool is harder rather than its vector weaker (the
+  vector's cosine with the common direction and its neutral-prose
+  damage are unchanged). Neutral-prose damage 0.11–0.20 nats, within
+  0.04 of seed 1, below the random controls' for every task in both
+  seeds.
+- **Common versus residual.** cos within 0.03, the common part within
+  0.3 nats and the residual within 0.45 of seed 1 for every task.
+- **Depth of commitment.** The 50 % hand-over fraction is identical in
+  both seeds for all eight tasks (0.17–0.33); the 90 % hand-over
+  identical for five and one read point apart for three; the direction
+  alone suffices for 50 % until the same read point for six tasks and
+  one apart for two. Retained after removal at the end within 0.02 of
+  seed 1. The task PC1 is dispensable (removal costs at most 15–31 %,
+  keeping only it retains at most 0.45).
+
+Two seeds on the four models, in one paragraph. The head count is the
+same in both seeds on every model (8 / 16 / 32 / 32; the refused
+doubling gains 3–6 %). The injection layer repeats on 4B and 8B
+(all tasks) and on 0.6B (six of seven), and moves by one candidate
+step for five of eight tasks on 1.7B, where the per-layer improvements
+are flat; the large neutral-prose damage of 1.7B in the first seed
+went with its shallow, 2–5 × norm injections and dropped to 0.5–1.3
+nats where the layer moved deeper. Held-out effects agree within 0.5
+nats for 27 of 31 task-model pairs (the four exceptions 0.5–0.8),
+neutral damage within 0.1 nats for every pair on 0.6B, 4B and 8B (on
+1.7B within 0.4 where the layer repeated and 0.6–3 nats where it
+moved), the cosine with the common direction within 0.09, and the
+common/residual split within 0.5 nats except for three pairs with a
+moved layer or a sign change (singular on 0.6B, last_antonym and
+present_participle on 1.7B). The depth of commitment is the most
+reproducible quantity measured: with the same injection layer the 50 %
+hand-over fraction repeats exactly for 20 of 25 pairs and within one
+read point for the other five, and on 1.7B, where the layer moves, the
+hand-over sits at the same absolute read point (17–19 of 28) in both
+seeds. One seed of the commitment
+sweep is a stable measurement; the layer choice on 1.7B and the
+common/residual split for a few tasks are not, and the held-out effect
+carries a seed-to-seed spread of up to 0.8 nats that intervals must
+cover.
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
   (8B on an H100 in US-CA-2, the others on RTX 4090s in EUR-NO-1).
   Iteration 4 (weakest-reliable calibration, first-token ranking) is
   superseded by 4b for the head ranking and the strength. Iteration 5
-  batch B and iteration 6 have run once on all four models (batch A on
-  0.6B and 1.7B). With candidates up to 64 and the 10 % marginal-gain
-  rule the head count is no longer censored on any model (8 / 16 / 32 /
-  32; the refused doubling gains 3–7 %); the ceiling is not extended to
-  128.
+  batch B has run once and iteration 6 twice (seeds 20260907 and
+  20260916) on all four models (batch A on 0.6B and 1.7B). With
+  candidates up to 64 and the 10 % marginal-gain rule the head count is
+  no longer censored on any model (8 / 16 / 32 / 32 in both seeds; the
+  refused doubling gains 3–6 %); the ceiling is not extended to 128.
+  Two seeds give a range, not an interval; the quantities that vary
+  between them (the 1.7B layer, a few common/residual splits, held-out
+  effects by up to 0.8 nats) would need more seeds before a write-up
+  states them with error bars.
 - Data centers: EUR-NO-1 (the volume with the 0.6B–4B cache) currently
   offers nothing above 24 GB, and only US-CA-2, US-IL-1, US-MO-2, US-NC-2,
   EU-RO-1 and EUR-NO-1 can host a run at all (`docs/INFRA.md`;
