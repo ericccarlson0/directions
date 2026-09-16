@@ -1530,6 +1530,55 @@ qualify. The second seed reproduces the first almost to the digit.
   the seed-1 singular artefact at the last read point, 0.05, does not
   recur: 0.85).
 
+```
+# workflow run 35050661831 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
+uv run directions pilot --config configs/pilot_qwen3_1.7b.yaml --seed 20260916 --run-id pilot6_qwen3_1.7b_seed20260916
+uv run directions aggregate <run of seed 20260907> <run of seed 20260916> --out results/aggregate6_qwen3_1.7b.json
+```
+
+1.7B: pipeline 29.7 min, determinism check passed, the same 8 of 10
+qualify. The vector and its effect reproduce; the layer does not, and
+the quantities that depend on the layer move with it.
+
+- **Head count 16 again** (pooled 0.08 / 0.17 / 0.45 / 0.59 / 0.64 /
+  0.66 / 0.66; 16 → 32 gains 3.2 %, seed 1: 5.1 %).
+- **The layer is seed-dependent on 1.7B**, as batch B predicted from
+  the flat per-layer improvements: antonym and singular keep 14 and
+  uppercase 8, but last_antonym and number_to_words move from 6 to 11,
+  past_tense from 6 to 8, plural from 11 to 14 and present_participle
+  from 8 to 11 (one candidate step deeper in every case).
+- **Effects.** Held-out within 0.3 nats of seed 1 for six tasks
+  (number_to_words 3.11 → 2.37, past_tense 6.37 → 5.61), gap fractions
+  within 0.07 for six (0.78 → 0.62 and 0.88 → 0.74 for those two),
+  accuracy within 0.1 for six (past_tense 0.81 → 0.48, present_participle
+  0.89 → 0.69). Neutral-prose damage 0.36–2.48 nats (seed 1: 0.42–4.26):
+  the four tasks whose injection moved deeper lost most of it
+  (past_tense 3.83 → 1.33, present_participle 4.26 → 1.30, number_to_words
+  1.80 → 0.54, plural 1.25 → 0.62), so the large neutral damage of 1.7B
+  in iterations 5–6 was a property of the shallow injections at 2–5 ×
+  the residual norm, not of the model. Still below the random controls'
+  for six tasks; antonym and singular +0.03 and +0.07 (p = 0.17, 0.09).
+- **Common versus residual.** cos within 0.09 and the common part within
+  0.25 nats of seed 1 for every task; the residual within 0.5 for six
+  and not for last_antonym (−0.6 → +2.3) and present_participle (+3.6 →
+  +0.7), both with a moved layer.
+- **Depth of commitment.** For the three tasks with the same layer the
+  hand-over fractions repeat (antonym 0.21 / 0.43, singular 0.36 / 0.79,
+  uppercase 0.30–0.35 / 0.50; the direction alone suffices for 50 %
+  until 0.29, 0.36–0.57 and 0.50). For the five whose layer moved the
+  fractions shift by up to 0.15, but the read point does not: **the 50 %
+  hand-over sits at read point 17–19 in both seeds for seven of the eight
+  tasks (uppercase 14–15), whatever the injection layer (6–14)**. On 1.7B
+  the conversion happens at a depth of the network, blocks 17–19 of 28,
+  not at a distance from the injection; the batch-B finding that the
+  layer does not matter there has the same shape. (On 0.6B the one task
+  whose layer moved, singular, moved with it: 8 → 15 and 6 → 12; the other
+  six all inject at 14, so the model gives no test.) Retained after
+  removal at the end 0.90–1.00 in both seeds; the 90 % hand-over is never
+  reached for number_to_words in either seed (ends 0.88–0.90). The task
+  PC1 is dispensable (removal costs at most 12–26 %, keeping only it
+  retains at most 0.43).
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
