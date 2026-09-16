@@ -1361,8 +1361,9 @@ Same protocol on 1.7B: pipeline 32.7 min (batch B: 34.6; commitment
   damage 0.4–4.3 nats, below the random controls' for six tasks and above
   for singular (+0.15, p = 0.007).
 - **Depth of commitment.** As on 0.6B, removing the direction's component
-  right after the injection leaves −0.50 to +0.08 of the effect (for
-  past_tense it reverses it), the retained share passes 50 % at 21–55 % of
+  right after the injection leaves −0.12 to +0.08 of the effect (and
+  −0.50 for past_tense two read points on, where it reverses it), the
+  retained share passes 50 % at 21–55 % of
   the downstream depth and 90 % at 43–94 %, and reaches 0.88–1.00 at the
   end; the task's PC1 at each depth is dispensable (removal never costs
   more than 27 %, keeping it alone retains at most 39 %). The difference
@@ -1411,16 +1412,83 @@ passed, 8 of 10 qualify.
   (0.6B 10–29 %, 1.7B 29–65 %), consistent with the blocks building the
   first-order effect strongly on 8B (batch B).
 
+```
+# workflow run 35038665604 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
+uv run directions pilot --config configs/pilot_qwen3_4b.yaml --run-id pilot6_qwen3_4b_seed20260907
+```
+
+Same protocol on 4B: pipeline 116.3 min (batch B: 110.9; commitment
+26–34 s per task), determinism check passed, 8 of 10 qualify.
+
+- **Head count: 32, now uncensored.** Pooled effect 0.01 / 0.05 / 0.14 /
+  0.36 / 0.53 / 0.61 / 0.64 for k = 1 … 64: the doublings gain 229 %,
+  181 %, 168 %, 47 %, 16 % and then 3.6 % (32 → 64), so the rule keeps
+  the batch-B 32 and, as on 8B, every core number of batch B repeats bit
+  for bit (layer 18 for all eight tasks, held-out +2.3 to +4.5 nats,
+  neutral-prose damage 0.12–0.23 nats, below the random controls' for
+  every task).
+- **Depth of commitment.** Removing the direction's component right
+  after the injection leaves 0.00–0.20 of the effect (uppercase 0.27);
+  the retained share passes 50 % at 17–33 % of the downstream depth
+  (read points 21–24), 90 % at 56–89 %, and reaches 0.95–0.99 at the
+  end. Keeping only the direction's component retains 0.86–0.92 right
+  after the injection, 50 % until 22–33 % of the downstream depth,
+  0.00–0.09 at the end. The direction is needed against the random edits
+  until the last read point for seven tasks, at a cost of 1–5 % of the
+  effect there, and until the second-to-last for uppercase (a commitment
+  layer in the D29 sense at read point 36, where the cost of removal,
+  1 %, is inside the random edits'; the fourth such pair of the 31, after
+  antonym and uppercase on 0.6B and antonym on 1.7B). The task's PC1 at
+  each depth is dispensable throughout:
+  removing it costs at most 15–29 %, keeping only it retains at most
+  0.23–0.41. The 8B transient (the task PC1 carrying up to 61 % three
+  blocks after the injection) does not appear on 4B.
+
+Iteration 6 on the four models, in one paragraph. The bounded head-count
+rule chooses 8 / 16 / 32 / 32 heads for 0.6B / 1.7B / 4B / 8B: the last
+doubling that is taken gains 27 %, 14 %, 16 % and 32 %, the first that is
+refused 6.7 %, 5.1 %, 3.6 % and 3.3 %, so the 64-head candidate settles
+the censoring left by batch B on the two larger models (their batch-B
+results stand unchanged) and the two smaller models drop to half the
+heads at a small cost in effect (0.6B: 53–82 % of the few-shot gap
+instead of 74–97 %; 1.7B: within the batch-B range). The depth of
+commitment is the same shape on every model. Right after the injection
+the injected direction is the effect: removing its component from the
+perturbation leaves −0.20 to +0.27 of the effect across the 31
+task-model pairs (uppercase on 8B +0.44), keeping only it leaves
+0.68–1.04. The hand-over to other features is then gradual and
+monotone, without a layer at which it happens: the share that survives
+removal passes 50 % at 21–57 % of the downstream depth on 0.6B and 1.7B
+and at 11–33 % on 4B and 8B (8B's plural, injected at layer 7: 59 %),
+90 % at 40–94 %, and reaches 0.87–1.00 at the last read point, where
+the direction alone carries −0.04 to +0.28. Against random directions of
+the same norm the direction is still "needed" at the last read point
+for 27 of the 31 pairs (the other four at the second-to-last), but at a
+cost of 0–13 % of the effect, so the D29 commitment layer is undefined
+almost everywhere because the hand-over is never quite complete rather
+than because it is late. The features the effect is handed to are not
+the task's own contrast direction at that depth: removing the task
+PC1's component costs at most 10–51 % (the 51 % a transient on 8B three
+blocks after the injection; elsewhere ≤ 31 %) and keeping only it
+retains at most 16–61 %. The one model-size effect is where the
+hand-over sits:
+earlier and more uniform on 4B and 8B (the models whose blocks build the
+first-order effect above the nulls at half depth, batch B), later and
+more spread on 0.6B, and latest on 1.7B, where the direction alone
+still carries half of the effect until 29–65 % of the downstream depth
+and where the injection layer does not matter.
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
   (8B on an H100 in US-CA-2, the others on RTX 4090s in EUR-NO-1).
   Iteration 4 (weakest-reliable calibration, first-token ranking) is
   superseded by 4b for the head ranking and the strength. Iteration 5
-  batch B has run once on all four models (batch A on 0.6B and 1.7B);
-  the head-count sweep chose the largest candidate (32) on 1.7B, 4B and
-  8B, without a plateau on 8B, so `head_count_candidates` must be
-  extended (64, 128) before the count is trusted.
+  batch B and iteration 6 have run once on all four models (batch A on
+  0.6B and 1.7B). With candidates up to 64 and the 10 % marginal-gain
+  rule the head count is no longer censored on any model (8 / 16 / 32 /
+  32; the refused doubling gains 3–7 %); the ceiling is not extended to
+  128.
 - Data centers: EUR-NO-1 (the volume with the 0.6B–4B cache) currently
   offers nothing above 24 GB, and only US-CA-2, US-IL-1, US-MO-2, US-NC-2,
   EU-RO-1 and EUR-NO-1 can host a run at all (`docs/INFRA.md`;
