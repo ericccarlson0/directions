@@ -1579,6 +1579,36 @@ the quantities that depend on the layer move with it.
   PC1 is dispensable (removal costs at most 12–26 %, keeping only it
   retains at most 0.43).
 
+```
+# workflow run 35050604985 (push-triggered request), H100 80GB HBM3 (ADA_80_PRO), US-CA-2, Flash environment ci-8b
+uv run directions pilot --config configs/pilot_qwen3_8b.yaml --seed 20260916 --run-id pilot6_qwen3_8b_seed20260916
+uv run directions aggregate <run of seed 20260907> <run of seed 20260916> --out results/aggregate6_qwen3_8b.json
+```
+
+8B: pipeline 65.8 min, determinism check passed, the same 8 of 10
+qualify. Everything reproduces.
+
+- **Head count 32 again** (pooled 0.02 / 0.06 / 0.13 / 0.23 / 0.46 /
+  0.59 / 0.63; 32 → 64 gains 6.1 %, seed 1: 3.3 %, both under the 10 %
+  rule).
+- **Layer 18 for seven tasks and 7 for plural in both seeds.**
+- **Effects.** Held-out within 0.17 nats of seed 1 for every task
+  (+2.0 to +5.4), gap fractions within 0.04, accuracy within 0.06.
+  Neutral-prose damage 0.14–0.38 nats, within 0.03 of seed 1 for every
+  task; again the same as the random controls' except uppercase (+0.18,
+  p = 0; seed 1 +0.16).
+- **Common versus residual.** cos within 0.01, the common part within
+  0.15 nats and the residual within 0.45 of seed 1 for every task.
+- **Depth of commitment.** The 50 % hand-over fraction is identical in
+  both seeds for six tasks and one read point apart for past_tense
+  (0.28 / 0.33) and plural (0.59 / 0.55); the 90 % hand-over identical
+  for five, one read point apart for two, and never reached for
+  uppercase in either seed (ends at 0.87–0.88); the direction alone
+  suffices for 50 % until the same read point for seven tasks (antonym
+  0.28 / 0.33). Retained after removal at the end within 0.01 of seed 1
+  for every task. The seed-1 transient (the task PC1 carrying up to 0.61
+  three blocks after the injection for last_antonym) recurs at 0.58.
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
