@@ -1297,6 +1297,51 @@ shared component. The downstream blocks build the first-order effect above
 the nulls at half depth on 0.6B, 4B and 8B, not on 1.7B, and on 4B and 8B
 the cumulative gain also exceeds the isotropic null for the first time.
 
+### Iteration 6 (D29 depth of commitment; D26 amended: candidates to 64, a doubling must gain 10 %)
+
+```
+# workflow run 35036855067 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1; environment installed from the wheelhouse
+uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --run-id pilot6_qwen3_0.6b_seed20260907
+```
+
+Batch B plus the commitment sweep and the bounded head count. Pipeline
+20.0 min (batch B: 19.5; the commitment stage 11–16 s per task, 27–39k
+forward examples), determinism check passed. Three earlier requests of
+this run were cancelled during their environment install: PyPI's CDN was
+serving RunPod at 0.3 MB/s in two data centers (`docs/INFRA.md`), so the
+locked wheels now live on each volume and the worker installs from them
+in seconds.
+
+- **Head count: 8.** Pooled joint effect 0.13 / 0.28 / 0.50 / 0.63 /
+  0.67 / 0.66 / 0.67 for k = 1 … 64: the gains per doubling are 314 %,
+  80 %, 27 %, then 6.7 % (8 → 16) and nothing beyond, so the rule stops
+  at 8 (batch B took 16). The 8-head vector is 0.66–0.76 × the 16-head
+  one and at ρ = 1 recovers 53–82 % of the few-shot gap (batch B: 74–97 %),
+  held-out +1.9 to +4.6 nats (batch B +2.5 to +5.9), accuracy 0.19–0.77
+  for five tasks; own vector over the other tasks' +1.3 to +4.0. Layer 14
+  for five tasks, 11 for number_to_words, 8 for singular. Neutral-prose
+  damage 0.22–0.54 nats, excess over the random controls ≤ +0.09 (antonym
+  significant, the rest not).
+- **Depth of commitment.** Removing the injected direction's component
+  from the perturbation right after the injection (read point l* + 1)
+  leaves −0.20 to +0.12 of the effect: the direction is the whole effect
+  there. The retained share then rises smoothly with depth, passes 50 % at
+  21–57 % of the downstream depth (read points 17–22 for the layer-14
+  injections; 15 for singular's layer-8 injection) and 90 % at 40–93 %,
+  and reaches 0.93–1.00 at the last read point. Keeping only the
+  direction's component mirrors it: 0.68–0.97 of the effect right after
+  the injection, 50 % until 10–29 % of the downstream depth, −0.04 to
+  +0.12 at the end. Against the random-direction edits the direction is
+  still "needed" (a significant cost of removing it) until the last or
+  second-to-last read point for every task, but that cost is 0–7 % of the
+  effect there. The task's own PC1 at each depth is a different matter:
+  removing its component never costs more than 16–31 % (singular's last
+  read point excepted, an artefact of PC1 at the pre-norm output), and
+  keeping only it retains at most 18–31 %. So the control direction is
+  converted, gradually and over most of the downstream depth, into
+  features that are not the task's contrast direction at that depth; the
+  conversion is neither localised nor delayed.
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
