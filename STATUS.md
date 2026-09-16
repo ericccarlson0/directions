@@ -1483,6 +1483,53 @@ more spread on 0.6B, and latest on 1.7B, where the direction alone
 still carries half of the effect until 29–65 % of the downstream depth
 and where the injection layer does not matter.
 
+### Iteration 6, second seed (20260916; D29 amended: hand-over depths as the core summary)
+
+One more seed of the iteration-6 protocol on each model, with the run
+seed overridden on the command line (the seed drives the prompt splits,
+the demo draws, the control directions and the bootstraps; the config is
+otherwise unchanged). Two seeds per model are aggregated with
+`directions aggregate` (now leading with the core quantities, the
+commitment curves re-summarised under the amended D29).
+
+```
+# workflow run 35050574186 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
+uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --seed 20260916 --run-id pilot6_qwen3_0.6b_seed20260916
+uv run directions aggregate <run of seed 20260907> <run of seed 20260916> --out results/aggregate6_qwen3_0.6b.json
+```
+
+0.6B: pipeline 18.0 min, determinism check passed, the same 7 of 10
+qualify. The second seed reproduces the first almost to the digit.
+
+- **Head count 8 again** (pooled 0.11 / 0.27 / 0.54 / 0.63 / 0.65 /
+  0.67 / 0.67; the 8 → 16 doubling gains 4.2 %, seed 1: 6.7 %).
+- **Layer 14 for five tasks and 11 for number_to_words in both seeds;
+  singular 8 then 6** (its per-layer improvements are within 0.3 nats).
+- **Effects.** Held-out +1.5 to +4.9 nats, seed differences 0.04–0.45
+  (number_to_words 1.92 vs 1.47 the largest, singular 3.93 vs 3.51);
+  gap fractions within 0.03 for five tasks (number_to_words 0.58 / 0.46,
+  singular 0.82 / 0.72); accuracy within 0.13. Neutral-prose damage
+  0.21–0.46 nats (seed 1: 0.22–0.54), the excess over the random controls
+  +0.05 for antonym (p = 0.03; seed 1 +0.09) and ≤ +0.03 otherwise.
+- **Common versus residual.** cos with the common direction within 0.04
+  of seed 1 for every task; the common part within 0.2 nats and the
+  residual within 0.25 for six tasks. The exception is singular's
+  residual part: +1.56 in seed 1, −1.68 in seed 2 (its common part +1.6
+  / +1.3), so for singular the split of the effect between the two parts
+  is not stable, while the whole vector's effect is.
+- **Depth of commitment, the most stable quantity of all.** The hand-over
+  depth at 50 % is identical in both seeds for antonym, plural,
+  present_participle and uppercase (0.21, 0.43, 0.57, 0.29 of the
+  downstream depth) and within one read point for the rest
+  (number_to_words 0.41 / 0.35, past_tense 0.36 / 0.29, singular 0.35 /
+  0.27 with a different injection layer); at 90 % identical for four
+  tasks and within two read points otherwise; the share carried by the
+  direction alone stays ≥ 50 % until the same read point in both seeds
+  for six tasks. Retained after removal at the end 0.94–1.00 in both
+  seeds. The task PC1 is again dispensable (removal costs at most 15–31 %;
+  the seed-1 singular artefact at the last read point, 0.05, does not
+  recur: 0.85).
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
