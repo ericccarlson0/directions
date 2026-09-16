@@ -1716,6 +1716,45 @@ signal, not an operand. The numeric vectors are less alike than on 0.6B
 operand explains 0.34 of their variation, and successive differences are
 anticorrelated (−0.34 to −0.09): still no operand direction.
 
+```
+# workflow run 35127116164 (push-triggered request), H100 80GB HBM3 (ADA_80_PRO), US-CA-2, Flash environment ci-8b
+uv run directions pilot --config configs/arith_qwen3_8b.yaml --run-id arith_qwen3_8b_seed20260907
+```
+
+8B: pipeline 62 min, determinism check passed. **1 of 10 qualifies: the
+successor task add-1.** Nine tasks pass the few-shot gate (add-10 words
+0.39 fails), and the head sweep chose 64 heads on a pooled effect of
+0.058, its top heads (22, 13), (20, 30), (20, 26) being the lexical
+tasks' universal heads.
+
+- **Add-1 has head support: the 64-head vector restores 33 % of the gap**
+  (deranged 0.24 → 0.99 in the changed digit's probability; the best
+  single head 0.008). It then does the whole task: layer 14, ρ = 1 at
+  2.0 × the residual norm, held-out +1.47 nats on the changed digit,
+  90 % of the few-shot gap, steered accuracy 1.00 (all digits) from 0.005
+  zero-shot; neutral-prose damage 0.50 nats, 0.26 below the random
+  controls'. Its vector beats the other operands' vectors, injected at
+  the same layer and norm, by +0.86 nats (p = 0.000), although those
+  vectors have cosines 0.95–0.96 with it: the small operand-specific
+  residue is what does the work.
+- **The parameterised operands do not:** k = 2, 3, 5, 10 restore 2.7 %,
+  2.2 %, 7.0 % and 9.1 % (add-10 the closest, its last digit unchanged,
+  the tens digit carrying the operation), the word tasks 2.0–4.5 %.
+  Across the five numeric vectors the operand explains 0.38 of a small
+  variation and successive differences are anticorrelated (−0.34 to
+  −0.15); the five word vectors are one vector (cosines 0.98–0.99) at
+  0.67–0.71 to the numeric ones.
+- **Add-1's commitment curves are censored by the ceiling.** The steered
+  log-probability sits at −0.1 on the changed digit, so any edit that
+  keeps the answer near certain reads as retaining 1.0: removing the
+  direction leaves −0.17 to +0.58 of the effect until read point 21
+  (0.32 of the downstream depth) and 1.00 from read point 26 on, while
+  keeping only the direction retains ≥ 0.73 at every read point and 1.00
+  at the end. Either route alone suffices to hit the ceiling, so unlike
+  the lexical tasks this sweep cannot say whether the direction is
+  handed over; a lower strength (ρ = 0.5, still reliable) would be needed
+  to read it.
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
