@@ -1808,6 +1808,74 @@ keeping the direction from mid-depth on and cannot say how the effect is
 carried. Whether a rank-k operator or a learned vector can carry an
 operand (the next rung) is open; the head-mean construction cannot.
 
+### Iteration 7b (D31: the learned single vector)
+
+The pilot protocol with `extraction.control: learned_vector`: at each
+candidate layer one vector, fitted by projected Adam (100 steps, step
+0.05 of the norm) with the model frozen on the extraction pool's 64
+zero-shot prompts, held at the median residual norm of the layer; the
+control is the first seed's fit, two more seeds measure how unique it
+is; the `demo_variation` controls are vectors fitted the same way to the
+targets permuted across items. `arithmetic` runs as `add_3` on the
+changed digits (D30). The first request was cancelled on its first fit
+lines and D31 amended (stability reported, not gated; one deterministic
+fit as the control) because three seeds reached a training loss near
+zero at every layer with pairwise cosines of 0.1–0.2.
+
+```
+# workflow run 35181427862 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
+uv run directions pilot --config configs/learned_qwen3_0.6b.yaml --run-id learned_qwen3_0.6b_seed20260907
+```
+
+0.6B: pipeline 40 min (fits 2 min per task, the permuted null 1.5 min),
+determinism check passed with the new gradient path. **8 of 10 qualify**,
+the same eight as the head-mean run plus add-3 in place of nothing: the
+two rejections are the few-shot failures (arithmetic_words, last_antonym).
+
+- **The fit reaches zero training loss at every candidate layer** for
+  every task (from 4.7–10.7 nats per example; 0.15 for uppercase at layer
+  8), within 20–30 steps of the 100; the solutions are not unique
+  (stability 0.01–0.19) and are nearly orthogonal to PC1 (|cos| ≤ 0.06)
+  and to the head-mean function vector (cos 0.05–0.09).
+- **Held out, a single learned vector recovers the whole few-shot gap.**
+  Layer 6–14 at ρ = 1 (one residual norm; the reliable range 0.05–2.0 for
+  every task), held-out +3.4 to +6.6 nats and 0.81–1.03 of the gap
+  (the head-mean vector: +1.9 to +4.6, 0.53–0.82), accuracy 0.63–0.99
+  from 0.00–0.01 zero-shot (head mean: 0.19–0.77). Every task beats its
+  permuted-target null by +1.9 to +7.5 nats (p = 0.000): the fit finds
+  the task, not the answer format. The other tasks' learned vectors at
+  the same layer and norm make a task 5–10 nats worse, so the excess
+  over them is +5.6 to +15.7.
+- **And rewrites the distribution to do it.** The query-token KL from
+  the unsteered model is 15–25 nats (head mean: 0.5–2.0) with the
+  argmax changed for 96–100 % of prompts and the collateral KL (answer
+  token removed) 12–15 nats: the learned vector does not raise the
+  answer, it replaces the next-token distribution. On neutral prose the
+  damage is 0.18–0.68 nats (head mean 0.22–0.54), but unlike the head
+  mean it exceeds the random controls' for every task (+0.05 to +0.56,
+  p ≤ 0.02).
+- **Add-3 qualifies with a learned vector**: +3.9 nats on the changed
+  digit (the whole gap: log p ≈ 0 for carry and non-carry items alike),
+  +2.5 over its permuted-target null (p = 0.000), exact-match accuracy
+  0.58 from 0.00 (few-shot 0.96). The 42 % that fail are wrong in the
+  digits the operation does not change: accuracy is 0.71 on the
+  carrying items (all digits scored) and 0.53 on the rest, where the
+  fit was never scored on the copied hundreds and tens. So a single
+  fitted vector does carry "add 3" on 0.6B, at 2.2 nats of neutral-prose
+  damage (+1.9 over the controls), and the changed-digit objective lets
+  it corrupt what it is not scored on; a fit on all digits is the
+  obvious follow-up.
+- **Depth of commitment.** The same shape as for the head-mean vector
+  and earlier: removal leaves ≥ 50 % from 0.14–0.41 of the downstream
+  depth and ≥ 90 % from 0.18–0.55, the direction alone suffices for 50 %
+  until 0.14–0.30, retained after removal 1.00 at the end and carried
+  alone 0.01–0.14. One difference: the direction stops being needed
+  against the random edits before the end for every task (needed until
+  read points 15–22 of 28, a D29 commitment layer at 16–23), whereas the
+  head-mean vector was needed to the last read point on 27 of 31 pairs.
+  The learned vectors' effects sit at the ceiling (accuracy near 1), so
+  this reads as the hand-over completing rather than as a cleaner one.
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
