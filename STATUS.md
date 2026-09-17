@@ -1876,6 +1876,48 @@ two rejections are the few-shot failures (arithmetic_words, last_antonym).
   The learned vectors' effects sit at the ceiling (accuracy near 1), so
   this reads as the hand-over completing rather than as a cleaner one.
 
+```
+# workflow run 35181465402 (push-triggered request), H100 80GB HBM3 (ADA_80_PRO), US-CA-2, Flash environment ci-8b
+uv run directions pilot --config configs/learned_qwen3_8b.yaml --run-id learned_qwen3_8b_seed20260907
+```
+
+8B: pipeline 52 min (fits 1.5–2 min per task), determinism check passed.
+**10 of 10 qualify**, including add-3 and arithmetic_words, which no
+head-mean vector has ever carried.
+
+- **Zero training loss at every layer for every task** (from 3.9–17.9
+  nats per example), stability 0.03–0.25, |cos| with PC1 ≤ 0.07 and
+  with the head-mean function vector 0.02–0.12: the learned direction is
+  not the function vector's direction.
+- **Held out, the whole gap, with accuracy at ceiling.** Layers 7–18 at
+  ρ = 1, held-out +3.3 to +7.1 nats, 0.83–1.04 of the few-shot gap (head
+  mean: 0.65–0.94), accuracy 0.81–1.00 (head mean 0.39–1.00). Every
+  task beats its permuted-target null by +1.9 to +12.8 nats (p = 0.000).
+- **Add-3 is carried by one vector: accuracy 0.99 from 0.005**, on
+  carrying and non-carrying items alike (0.98 / 0.99), +2.7 nats over
+  the permuted-target null; arithmetic_words (words of n + 3) accuracy
+  0.95 from 0.00, +2.2 over its null. The demonstration-read operand
+  that no set of heads' mean output carries (iteration 7a) is carried by
+  a single fitted direction of one residual norm at layer 14. The
+  rank-one argument does not bind here: on this model "add 3" is
+  reachable by an additive shift.
+- **The price is the distribution.** Query-token KL 12–30 nats with the
+  argmax changed for 99–100 % of prompts (head mean 0.5–2.8); on neutral
+  prose the learned vectors of antonym, past_tense, plural, singular and
+  arithmetic_words cost 0.13–0.40 nats (+0.05 to +0.28 over the random
+  controls, p = 0.000), number_to_words and last_antonym 0.9–1.4, and
+  add-3, present_participle and uppercase 4.6, 5.9 and 9.3 nats, 4.5–9.1
+  above the controls: those three make the model unusable on unrelated
+  text at the strength that solves the task. The head-mean vectors sat
+  at 0.15–0.39 nats, at the random controls' level.
+- **Depth of commitment.** Hand-over earlier than the head mean's:
+  removal leaves ≥ 50 % from 0.06–0.24 of the downstream depth and
+  ≥ 90 % from 0.11–0.33 (head mean 0.11–0.33 and 0.50–0.78); the
+  direction alone suffices for 50 % until 0.07–0.50, and for add-3, at
+  the ceiling, to the end. The direction stops being needed against the
+  random edits before the end for eight of ten tasks (commitment layers
+  at read points 20–36).
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
