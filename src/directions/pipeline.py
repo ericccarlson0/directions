@@ -406,6 +406,15 @@ class Pipeline:
             q["pca_stability"] = pca_stability
             st.ready = True
             return st
+        if learned_mode:
+            # D31 (amended): the learned vector is one deterministic fit; its cross-seed stability says how unique
+            # the solution is and is reported, not gated (the held-out gates and the permuted-target null judge it).
+            q["stability"] = {str(l): st.directions[l].stability for l in self.layers}
+            q["pca_stability"] = pca_stability
+            st.stable_layers = list(self.layers)
+            q["stable_layers"] = st.stable_layers
+            st.ready = True
+            return st
         st.stable_layers = [l for l in self.layers if st.directions[l].stability >= cfg.qualification.min_stability]
         q["stability"] = {str(l): st.directions[l].stability for l in self.layers}  # the control's own stability
         q["pca_stability"] = pca_stability

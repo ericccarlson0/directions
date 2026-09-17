@@ -78,8 +78,11 @@ def fit_vector(backend: ModelBackend, prompts: list[Prompt], layer: int, radius:
 def learned_directions(backend: ModelBackend, prompt_cfg: PromptConfig, pool: list[Item], layers: list[int],
                        radii: dict[int, float], run_seed: int, task_name: str, cfg: LearnedVectorConfig, n_seeds: int
                        ) -> tuple[dict[int, LayerDirection], dict[int, list[FitResult]]]:
-    """One learned vector per candidate layer, from ``n_seeds`` random initialisations; the pooled direction
-    is the normalised mean of the seed vectors and the stability their min pairwise (signed) cosine."""
+    """One learned vector per candidate layer from ``n_seeds`` random initialisations. The direction carried
+    forward is the first seed's fit (one deterministic fit); the other seeds measure how unique the solution is,
+    the stability being the min pairwise (signed) cosine between the seeds' vectors. With d free parameters
+    and 64 prompts the solution set can be large (D31, amended), so the stability is reported, not gated, and
+    the mean of dissimilar solutions is not used as the control."""
     prompts = [zero_shot_prompt(prompt_cfg, x) for x in pool]
     directions: dict[int, LayerDirection] = {}
     fits: dict[int, list[FitResult]] = {}
@@ -87,14 +90,14 @@ def learned_directions(backend: ModelBackend, prompt_cfg: PromptConfig, pool: li
         fits[layer] = [fit_vector(backend, prompts, layer, radii[layer], rng_for(run_seed, "learned_vector", task_name, layer, i), cfg)
                        for i in range(n_seeds)]
         units = np.stack([normalize(f.vector) for f in fits[layer]])
-        pooled = normalize(units.mean(axis=0))
+        carried = units[0]
         cos = units @ units.T
         stability = float(min(cos[i, j] for i in range(n_seeds) for j in range(i + 1, n_seeds))) if n_seeds > 1 else 1.0
         directions[layer] = LayerDirection(
-            layer=layer, direction=pooled, seed_directions=units,
-            explained_variance_ratio=[], cos_with_mean=[float(u @ pooled) for u in units],
+            layer=layer, direction=carried, seed_directions=units,
+            explained_variance_ratio=[], cos_with_mean=[float(u @ carried) for u in units],
             stability=stability, pooled_explained_variance_ratio=float("nan"), pooled_cos_with_mean=float("nan"),
-            mean_difference_norm=float(radii[layer]), cos_pooled_vs_seeds=[float(u @ pooled) for u in units],
+            mean_difference_norm=float(radii[layer]), cos_pooled_vs_seeds=[float(u @ carried) for u in units],
             kind="learned_vector",
         )
     return directions, fits

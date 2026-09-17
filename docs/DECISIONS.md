@@ -1044,11 +1044,24 @@ Decision: a third control, `extraction.control: learned_vector`, beside
   every step the vector is projected back to a fixed norm: the median
   residual norm at the layer on the extraction prompts (the vector's
   natural strength, so ρ = 1 in the calibration grid is one residual
-  norm and the grid scales it as it scales the function vector). Three
-  seeds (random unit initialisations) give the solution's stability, the
-  min pairwise signed cosine (the sign is meaningful), and their
-  normalised mean is the pooled direction; the stability gate applies
-  to it (0.8). The loss trajectory is recorded per seed and layer.
+  norm and the grid scales it as it scales the function vector). The
+  control carried forward is the first seed's fit, one deterministic
+  vector. Two more seeds (random unit initialisations) measure how
+  unique the solution is: the stability is the min pairwise signed
+  cosine between the seeds' vectors (the sign is meaningful). The loss
+  trajectory is recorded per seed and layer.
+* **Stability is reported, not gated** (amended before the first full
+  run, on the first fit lines of 0.6B: at every candidate layer three
+  seeds reached a training loss near zero from 7.5 with pairwise cosines
+  of 0.1–0.2). With d free parameters and 64 prompts the set of vectors
+  that fit the pool is large, so the cross-seed criterion that guards a
+  noisy PC1 would reject every learned vector for being non-unique and
+  the question would go unmeasured. The mean of dissimilar solutions is
+  not a solution, so the pooled mean is not used either. What judges a
+  learned vector is what judges every direction, the held-out gates and
+  the matched nulls, plus its own permuted-target null; the stability
+  says whether "the" learned direction exists (near 1) or a subspace of
+  them does (near 0), which is a result about the control, not a gate.
 * **What is not there.** No head-support gate: the construction has no
   heads. The PCA direction is still extracted and reported (the `T_l`
   readout and the cosine with the learned vector).

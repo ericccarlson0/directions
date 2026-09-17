@@ -80,7 +80,9 @@ def test_learned_directions_and_permuted_null(backend):
         d = dirs[l]
         assert d.kind == "learned_vector" and d.layer == l and d.mean_difference_norm == radii[l]
         assert np.linalg.norm(d.direction) == pytest.approx(1.0) and d.seed_directions.shape == (2, backend.hidden_size)
+        assert np.array_equal(d.direction, d.seed_directions[0])  # the carried direction is the first seed's fit
         assert -1.0 <= d.stability <= 1.0 and d.stability == pytest.approx(float(d.seed_directions[0] @ d.seed_directions[1]))
+        assert d.cos_pooled_vs_seeds[0] == pytest.approx(1.0)
         assert len(fits[l]) == 2 and all(f.n_steps == 3 for f in fits[l])
     nulls = permuted_target_vectors(backend, PromptConfig(), pool, 1, radii[1], run_seed=7, task_name="antonym", cfg=cfg, n=2)
     assert len(nulls) == 2 and all(np.linalg.norm(u) == pytest.approx(1.0) for u in nulls)
@@ -114,8 +116,8 @@ def test_smoke_learned_vector_outputs(smoke_learned_run):
         assert "learned" in arrays.files and "learned_per_seed" in arrays.files and "learned_radii" in arrays.files
         assert arrays["learned"].shape[0] == len(arrays["layers"]) and "fv" not in arrays.files
         q = json.loads((d / "qualification.json").read_text())
-        assert "head_support" not in q["gates"] and "stability" in q["gates"] and "pca_stability" in q
-        assert set(q["stability"]) == {str(l) for l in arrays["layers"]}
+        assert "head_support" not in q["gates"] and "stability" not in q["gates"] and "pca_stability" in q  # reported, not gated
+        assert set(q["stability"]) == {str(l) for l in arrays["layers"]} and q["stable_layers"] == [int(l) for l in arrays["layers"]]
         if q.get("selection"):
             lvq = q["learned_vector"]
             assert lvq["natural_norm"] > 0 and str(q["selection"]["layer"]) in lvq["natural_rho"]
