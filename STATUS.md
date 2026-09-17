@@ -2006,6 +2006,189 @@ all tokens is the obvious follow-up, as is a damage-penalised fit, since
 the vectors that exist are stronger than the model can bear on other
 text.
 
+### Iteration 8 (D32: the downstream trajectories compared all-to-all)
+
+The question left by iteration 7b: the learned vector recovers the whole
+few-shot gap while orthogonal to PC1 and to the head-mean function
+vector, so what happens between the injection and the answer? A new
+command, `directions trajectories`, reads the head-mean run and the
+learned run of one model (iteration 6 and 7b, seed 20260907: same
+splits and held-out prompts, checked) and re-captures the held-out
+residuals under the natural few-shot context (the pipeline's own
+few-shot prompts, a second demonstration sample, the deranged-label
+contrast) and under each construction, PC1, the head-mean vector and
+the learned vector, injected at common layers (the learned run's
+selected layer as the primary, the head-mean run's when different),
+each at the strength its own run's calibration gives it there (PC1,
+calibrated in neither run, at the best point of the D1 grid on the
+calibration pool). Every pair among the six trajectories is compared
+per example and read point by the signed cosine, against a floor of
+four isotropic directions per construction at its strength and the
+ceiling of two natural trajectories, in three variants: raw, with the
+answer's unembedding direction projected out, and with the *generic
+response* projected out (D32, amended after the first 0.6B and 8B
+runs: the isotropic floor itself rises with depth, to 0.14–0.30 at the
+last read point in the median over pairs and up to 0.5–0.6, because any
+perturbation of these norms drives the late residual along a shared
+direction; with the mean isotropic trajectory removed from both vectors
+the floors sit at 0.01–0.04 in the median). The generic response is
+orthogonal to the answer direction (|cos| ≤ 0.14 at every read point),
+so it is a residual-stream phenomenon, not the answer's; the answer
+variant changes nothing anywhere (every number below within 0.03 of the
+raw one), and the numbers quoted are the generic-removed ones unless
+said otherwise. The first-version runs (before the amendment;
+0.6B 35245908998, 1.7B 35246910274, 8B 35245885629) reproduce the
+re-runs bit for bit in every raw array (903, 1026 and 909 arrays), a
+determinism check across code versions on top of the repeated pass of
+each run.
+
+```
+# workflow run 35248187883 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
+uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-35036855067/pilot6_qwen3_0.6b_seed20260907 --learned-run /runpod-volume/results/run-35181427862/learned_qwen3_0.6b_seed20260907 --run-id trajectories_qwen3_0.6b_seed20260907
+```
+
+0.6B: 14 min (20 s to 2.3 min per task), determinism check passed; 8
+tasks (the two few-shot rejects have no learned selection and are
+skipped; add-3 has no head-mean vector, its run never had the label).
+
+- **The learned vector's trajectory converges onto the natural one on
+  all 8 tasks**, gradually: from a cosine of −0.01 to 0.13 with the
+  few-shot difference at the injection layer to 0.50–0.92 at the last
+  read point (raw 0.71–0.93; the ceiling, two demonstration samples,
+  0.96–0.99; the floor −0.50 to 0.18). Half of the final alignment is
+  reached at 0.41–0.70 of the downstream depth and 90 % at 0.64–1.00:
+  a steady climb over the second half of the stack, with no jump.
+- **The head-mean vector aligns less and earlier and then partly lets
+  go**: peak 0.39–0.71 at 0.55–1.00 of the depth, final 0.12–0.71,
+  with a significant decline from the peak on 3 of 7 tasks
+  (past_tense 0.48 → 0.12, plural 0.54 → 0.33, present_participle
+  0.41 → 0.22).
+- **PC1's own component dies within two blocks.** At injection PC1 is
+  the direction of the correct-versus-deranged contrast (cosine
+  0.56–0.82 with it), and that cosine halves within 1–3 blocks and ends
+  at −0.05 to 0.35; against the few-shot difference PC1 ends at −0.01 to
+  0.31, carrying 0.00–0.18 of the gap at its calibrated strength.
+- **The constructions do not converge onto one another.** Head mean
+  versus learned ends at −0.15 to 0.71 (median 0.23) and PC1 versus
+  learned at −0.10 to 0.44: what the two effective constructions share
+  downstream is the natural component, not a common form of their own.
+
+```
+# workflow run 35253499155 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
+uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-35037075704/pilot6_qwen3_1.7b_seed20260907 --learned-run /runpod-volume/results/run-35181498809/learned_qwen3_1.7b_seed20260907 --run-id trajectories_qwen3_1.7b_seed20260907
+```
+
+1.7B: 26 min (2–4 min per task), determinism check passed; 9 tasks
+(arithmetic_words is the few-shot reject).
+
+- **Learned: peaks and then lets go, mostly in the last block.** Peak
+  0.51–0.79 at 0.82–1.00 of the depth, a significant decline on 8 of 9
+  tasks to a final 0.28–0.79 (median 0.45; raw 0.52–0.91). The last
+  block alone takes off 0.06–0.33 on seven tasks (plural 0.61 → 0.28,
+  singular 0.66 → 0.41, present_participle 0.63 → 0.45), where the
+  head-mean trajectory loses 0.00–0.04 on six of eight; add-3 goes the
+  other way (+0.51 in the last block, to 0.79). Half of the peak at
+  0.14–0.75 of the depth (median 0.55), 90 % at 0.71–1.00.
+- **Head mean: converges on 6 of 8**, peak 0.44–0.79 at 0.59–1.00 of
+  the depth, final 0.31–0.77 (median 0.53): the one model on which the
+  head-mean vector ends more aligned with the natural trajectory than
+  the learned vector does.
+- **PC1 ends at −0.17 to 0.19**, at the floor on 5 of 9 and at
+  0.12–0.19 on the other four, carrying 0.00–0.25 of the gap; its
+  contrast component halves within 1–3 blocks from 0.65–0.87 at injection.
+- Head mean versus learned ends at −0.06 to 0.66 (median 0.27), but on
+  this model random directions at the head mean's strength reach
+  0.16–0.69 with the learned trajectory even after the generic removal
+  (the two strengths differ most here, the head mean injected at
+  210–300 against the learned vector's 50–160, and the generic response
+  is pooled over both), so there is no excess; PC1 versus learned −0.56
+  to 0.21.
+
+```
+# workflow run 35247747527 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
+uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-35038665604/pilot6_qwen3_4b_seed20260907 --learned-run /runpod-volume/results/run-35184285964/learned_qwen3_4b_seed20260907 --run-id trajectories_qwen3_4b_seed20260907
+```
+
+4B: 50 min (2–9 min per task; the 4B pipeline was the slow one before
+too), determinism check passed; 10 tasks.
+
+- **Learned: converges on 10 of 10**, final 0.67–0.83 (raw 0.72–0.90)
+  from −0.02 to 0.12 at injection, floors −0.25 to 0.19; half of the
+  final alignment at 0.33–0.55 of the depth (median 0.45), 90 % at
+  0.73–1.00 (median 0.93). Against the correct-versus-deranged contrast
+  the final cosine is 0.06–0.69 (median 0.53).
+- **Head mean: peaks at 0.35–0.78 at 0.64–1.00 of the depth, ends at
+  0.18–0.76**, declining significantly from the peak on 6 of 9 tasks
+  (antonym 0.55 → 0.25, past_tense 0.50 → 0.22, singular 0.35 → 0.18
+  among them).
+- **PC1**: its contrast component halves within 2–3 blocks from
+  0.81–0.94 at injection; against the few-shot difference it ends at
+  −0.01 to 0.69, the high values where it also steers (last_antonym
+  0.69 at 0.47 of the gap, add-3 0.47 at 0.08).
+- Head mean versus learned ends at −0.14 to 0.62 (median 0.03).
+
+```
+# workflow run 35247750874 (push-triggered request), H100 80GB HBM3 (ADA_80_PRO), US-CA-2, Flash environment ci-8b
+uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-35041155731/pilot6_qwen3_8b_seed20260907 --learned-run /runpod-volume/results/run-35181465402/learned_qwen3_8b_seed20260907 --run-id trajectories_qwen3_8b_seed20260907
+```
+
+8B: 19 min (1–3 min per task), determinism check passed; 10 tasks.
+
+- **Learned: converges on 4, aligns then partly diverges on 6.** Peak
+  0.56–0.81 at 0.80–1.00 of the depth, final 0.49–0.81 (raw 0.56–0.83),
+  floors −0.38 to 0.24; the six declines are 0.07–0.15 from a peak at
+  read points 31–35 of 36. Half of the peak at 0.28–0.66 of the depth
+  (median 0.51), 90 % at 0.68–1.00 (median 0.81). Against the contrast
+  the final cosine is 0.15–0.69 (median 0.56).
+- **Head mean: converges on 5, partly diverges on 4**; peak 0.47–0.80
+  at 0.66–1.00 of the depth, final 0.35–0.75. Its half-rise comes
+  earlier than the learned vector's (0.17–0.48 of the depth, median
+  0.34, against 0.51).
+- **PC1 ends at −0.26 to 0.65 (median −0.03)**, above the floor at the
+  end on 5 of 10 tasks, at −0.08 to 0.11 on four of them and at 0.65 on
+  last_antonym, the one task where it steers (0.69 of the gap); its
+  contrast component halves within 2–4 blocks from 0.43–0.92.
+- Head mean versus learned ends at −0.16 to 0.72 (median 0.07), PC1
+  versus learned at −0.43 to 0.38 (median −0.21): on this model the two
+  effective constructions end unrelated to each other on most tasks
+  while each is aligned with the natural trajectory.
+
+The trajectories on the four models, in one paragraph, against the
+three readings the comparison was built to separate. **The fitted
+vector's trajectory collapses onto the natural one, progressively.**
+On every task and model it starts orthogonal to the few-shot difference
+at the injection layer (cosine −0.02 to 0.13) and climbs to a peak of
+0.5–0.9 against a ceiling of 0.95–0.99 by the last read points, with the generic
+response of any perturbation removed and floors at the origin; half of
+the way is reached at about half of the downstream depth (medians 0.60,
+0.55, 0.45, 0.51 on 0.6B, 1.7B, 4B, 8B) and 90 % at 0.8–0.9 of it, and
+no task on any model shows a jump. "Different all the way through" is
+false for the residual stream as a whole, with two qualifications that
+keep part of it: the alignment saturates well below the ceiling, so a
+component the natural trajectory does not have survives to the end, and
+the two effective constructions do not converge onto each other (head
+mean versus learned ends at a median of 0.23, 0.27, 0.03 and 0.07 on
+the four models, against floors), so what the downstream layers
+canonicalise is the component shared with the demonstrations, not a
+form of the control signal of their own. **"Aligns then diverges"
+holds in a weak form**: for the head-mean vector on about half the
+pairs (a peak at 0.6–0.9 of the depth, then a significant decline of
+0.1–0.4), and for the learned vector on the two models where the last
+block pulls it away (1.7B, 8 of 9 tasks, by 0.06–0.33 in that block;
+8B, 6 of 10, by 0.07–0.15), where on 0.6B and 4B it climbs to the end.
+**PC1's own direction is dropped at once**: the correct-versus-deranged
+contrast it is the top direction of (cosine 0.4–0.9 at injection)
+halves within 1–4 blocks on every task and model, and PC1 ends at the
+floor wherever it does not steer; the natural trajectory does not carry
+that direction forward. The head-mean vector, which starts partly
+aligned (−0.03 to 0.17), aligns earlier than the learned vector (half-rise
+at a median of 0.35, 0.40, 0.17, 0.34 of the depth against 0.60, 0.55,
+0.45, 0.51) and less far, except on 1.7B. Two things the numbers do
+not yet say: whether the shared late component is what carries the
+effect (a patch of it at the read point where the alignment arrives),
+and what the generic response is; both are one captured-pass experiment
+on the same runs (limitations below).
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
@@ -2038,6 +2221,17 @@ text.
   tokens and a damage-penalised fit are the follow-ups, and a second
   seed would show whether the held-out numbers are as stable as the
   head-mean ones.
+- The trajectory comparison (iteration 8, D32) has run once per model,
+  on the seed-20260907 runs only; its alignment labels are exploratory
+  (the peak is chosen on the same data), and the read point where the
+  natural and the injected trajectories meet is measured only in cosine.
+  Two things it does not measure: whether the shared component is
+  *causal* (patching the natural trajectory's component into the
+  steered run, or removing it, at the read point where the alignment
+  arrives) and what the generic response is (a fixed direction of the
+  late residual, e.g. the massive-activation dimensions, or a
+  prompt-dependent one; its mean is saved per run). Both are one more
+  captured-pass experiment each on the same runs.
 - Data centers: EUR-NO-1 (the volume with the 0.6B–4B cache) currently
   offers nothing above 24 GB, and only US-CA-2, US-IL-1, US-MO-2, US-NC-2,
   EU-RO-1 and EUR-NO-1 can host a run at all (`docs/INFRA.md`;
@@ -2099,6 +2293,8 @@ gh run download <RUN_ID> --dir results/remote/<name>
 uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --seed 1 --run-id pilot4b_qwen3_0.6b_seed1
 uv run directions aggregate results/remote/<a>/... results/remote/<b>/... --out results/aggregate4b_qwen3_0.6b.json
 uv run directions compare results/<run_a> results/<run_b>                # diff two runs (only after a change of the numerical path, D23)
+# iteration 8 (D32): the downstream trajectories of the three constructions against the natural one, from two finished runs
+uv run directions trajectories --config configs/trajectories.yaml --fv-run results/remote/<head-mean run> --learned-run results/remote/<learned run> --run-id trajectories_<model>_seed<seed>
 ```
 
 Suggested next steps, in order:
