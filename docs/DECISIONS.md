@@ -1092,3 +1092,96 @@ whether it is the same direction. On add-3, a learned vector that
 qualifies and beats its permuted-target null carries the operand and
 the head mean does not; one that does not qualify puts the limit at the
 rank.
+
+## 2026-09-17 — Iteration 8: the trajectories compared
+
+### D32. Downstream trajectories compared all-to-all, against the natural one and against one another
+
+Context: the learned vector (D31) recovers the whole few-shot gap on
+every task and model while being orthogonal to PC1 and to the head-mean
+function vector (|cos| ≤ 0.12 in 1024–4096 dimensions). Two orthogonal
+inputs that produce the same output leave open what happens in between,
+and the pipeline's saved readout answers only part of it: `task_alignment`
+is the cosine of the steered perturbation with the *pooled PC1* of the
+extraction contrast at each read point, a direction rather than the
+per-example natural difference, taken against the correct-versus-deranged
+contrast rather than demonstrations-versus-none, with an arbitrary sign,
+and the residual vectors themselves are not saved (37 × 192 × 4096 floats
+per pass, 67 passes per task). On 8B it already shows the learned vector
+starting orthogonal to that direction and ending at 0.66–0.73 on six
+tasks where the head mean starts at 0.12–0.18 and stays there, but the
+last read point is where every successful intervention shares the
+answer's unembedding direction, so late convergence can mean "same
+answer" as well as "same computation". Three readings are to be told
+apart: the fitted vector stays different all the way (different
+computations implement the task); it collapses, gradually or suddenly,
+onto the natural trajectory (downstream layers canonicalise control
+signals); it aligns and then diverges (one of several routing signals).
+
+Decision: a separate command, `directions trajectories`, on two finished
+runs of one model (the head-mean and the learned-vector run, which share
+seed, splits and held-out prompts; checked), rather than a pipeline
+stage, because it needs both controls at once and only captured passes:
+no extraction, fitting or calibration is repeated.
+
+* **Trajectories.** On the held-out zero-shot prompts, per example and
+  read point: the perturbation of each construction injected at a common
+  layer, `h_m(x; h_l + v) − h_m(x)`, for the pooled PC1, the head-mean
+  function vector and the learned vector; the natural difference
+  `h_m(x; demos) − h_m(x)` with the pipeline's own few-shot prompts
+  (`icl`), the same with a second demonstration sample (`icl2`), and the
+  label contrast `h_m(x; demos) − h_m(x; deranged)` (`task`). All fifteen
+  pairs among the six are compared by the signed per-example cosine, the
+  population-mean trajectories by the cosine of their means, and each
+  construction against the natural references also by the projection
+  fraction (how much of the natural difference it reproduces along it).
+* **The answer direction removed.** Every cosine is also taken after
+  projecting out, from both vectors, the unit direction `g ⊙ W_U[t]` (the
+  final RMSNorm's scale times the first target token's unembedding row):
+  the direction along which any intervention that raises the answer must
+  move. Alignment that survives the removal is alignment of the
+  computation, not of the output.
+* **Common layers and strengths.** Per task the learned run's selected
+  layer (primary) and the head-mean run's when different. Each
+  construction enters at what its own run's calibration gives it at that
+  layer: the selected point at the selected layer, else the reliable grid
+  point nearest the run's reference strength (the run's own rule at that
+  layer), else the natural norm. PC1 was calibrated in neither run; it
+  takes the point of the D1 grid (units of the median residual norm at
+  the layer, taken from the learned run's calibration) with the largest
+  mean per-token improvement on the calibration pool, and its held-out
+  effect is reported like the others'. A construction's strength is
+  recorded with its source.
+* **Floor and ceiling.** `n_isotropic` random unit directions per
+  construction and layer, injected at that construction's strength, give
+  the floor of every pair the construction enters (pooled over the
+  controls' examples); the cosine between the two natural trajectories
+  gives the ceiling that a construction could reach at all. Medians carry
+  percentile-bootstrap CIs over examples; a curve is "above the floor" at
+  a read point when the CI low of its median exceeds the CI high of the
+  floor's.
+* **Summary and labels.** Per construction and reference: the median
+  cosine at injection, its peak and the peak's depth as a fraction of the
+  downstream depth, its final value (the last read point, before the
+  final norm), the floor at each, and a paired bootstrap test of the
+  decline from the peak to the end. The label is exploratory, the peak
+  being chosen on the same data: `never_aligns` (never above the floor
+  after injection), `converges` (above the floor at the end, no
+  significant decline), `aligns_then_diverges` (a significant decline to
+  the floor), `aligns_then_partly_diverges`, `partial`. The curves and
+  the numbers are the result; the label is a reading aid.
+* **What is saved.** Per task: the per-example cosines of every pair at
+  every read point (with and without the answer direction), the
+  projection fractions, the floors' medians and the population-mean
+  trajectories per condition (float16), so that this comparison never
+  needs the passes again; not the residuals.
+* **Reproducibility.** One repeated steered pass must be bit-identical
+  (`metadata.json/determinism_check`); the comparison's own draws (the
+  second demonstration sample, the derangements, the isotropic
+  directions, the bootstraps) come from its config seed through the
+  stable digest; the runs it read are recorded with their commits.
+
+Cost: per task, four captured passes over the held-out prompts, ten
+short passes over the calibration pool per layer for PC1, and per layer
+three steered passes plus `n_isotropic` × 3 control passes, all captured:
+about half of one pipeline profile stage per task, and no gradients.

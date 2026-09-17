@@ -293,6 +293,59 @@ class Config:
     figures: FiguresConfig = field(default_factory=FiguresConfig)
 
 
+@dataclass
+class TrajectoriesConfig:
+    """The all-to-all trajectory comparison (`directions trajectories`; docs/DECISIONS.md D32).
+
+    It reads two finished runs of one model (the head-mean and the learned-vector run, which share seed,
+    splits and held-out prompts) and re-captures the held-out residuals under the natural few-shot context
+    and under each construction injected at common layers. Everything about the model, the prompts and the
+    splits comes from the runs; only the comparison's own parameters live here.
+
+    layers          "selected": per task, the union of the two runs' selected layers (the learned run's is
+                    the primary); or an explicit list of candidate layers (calibrated in both runs)
+    n_isotropic     matched random directions per construction and layer, at the construction's norm: the
+                    floor of every alignment
+    second_demo_sample  a second few-shot sample per query: the cosine between two natural trajectories is
+                    the ceiling of the alignment a construction can reach
+    remove_answer_direction  also compare the trajectories with the answer's unembedding direction (the
+                    final norm's scale times the first target token's unembedding row) projected out, so that
+                    two trajectories that merely raise the same answer do not read as one computation
+    pc1_rho_grid    PC1 has no calibration in the two runs: its strength at a layer is the grid point (in
+                    units of the median residual norm, the D1 unit) with the largest mean improvement of the
+                    per-token log-probability on the calibration pool
+    """
+
+    name: str = "trajectories"
+    seed: int = 20260907
+    output_dir: str = "results"
+    layers: str | list[int] = "selected"
+    n_isotropic: int = 4
+    second_demo_sample: bool = True
+    remove_answer_direction: bool = True
+    pc1_rho_grid: list[float] = field(default_factory=lambda: [0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0])
+    n_boot: int = 2000
+    ci_alpha: float = 0.05
+    determinism_check: bool = True
+    device: str | None = None  # override the runs' model device (tests); None keeps it
+    figures: bool = True
+
+
+def load_trajectories_config(path: str | Path) -> TrajectoriesConfig:
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    cfg = _from_dict(TrajectoriesConfig, data)
+    if cfg.n_isotropic < 1:
+        raise ValueError("n_isotropic must be at least 1")
+    if isinstance(cfg.layers, str) and cfg.layers != "selected":
+        raise ValueError("layers must be 'selected' or a list of layers")
+    if not isinstance(cfg.layers, str) and (not cfg.layers or any(int(l) != l or l < 0 for l in cfg.layers)):
+        raise ValueError("layers must be a non-empty list of non-negative integers")
+    if not cfg.pc1_rho_grid or any(r <= 0 for r in cfg.pc1_rho_grid):
+        raise ValueError("pc1_rho_grid must be positive")
+    return cfg
+
+
 # --------------------------------------------------------------------------- #
 # (De)serialisation
 # --------------------------------------------------------------------------- #

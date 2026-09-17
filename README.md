@@ -23,6 +23,8 @@ uv run directions compare  results/<run_a> results/<run_b>          # reproducib
 uv run directions pilot    --config configs/smoke_toy.yaml          # tiny random model, CPU, no downloads
 uv run directions pilot    --config configs/pilot_qwen3_0.6b.yaml --seed 1 --run-id r1   # seed override
 uv run directions aggregate results/r1 results/r2 results/r3 --out results/aggregate.json # multi-seed summary
+uv run directions trajectories --config configs/trajectories.yaml --fv-run results/<head-mean run> \
+    --learned-run results/<learned-vector run> --run-id t1   # downstream trajectories compared all-to-all (D32)
 ```
 
 Every scientifically meaningful parameter lives in the YAML config. Each run
@@ -64,6 +66,22 @@ results/<run_id>/
                                  + rank correlations with the selected one
       block_ablation.json        necessity / sufficiency of the largest-conversion blocks
   figures/                 per-task primary figures, diagnostics, cross-task heatmaps
+```
+
+A `trajectories` run (docs/DECISIONS.md D32) reads two finished runs and writes its own directory:
+
+```
+results/<run_id>/
+  metadata.json            the comparison's config, the two runs read (paths, ids, commits), model, determinism check
+  core/summary.json        per task, layer and construction: strength (and its source), held-out effect, the alignment
+                           summary against each natural trajectory and each other construction, the ceiling
+  core/tasks/<task>/
+      trajectories.json    per layer: strengths, condition metrics, every pair's median-cosine curve with CIs and floor,
+                           the answer-removed variant, the summaries and labels, the ceilings
+      trajectories_arrays.npz  per-example cosines of every pair at every read point (with and without the answer
+                           direction), projection fractions, floor medians, population-mean trajectories
+  figures/                 per task and layer: cosine with the natural trajectory, the same without the answer
+                           direction, the constructions against one another
 ```
 
 ## Layout

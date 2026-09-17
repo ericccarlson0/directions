@@ -2,13 +2,17 @@ from pathlib import Path
 
 import pytest
 
-from directions.config import config_from_dict, config_to_dict, load_config
+from directions.config import config_from_dict, config_to_dict, load_config, load_trajectories_config
 
 CONFIGS = Path(__file__).resolve().parents[1] / "configs"
 
 
 def test_all_configs_load():
     for p in sorted(CONFIGS.glob("*.yaml")):
+        if "trajectories" in p.name:  # the comparison's own config (D32): no model, no tasks
+            cfg = load_trajectories_config(p)
+            assert cfg.n_isotropic >= 1 and cfg.layers == "selected", p
+            continue
         cfg = load_config(p)
         assert cfg.tasks, p
 

@@ -1,0 +1,14 @@
+# Smoke test of `directions trajectories` (docs/DECISIONS.md D32) on the toy model: reads finished
+# smoke_toy_fv.yaml and smoke_toy_learned.yaml runs (tests/test_trajectories.py). Nothing here is a result.
+name: smoke_toy_trajectories
+seed: 1234
+output_dir: results
+layers: selected
+n_isotropic: 2
+second_demo_sample: true
+remove_answer_direction: true
+pc1_rho_grid: [0.1, 0.5, 1.0]
+n_boot: 100
+ci_alpha: 0.05
+determinism_check: true
+figures: true

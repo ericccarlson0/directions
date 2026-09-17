@@ -1,0 +1,22 @@
+# All-to-all downstream-trajectory comparison (docs/DECISIONS.md D32; `directions trajectories`).
+# The model, prompts, splits, directions and strengths come from the two finished runs given on the command
+# line (the head-mean run and the learned-vector run of one model, same seed); this file holds only the
+# comparison's own parameters. One file serves every model.
+#
+#   uv run directions trajectories --config configs/trajectories.yaml \
+#       --fv-run results/pilot6_qwen3_0.6b_seed20260907 --learned-run results/learned_qwen3_0.6b_seed20260907 \
+#       --run-id trajectories_qwen3_0.6b_seed20260907
+name: trajectories
+seed: 20260907                 # the comparison's own draws: second demonstration sample, derangements, isotropic directions, bootstraps
+output_dir: results
+
+layers: selected               # per task: the learned run's selected layer (primary) and the head-mean run's, when different
+n_isotropic: 4                 # matched random directions per construction and layer, at the construction's strength (the floor)
+second_demo_sample: true       # a second few-shot sample per query: the ceiling of natural alignment
+remove_answer_direction: true  # every cosine also with the answer's unembedding direction projected out
+pc1_rho_grid: [0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0]  # PC1's strength: best point on the calibration pool, in median-residual-norm units
+
+n_boot: 2000
+ci_alpha: 0.05
+determinism_check: true        # one repeated steered pass must be bit-identical (recorded in metadata.json)
+figures: true

@@ -345,6 +345,25 @@ class ModelBackend:
         ids = self.tokenizer.encode(target_text, add_special_tokens=False)
         return int(sum(self._scored_tokens(ids, score_reference)))
 
+    def first_target_token_ids(self, prompts: Sequence[Prompt]) -> np.ndarray:
+        """The id of each prompt's first target token (the token scored at the query position), ``(N,)``."""
+        return np.array([self._encode_prompt(p)[1][0] for p in prompts], dtype=np.int64)
+
+    def unembedding_directions(self, token_ids: np.ndarray) -> np.ndarray:
+        """The residual-stream directions that raise the logits of ``token_ids``, ``(N, d)`` float64.
+
+        The logit of token ``t`` is ``W_U[t] · norm(h)``; on the supported models the final norm is an RMSNorm
+        with a per-dimension scale ``g``, so up to the (positive) normalisation factor the direction in the
+        residual stream is ``g * W_U[t]``. Without a scaled final norm it is ``W_U[t]`` itself. Not normalised.
+        """
+        ids = torch.as_tensor(np.asarray(token_ids, dtype=np.int64), device=self.device)
+        rows = self.model.lm_head.weight.detach()[ids].to(torch.float64)  # (N, d)
+        norm = getattr(getattr(self.model, "model", None), "norm", None)
+        gain = getattr(norm, "weight", None)
+        if gain is not None and gain.shape == rows.shape[1:]:
+            rows = rows * gain.detach().to(torch.float64)[None, :]
+        return rows.cpu().numpy()
+
     def _encode_prompt(self, p: Prompt) -> tuple[list[int], list[int]]:
         prompt_ids = self.tokenizer.encode(p.prompt, add_special_tokens=True)
         target_ids = self.tokenizer.encode(p.target, add_special_tokens=False)

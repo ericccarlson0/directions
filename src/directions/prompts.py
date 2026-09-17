@@ -58,6 +58,16 @@ def few_shot_prompt(cfg: PromptConfig, pool: list[Item], query: Item, rng: np.ra
     )
 
 
+def deranged_prompt(cfg: PromptConfig, few_shot: Prompt, rng: np.random.Generator) -> Prompt:
+    """``few_shot`` with its demonstration outputs deranged (the same inputs and query, the labels permuted
+    with no fixed point): the permuted-label context that the extraction contrasts the correct one with."""
+    demos = list(few_shot.demos)
+    perm = derangement(len(demos), rng)
+    deranged = [Item(d.input, demos[j].output) for d, j in zip(demos, perm)]
+    return Prompt(_render(cfg, deranged, few_shot.query), few_shot.target, few_shot.query, tuple(deranged),
+                  few_shot.score_reference)
+
+
 def paired_prompts(
     cfg: PromptConfig, pool: list[Item], query: Item, rng: np.random.Generator
 ) -> tuple[Prompt, Prompt]:

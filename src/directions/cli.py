@@ -114,6 +114,19 @@ def _cmd_aggregate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_trajectories(args: argparse.Namespace) -> int:
+    """All-to-all downstream-trajectory comparison from two finished runs (docs/DECISIONS.md D32)."""
+    from .config import load_trajectories_config
+    from .trajectories import run_trajectories
+
+    cfg = load_trajectories_config(args.config)
+    if args.output_dir:
+        cfg.output_dir = args.output_dir
+    root = run_trajectories(cfg, args.fv_run, args.learned_run, run_id=args.run_id, config_path=str(args.config))
+    print(root)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="directions", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -136,6 +149,13 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("aggregate", help="summarise several runs (e.g. different seeds) per task")
     p.add_argument("runs", nargs="+")
     p.add_argument("--out", default=None, help="write the aggregate as JSON")
+    p = sub.add_parser("trajectories", help="all-to-all downstream-trajectory comparison of the three constructions "
+                                            "and the natural few-shot trajectory, from two finished runs of one model")
+    p.add_argument("--config", required=True, help="YAML config of the comparison (configs/trajectories.yaml)")
+    p.add_argument("--fv-run", required=True, help="finished run with extraction.control: function_vector")
+    p.add_argument("--learned-run", required=True, help="finished run with extraction.control: learned_vector (same seed)")
+    p.add_argument("--output-dir", default=None, help="override output_dir from the config")
+    p.add_argument("--run-id", default=None, help="explicit run directory name")
     args = parser.parse_args(argv)
     if args.command in ("validate", "pilot"):
         return _cmd_run(args, args.command)
@@ -145,6 +165,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_compare(args)
     if args.command == "aggregate":
         return _cmd_aggregate(args)
+    if args.command == "trajectories":
+        return _cmd_trajectories(args)
     parser.error("unknown command")
     return 2
 
