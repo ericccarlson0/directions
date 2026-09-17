@@ -33,7 +33,7 @@ import numpy as np
 from ._version import __version__
 from .ablation import block_ablation, select_blocks
 from .analysis import cross_task_table, profile_signature
-from .calibration import CalibrationResult, Selection, calibrate
+from .calibration import CalibrationResult, Selection, calibrate, median_layer_norms
 from .commitment import depth_of_commitment
 from .config import Config, PromptConfig, TaskConfig, config_to_dict
 from .extraction import (
@@ -63,6 +63,7 @@ from .geometry import (
     random_unit_vector,
     set_linalg_device,
 )
+from .learned import FitResult, fit_summary, learned_directions, permuted_target_vectors
 from .layerwise import LayerwiseProfile, compare_by_kind, compute_profile, metric_curves, null_summary, profile_arrays
 from .model import ForwardResult, Intervention, ModelBackend, environment_metadata, set_torch_determinism
 from .neutral import neutral_prompts
@@ -103,6 +104,9 @@ class TaskState:
     head_effects_n_prompts: int = 0
     permuted_head_means: list[np.ndarray] = field(default_factory=list)  # demo_variation null inputs
     fv: FunctionVector | None = None
+    # Learned-vector inputs and result (D31), when extraction.control == "learned_vector":
+    learned_fits: dict[int, list[FitResult]] = field(default_factory=dict)  # per candidate layer, per seed
+    learned_radii: dict[int, float] = field(default_factory=dict)  # the fitted norm per candidate layer (median residual norm)
     aie_prompts: list[Prompt] = field(default_factory=list)  # the deranged-label prompts the indirect effects use
     aie_baseline: np.ndarray | None = None  # their unpatched metric values
     aie_positive_mean: float | None = None  # the metric's mean on the positive prompts (the head-support ceiling)
@@ -320,6 +324,7 @@ class Pipeline:
 
         # 3. extraction --------------------------------------------------
         fv_mode = cfg.extraction.control == "function_vector"
+        learned_mode = cfg.extraction.control == "learned_vector"
         with self.prof.section("extraction", name):
             seeds = extract_differences(self.backend, prompt_cfg, splits.extraction, cfg.seed, name, cfg.extraction.n_seeds,
                                         capture_heads=fv_mode)
@@ -360,6 +365,29 @@ class Pipeline:
                 with self.prof.section("demo_variation", name):
                     st.permuted_head_means = permuted_head_means(self.backend, prompt_cfg, splits.extraction, cfg.seed, name, n_dv)
                 ext["demo_variation"] = {"n": n_dv, "construction": "function vector of deranged-label prompts (D21)"}
+        elif learned_mode:
+            # D31: one vector per candidate layer, fitted on the extraction pool's zero-shot prompts at the median
+            # residual norm of the layer; the demo-variation null (vectors fitted to permuted targets) is built at
+            # the selected layer when the controls are (phase B), so it costs one layer, not four.
+            lvc = cfg.extraction.learned_vector
+            with self.prof.section("learned_vector", name):
+                base_ext = self.backend.run([zero_shot_prompt(prompt_cfg, x) for x in splits.extraction], capture=True)
+                st.learned_radii = median_layer_norms(base_ext, self.layers)
+                base_loss = float(-np.mean(base_ext.logprob_sum))
+                st.directions, st.learned_fits = learned_directions(self.backend, prompt_cfg, splits.extraction, self.layers,
+                                                                    st.learned_radii, cfg.seed, name, lvc, cfg.extraction.n_seeds)
+            ext["learned_vector"] = {
+                "n_seeds": cfg.extraction.n_seeds, "n_steps": lvc.n_steps, "lr_fraction": lvc.lr_fraction,
+                "n_prompts": len(splits.extraction), "base_loss": base_loss, "layers": fit_summary(st.learned_fits),
+                "stability": {str(l): st.directions[l].stability for l in self.layers},
+                "cos_with_pca": {str(l): float(st.directions[l].direction @ st.pca_directions[l].direction) for l in self.layers},
+                "demo_variation": {"n": n_dv, "construction": "vectors fitted to permuted targets at the selected layer (D31)"},
+            }
+            log.info("[%s] learned vector (%d steps, %d seeds, %.0fs): loss %.3f -> %s per candidate layer; stability %s; "
+                     "cos with PC1 %s", name, lvc.n_steps, cfg.extraction.n_seeds, self.prof.sections[f"learned_vector:{name}"]["seconds"],
+                     base_loss, {l: round(float(np.mean([f.losses[-1] for f in fs])), 3) for l, fs in st.learned_fits.items()},
+                     {l: round(st.directions[l].stability, 3) for l in self.layers},
+                     {l: round(float(st.directions[l].direction @ st.pca_directions[l].direction), 3) for l in self.layers})
         elif n_dv > 0:
             with self.prof.section("demo_variation", name):
                 dv = extract_demo_variation(self.backend, prompt_cfg, splits.extraction, cfg.seed, name, n_dv)
@@ -379,7 +407,8 @@ class Pipeline:
             st.ready = True
             return st
         st.stable_layers = [l for l in self.layers if st.directions[l].stability >= cfg.qualification.min_stability]
-        q["stability"] = pca_stability
+        q["stability"] = {str(l): st.directions[l].stability for l in self.layers}  # the control's own stability
+        q["pca_stability"] = pca_stability
         q["stable_layers"] = st.stable_layers
         q["gates"]["stability"] = bool(st.stable_layers)
         if not st.stable_layers:
@@ -428,6 +457,12 @@ class Pipeline:
             "per_seed": np.stack([st.pca_directions[l].seed_directions for l in self.layers]),
             "all_layers": st.all_layer_directions,
         }
+        if st.learned_fits:
+            arrays.update({
+                "learned": np.stack([st.directions[l].direction for l in self.layers]),
+                "learned_per_seed": np.stack([st.directions[l].seed_directions for l in self.layers]),
+                "learned_radii": np.array([st.learned_radii[l] for l in self.layers]),
+            })
         if st.fv is not None:
             arrays.update({
                 "fv": st.fv.vector,
@@ -590,6 +625,12 @@ class Pipeline:
             for n in others[: counts["other_task"]]:
                 out.append(("other_task", f"other_task:{n}", states[n].directions[layer].direction))
         if counts.get("demo_variation", 0):
+            if st.learned_fits and layer not in st.demo_variation:
+                assert st.prompt_cfg is not None
+                with self.prof.section("demo_variation", st.name):
+                    st.demo_variation[layer] = permuted_target_vectors(
+                        self.backend, st.prompt_cfg, st.splits.extraction, layer, st.learned_radii[layer], cfg.seed, st.name,
+                        cfg.extraction.learned_vector, counts["demo_variation"])
             for i, u in enumerate(st.demo_variation.get(layer, [])[: counts["demo_variation"]]):
                 out.append(("demo_variation", f"demo_variation_{i}", u))
         if counts.get("common", 0):
@@ -654,6 +695,20 @@ class Pipeline:
             log.info("[%s] function vector: natural rho at the selected layer %.3g; selected alpha / natural norm %.3g; "
                      "cos with PC1 there %.3f", name, q["function_vector"]["natural_rho"][str(st.selection.layer)],
                      q["function_vector"]["alpha_over_natural_norm"], q["function_vector"]["cos_with_pca_at_selected_layer"])
+
+        if st.learned_fits:
+            ld = st.directions[st.selection.layer]
+            q["learned_vector"] = {
+                "natural_norm": ld.mean_difference_norm,
+                "natural_rho": {str(l): st.directions[l].mean_difference_norm / n for l, n in cal.layer_norms.items()},
+                "alpha_over_natural_norm": st.selection.alpha / ld.mean_difference_norm,
+                "cos_with_pca_at_selected_layer": float(ld.direction @ st.pca_directions[st.selection.layer].direction),
+                "stability": ld.stability,
+                "final_loss": [f.losses[-1] for f in st.learned_fits[st.selection.layer]],
+            }
+            log.info("[%s] learned vector: selected alpha / fitted norm %.3g; cos with PC1 there %.3f; stability %.3f",
+                     name, q["learned_vector"]["alpha_over_natural_norm"], q["learned_vector"]["cos_with_pca_at_selected_layer"],
+                     ld.stability)
 
         # 5. held-out steering vs matched controls of every kind ----------
         sel = st.selection
@@ -871,7 +926,7 @@ class Pipeline:
             self.rejections.add("error", name, f"exploratory: {type(e).__name__}: {e}", {"traceback": traceback.format_exc()})
 
         # 8. decomposition into the common and the task-specific part (D28) ---
-        if st.fv is not None:
+        if st.fv is not None or st.learned_fits:
             try:
                 with self.prof.section("decomposition", name):
                     self._decomposition(st, states, readout_kw, ref, gate_kinds)
@@ -918,8 +973,9 @@ class Pipeline:
         control profiles, signature. Writes ``decomposition.json``."""
         cfg = self.cfg
         sel = st.selection
-        assert sel is not None and st.fv is not None and st.base is not None and st.steered is not None
+        assert sel is not None and st.base is not None and st.steered is not None
         assert st.base.residuals is not None and st.profile is not None
+        control = st.directions[sel.layer].direction  # the unit control direction at l* (function vector or learned vector)
         c, others = self._common_direction(st, states, sel.layer)
         out: dict[str, Any] = {"selection": sel.__dict__, "common_direction": None, "parts": {}}
         if c is None:
@@ -927,8 +983,8 @@ class Pipeline:
             write_json(self._task_dir(st.name) / "decomposition.json", out)
             return
         drng = rng_for(cfg.seed, "decomposition_bootstrap", st.name)
-        cos = float(st.fv.direction @ c)
-        parts = {"common": cos * c, "residual": st.fv.direction - cos * c}  # unit-vector coordinates; they sum to the FV
+        cos = float(control @ c)
+        parts = {"common": cos * c, "residual": control - cos * c}  # unit-vector coordinates; they sum to the FV
         out["common_direction"] = {"cos_with_fv": cos, "other_tasks": others, "n_other_tasks": len(others),
                                    "norm_share_common": abs(cos), "norm_share_residual": float(np.sqrt(max(0.0, 1 - cos**2)))}
         by_kind: dict[str, list[LayerwiseProfile]] = {}
@@ -963,7 +1019,7 @@ class Pipeline:
                 nkl = self._neutral_probe(sel.layer, u, alpha)
                 part_metrics["neutral_kl_mean"], part_metrics["neutral_kl_median"] = float(np.mean(nkl)), float(np.median(nkl))
             out["parts"][label] = {
-                "norm_share": norm, "alpha": alpha, "cos_with_fv": float(u @ st.fv.direction),
+                "norm_share": norm, "alpha": alpha, "cos_with_fv": float(u @ control),
                 "metrics": part_metrics, "steering_test": test.__dict__, "excess_vs_gate_controls": excess.__dict__,
                 "excess_vs_fv": paired_excess_test(diff, real_diff[None, :], drng, n_boot=cfg.calibration.n_boot).__dict__,
                 "signature": sig, "curves": metric_curves(prof),
@@ -1092,6 +1148,7 @@ class Pipeline:
                     "damage": s.qualification.get("damage"),
                     "decomposition": s.qualification.get("decomposition"),
                     "commitment": s.qualification.get("commitment"),
+                    "learned_vector": None if not s.learned_fits else s.qualification.get("learned_vector"),
                     "function_vector": None if s.fv is None else {
                         "natural_rho_at_selection": None if s.selection is None else
                         s.qualification["function_vector"]["natural_rho"][str(s.selection.layer)],

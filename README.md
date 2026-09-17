@@ -42,8 +42,10 @@ results/<run_id>/
     tasks/<task>/
       splits.json          the three disjoint query pools
       qualification.json   few-shot gate, stability, selection, held-out steering vs random controls
-      extraction.json      per-layer, per-seed PC1 statistics and cross-seed stability
-      directions.npz       pooled and per-seed unit directions at the candidate layers
+      extraction.json      per-layer, per-seed PC1 statistics and cross-seed stability; with the learned-vector
+                           control (D31) also the fits' loss trajectories, radii and stability per layer
+      directions.npz       pooled and per-seed unit directions at the candidate layers (PC1; the function vector
+                           and its heads, or the learned vectors and their radii, when they are the control)
       calibration.json     the layer x strength grid with bootstrap tests and random screens
       evaluation.json      held-out behavioural metrics per condition, every control by kind,
                            the gate comparison (isotropic + orthogonal), per-kind comparisons and the

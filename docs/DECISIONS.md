@@ -1011,3 +1011,71 @@ per-token metric of the arithmetic tasks is not comparable with the
 earlier runs' (their four-token average), and the family's head count and
 universal heads are the family's own, so these runs are a separate
 iteration, not a re-run of the pilot.
+
+### D31. The learned single vector: the best one direction can do
+
+Context: the add-k family (D30) showed that the head-mean function vector
+carries a fixed relation (add-1 on 4B and 8B) and not a demonstration-read
+operand (k ≥ 2 on any model). That is a fact about one construction. The
+rank-one argument (a task vector acts as a single synthetic demonstration)
+says no single vector can carry the operand, whatever the construction;
+the head mean averaging the operand away says only that this one does
+not. The two are separated by fitting the best single vector directly:
+if a fitted vector recovers the gap where the head mean does not, the
+failure was the extraction; if it does not either, the limit is the rank,
+and the next rung is an operator. The same fit on the lexical tasks says
+how much of the way to the few-shot gap one direction can go at all, and
+whether the fitted direction is the head-mean direction.
+
+Decision: a third control, `extraction.control: learned_vector`, beside
+`pca` and `function_vector`, with everything downstream unchanged.
+
+* **The fit.** At each candidate layer, one vector `v` is added to the
+  residual at the query token of the zero-shot prompts of the extraction
+  pool (64 items; the same pool the other constructions extract from,
+  so the calibration and evaluation pools stay untouched) and optimised
+  to raise the summed scored log-probability of the target, averaged over
+  the pool, with the model frozen. The gradient with respect to `v` is
+  the activation gradient at that read point of the steered forward pass
+  (`ModelBackend.gradients_with_scores`; the finite-difference check is
+  a test), so a step costs one forward and one backward over 64 prompts.
+  The optimiser is Adam on the vector in float64 on the host, step size
+  `lr_fraction` = 0.05 of the vector's norm, `n_steps` = 100, and after
+  every step the vector is projected back to a fixed norm: the median
+  residual norm at the layer on the extraction prompts (the vector's
+  natural strength, so ρ = 1 in the calibration grid is one residual
+  norm and the grid scales it as it scales the function vector). Three
+  seeds (random unit initialisations) give the solution's stability, the
+  min pairwise signed cosine (the sign is meaningful), and their
+  normalised mean is the pooled direction; the stability gate applies
+  to it (0.8). The loss trajectory is recorded per seed and layer.
+* **What is not there.** No head-support gate: the construction has no
+  heads. The PCA direction is still extracted and reported (the `T_l`
+  readout and the cosine with the learned vector).
+* **The matched null of the construction** (`demo_variation` under this
+  control): vectors fitted with the same budget and norm to the pool's
+  targets permuted across items (a derangement), built at the selected
+  layer only when the controls are, one per control. A learned vector
+  that beats them steers the task rather than "the answer format the
+  fit could reach with any targets"; for the arithmetic tasks this is
+  the format-versus-operand question asked directly.
+* **Configs.** `configs/learned_qwen3_*.yaml` are the pilot configs with
+  the control switched and `arithmetic` scored on the changed digits
+  under the label `add_3` (D30) so that its numbers compare with the
+  add-k family.
+
+Cost: per task, 3 seeds × 4 layers × 100 steps plus 8 null fits at one
+layer, each step a gradient pass over 64 prompts: about the size of the
+head-effect stage on the small models and a third of a run on 4B and 8B.
+The step count and step size are the first values tried, chosen so that a
+fit converges on the toy in a handful of steps; the recorded loss curves
+say whether 100 steps were enough or too many, and a change is a config
+change to record here.
+
+Reading: on the lexical tasks, the learned vector's held-out effect
+against the function vector's is how much the head mean leaves on the
+table for one direction; its cosine with the function vector says
+whether it is the same direction. On add-3, a learned vector that
+qualifies and beats its permuted-target null carries the operand and
+the head mean does not; one that does not qualify puts the limit at the
+rank.

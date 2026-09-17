@@ -127,6 +127,10 @@ With `extraction.control: function_vector` the direction carried forward is the 
 
 Gates, controls and layerwise measurements are otherwise unchanged. The calibration grid is in units of the vector's own norm with the canonical (unscaled) injection as the reference strength (see "Intervention Calibration"). Report the natural strength \(\|\mathrm{FV}_t\| / \operatorname{median}\|h_l\|\) at each candidate layer, the cross-seed stability of the per-seed function vectors (the stability gate applies to it), and \(\cos(\mathrm{FV}_t, v_{t,l})\) as a descriptive comparison with PC1. PC1 is still extracted at every read point and remains \(v_{t,l}\) in the direction-specific readouts.
 
+### Learned single vector (iteration 7b, docs/DECISIONS.md D31)
+
+With `extraction.control: learned_vector` the direction carried forward is fitted rather than extracted: at each candidate layer one vector, added to the residual at the query token of the extraction pool's zero-shot prompts, is optimised with the model frozen to raise the summed scored log-probability of the target (projected Adam, `extraction.learned_vector.n_steps` steps at `lr_fraction` of the vector's norm; the norm is held at the median residual norm of the layer, the vector's natural strength). Three random initialisations give the stability (min pairwise signed cosine) and their normalised mean the pooled direction; the stability gate applies, the head-support gate does not. Under this control the `demo_variation` controls are vectors fitted with the same budget and norm to the pool's targets permuted across items, built at the selected layer. PC1 is still extracted and reported; the loss trajectories are recorded in `extraction.json`.
+
 ## Intervention Calibration
 
 Candidate intervention layers:

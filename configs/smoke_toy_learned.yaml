@@ -1,0 +1,97 @@
+# Smoke test of the learned-vector control (docs/DECISIONS.md D31) on the toy model: smoke_toy_fv.yaml with
+# `extraction.control: learned_vector` and a four-step fit.
+# Inexpensive integration path: a tiny randomly initialised Qwen3-architecture
+# model with a character tokenizer, on CPU, no downloads. It exercises every
+# stage of the pipeline; because the model does no task, qualification gates
+# are computed and logged but NOT enforced (qualification.enforce: false).
+# Nothing in this file is a scientific result. This variant exercises the canonical
+# function-vector control (docs/DECISIONS.md D21); smoke_toy.yaml keeps the PCA control.
+name: smoke_toy_fv
+seed: 1234
+output_dir: results
+
+model:
+  backend: toy
+  dtype: float32
+  device: cpu
+  batch_size: 8
+  toy:
+    hidden_size: 32
+    num_layers: 4
+    num_heads: 4
+    num_kv_heads: 2
+    intermediate_size: 64
+
+prompt:
+  instruction: ""
+  demo_template: "Q: {input}\nA: {output}"
+  query_template: "Q: {input}\nA:"
+  target_template: " {output}"
+  separator: "\n\n"
+  n_shots: 3
+
+data:
+  n_extraction: 6
+  n_calibration: 6
+  n_evaluation: 6
+  max_target_tokens: 16
+  allow_reduced_splits: false
+
+tasks:
+  - name: antonym
+  - name: arithmetic
+    label: add_3                     # D30: a label is the task's identity in the run; scored on the changed digits
+    params: {operation: add, operand: 3, min: 0, max: 60}
+    target_scoring: changed_tokens
+  - name: number_to_words
+    params: {min: 0, max: 99}
+    max_target_tokens: 24
+
+qualification:
+  enforce: false
+  min_fewshot_accuracy: 0.5
+  min_stability: 0.8
+  steering_alpha: 0.05
+  gate_test: paired_excess
+  gate_control_kinds: [isotropic, orthogonal, covariance]
+  random_control_max_p: 0.05
+
+extraction:
+  n_seeds: 2
+  center: false
+  candidate_depth_fractions: [0.25, 0.5]
+  control: learned_vector
+  learned_vector: {n_steps: 4, lr_fraction: 0.05, log_every: 2}
+  function_vector: {n_heads: null, head_count_candidates: [1, 2, 4, 8], head_support_null: 4, head_selection: universal, aie_seeds: 1}
+
+calibration:
+  strength_unit: natural      # D22 path: rho in units of the function vector's norm, which is tiny on the
+  rho_grid: [1.0, 4.0, 8.0]   # random toy model (~1/8 of the residual norm), hence the large grid
+  reference_rho: 4.0
+  layer_rule: best
+  extend_grid: true
+  extension_factor: 1.5
+  max_rho: 16.0
+  bootstrap_alpha: 1.0        # smoke: every grid point passes, so the random screen is exercised
+  min_improvement: -1.0
+  n_random_screen: 2
+  screen_kinds: [isotropic, orthogonal]
+  random_screen_max_p: 0.5
+  n_boot: 200
+
+evaluation:
+  controls: {isotropic: 2, orthogonal: 1, covariance: 1, other_task: 2, demo_variation: 1, common: 1}
+  gate_kinds: [isotropic, orthogonal]
+  n_boot: 200
+  ci_alpha: 0.05
+  variance_fraction: 0.9
+
+commitment: {enabled: true, n_prompts: 0, n_controls: 2, alpha: 0.05, n_boot: 50}
+
+exploratory:
+  strength_robustness: true
+  block_ablation: {enabled: true, n_blocks: 1, criterion: conversion, rank_by: z}
+
+figures:
+  enabled: true
+  dpi: 60

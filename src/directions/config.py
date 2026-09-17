@@ -127,6 +127,24 @@ class FunctionVectorConfig:
 
 
 @dataclass
+class LearnedVectorConfig:
+    """Learned single vector (docs/DECISIONS.md D31): projected Adam on one vector per candidate layer, fitted
+    on the extraction pool's zero-shot prompts to raise the summed scored log-probability of the target, with
+    the model frozen; the vector is kept at the median residual norm of the layer (its natural strength).
+
+    n_steps      optimiser steps per fit (each one forward and one backward over the pool)
+    lr_fraction  Adam step size as a fraction of the radius (the vector's norm)
+    log_every    record the loss every this many steps (plus before the first and after the last)
+    """
+
+    n_steps: int = 100
+    lr_fraction: float = 0.05
+    beta1: float = 0.9
+    beta2: float = 0.999
+    log_every: int = 10
+
+
+@dataclass
 class ExtractionConfig:
     n_seeds: int = 3
     center: bool = False  # mean-center differences before PCA (preregistered: off)
@@ -134,8 +152,11 @@ class ExtractionConfig:
     # The control direction carried into calibration, the gates and the layerwise measurement:
     #   "pca"              PC1 of the paired few-shot-minus-deranged differences at the layer (D1-D19 protocol)
     #   "function_vector"  the canonical function vector (D21); the PCA direction is still extracted and reported
+    #   "learned_vector"   one vector per candidate layer fitted by gradient descent with the model frozen (D31);
+    #                      the PCA direction is still extracted and reported, there is no head-support gate
     control: str = "pca"
     function_vector: FunctionVectorConfig = field(default_factory=FunctionVectorConfig)
+    learned_vector: LearnedVectorConfig = field(default_factory=LearnedVectorConfig)
 
 
 @dataclass
@@ -332,8 +353,11 @@ def validate_config(cfg: Config) -> None:
         raise ValueError("extraction.candidate_depth_fractions must be non-empty")
     if any(not (0 <= f < 1) for f in cfg.extraction.candidate_depth_fractions):
         raise ValueError("candidate_depth_fractions must lie in [0, 1)")
-    if cfg.extraction.control not in ("pca", "function_vector"):
-        raise ValueError("extraction.control must be 'pca' or 'function_vector'")
+    if cfg.extraction.control not in ("pca", "function_vector", "learned_vector"):
+        raise ValueError("extraction.control must be 'pca', 'function_vector' or 'learned_vector'")
+    lv = cfg.extraction.learned_vector
+    if lv.n_steps < 1 or not (0 < lv.lr_fraction < 1) or not (0 <= lv.beta1 < 1) or not (0 <= lv.beta2 < 1) or lv.log_every < 1:
+        raise ValueError("extraction.learned_vector: n_steps >= 1, 0 < lr_fraction < 1, 0 <= beta1, beta2 < 1, log_every >= 1")
     fv = cfg.extraction.function_vector
     if fv.n_heads is not None and fv.n_heads < 1:
         raise ValueError("extraction.function_vector.n_heads must be >= 1 or null")

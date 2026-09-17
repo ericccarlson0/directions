@@ -1,0 +1,137 @@
+# Learned single vector (docs/DECISIONS.md D31): the pilot protocol with `extraction.control: learned_vector`,
+# one vector per candidate layer fitted by projected Adam with the model frozen. Everything else is the pilot
+# config except `arithmetic`, which is scored on the changed digits as in the add-k family (D30) so that its
+# numbers compare with iteration 7a (enforced by tests/test_configs.py); the 1.7b file differs from the
+# others only in `model.name`.
+name: learned
+seed: 20260907
+output_dir: results
+
+model:
+  backend: hf
+  name: Qwen/Qwen3-1.7B-Base
+  dtype: bfloat16          # model execution; captured activations float32, statistics float64
+  device: cuda             # fail fast; "auto" silently fell back to the CPU on a worker whose driver could not run the locked torch
+  batch_size: 128          # D20: 32 -> 128 for wall time (logits are gathered at the target positions only)
+
+prompt:
+  instruction: ""
+  demo_template: "Q: {input}\nA: {output}"
+  query_template: "Q: {input}\nA:"
+  target_template: " {output}"
+  separator: "\n\n"
+  n_shots: 8
+
+data:
+  n_extraction: 64
+  n_calibration: 64
+  n_evaluation: 192        # 3x the initial pilot (D14)
+  max_target_tokens: 4     # items whose formatted target exceeds this are dropped and logged
+  allow_reduced_splits: false
+
+tasks:
+  - name: antonym
+  - name: plural
+  - name: past_tense
+  - name: arithmetic
+    label: add_3
+    params: {operation: add, operand: 3, min: 0, max: 400}
+    target_scoring: changed_tokens   # D30: scored on the digits the operation changes, as in the add-k family
+  - name: present_participle
+  - name: singular
+  - name: uppercase
+  - name: number_to_words
+    params: {min: 0, max: 999}
+    max_target_tokens: 6
+  # composite tasks (D19): selection + lexical mapping, and numeric + lexical mapping
+  - name: last_antonym
+    params: {n_words: 3, items_seed: 20260908}
+  - name: arithmetic_words
+    params: {operation: add, operand: 3, min: 0, max: 996}
+    max_target_tokens: 6
+
+qualification:
+  enforce: true
+  min_fewshot_accuracy: 0.5          # few-shot accuracy on the evaluation pool
+  min_fewshot_logprob_per_token: null
+  min_stability: 0.8                 # min pairwise |cos| of seed PC1s at a candidate layer
+  steering_alpha: 0.05               # one-sided paired bootstrap on the evaluation pool
+  gate_test: paired_excess           # D18: paired hierarchical bootstrap vs the mean gate control
+  gate_control_kinds: [isotropic, orthogonal, covariance]   # 48 matched random directions (D20)
+  random_control_max_p: 0.05         # one-sided p of the excess test
+
+extraction:
+  n_seeds: 3
+  center: false                      # preregistered: PC1 of the raw (uncentered) differences
+  candidate_depth_fractions: [0.2, 0.3, 0.4, 0.5]   # D27: no injection past half depth (the heads live at 55-70 %)
+  control: learned_vector          # D31: one vector per candidate layer fitted with the model frozen; PC1 is
+                                   # still extracted at every layer (the T_l readout) and reported beside it
+  learned_vector:
+    n_steps: 100                   # projected Adam steps per fit (one forward + backward over the 64 extraction prompts)
+    lr_fraction: 0.05              # step size as a fraction of the vector's norm (the median residual norm at the layer)
+    log_every: 10
+  function_vector:
+    n_heads: null                    # D26: chosen by the joint-effect sweep (the paper fixes 10)
+    head_count_candidates: [1, 2, 4, 8, 16, 32, 64]
+    head_count_min_gain: 0.1           # D26 amendment: a larger candidate must beat the smaller by 10 % of its effect, and significantly
+    head_support_null: 16            # random head sets the chosen set must beat (the head_support gate)
+    head_support_alpha: 0.05
+    head_support_min_restored: 0.1   # and restore >= 10 % of the deranged-to-positive gap in answer probability
+    head_selection: universal        # one head set for all tasks, ranked by the mean indirect effect
+    aie_seeds: 1                     # indirect effects measured on the deranged prompts of seed 0 (64 prompts)
+
+calibration:
+  strength_unit: natural             # D22: rho multiplies the direction's natural norm (||FV||), so rho 1 is the
+                                     # canonical unscaled injection of Todd et al. (layer_norm: the D1-D21 unit)
+  rho_grid: [0.05, 0.1, 0.2, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0]
+  reference_rho: 1.0                 # D22: select the reliable strength nearest the canonical one (null: the weakest)
+  layer_rule: best                   # D27: the candidate layer whose selected strength improves most (the paper's sweep)
+  extend_grid: true                  # extend geometrically while the best point is at the upper edge
+  extension_factor: 1.25
+  max_rho: 4.0
+  bootstrap_alpha: 0.05
+  min_improvement: 0.05              # nats per target token
+  n_random_screen: 16
+  screen_kinds: [isotropic, orthogonal]
+  screen_test: paired_excess         # D18: same test as the gate, on the calibration pool
+  random_screen_max_p: 0.05
+  n_boot: 2000
+
+evaluation:
+  # matched controls on the evaluation pool, by kind (D15); every control is
+  # injected at the selected layer with the selected absolute norm
+  controls:
+    isotropic: 16                    # preregistered random null (gate), with orthogonal (D20: 32 -> 16)
+    orthogonal: 16
+    covariance: 16                   # random directions from the residual covariance at the layer
+    other_task: 9                    # the other tasks' control directions at the same layer
+    demo_variation: 8                # PC1 of correct-vs-correct demonstration differences
+    common: 1                        # D28: the leave-one-out common direction of the other tasks' vectors
+  gate_kinds: [isotropic, orthogonal]   # primary null of the layerwise metrics (the behavioural gate is qualification.gate_control_kinds)
+  n_boot: 1000
+  ci_alpha: 0.05
+  variance_fraction: 0.9
+
+commitment:                          # D29: depth of commitment (the perturbation edited along the injected direction at every later read point)
+  enabled: true
+  n_prompts: 96                      # the first 96 evaluation prompts (captures re-run on them so the edits are exact)
+  n_controls: 8                      # random unit directions the edits are matched against
+  alpha: 0.05
+  n_boot: 1000
+
+exploratory:
+  strength_robustness: true
+  block_ablation: {enabled: true, n_blocks: 2, criterion: conversion, rank_by: value}
+
+analysis:
+  conserved_alignment_min: 0.7
+  conserved_abs_cumlog_gain_max: 0.5
+  dominant_block_share_min: 0.4
+  cascade_entropy_ratio_min: 0.85
+  delayed_centre_of_mass_min: 0.6
+  expansion_ratio_min: 1.5
+  new_direction_z_min: 2.0
+
+figures:
+  enabled: true
+  dpi: 120

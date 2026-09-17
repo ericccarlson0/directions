@@ -403,22 +403,35 @@ class ModelBackend:
         """``query_logprobs`` of a captured run as a float32 tensor on the model's device (kept for several runs)."""
         return torch.as_tensor(np.asarray(query_logprobs, dtype=np.float32), device=self.device)
 
-    def gradients(self, prompts: Sequence[Prompt], batch_size: int | None = None) -> np.ndarray:
-        """Gradient of the summed target log-probability with respect to the residual
-        stream at every read point ``0..L``, taken at each example's final query token.
+    def gradients(self, prompts: Sequence[Prompt], batch_size: int | None = None,
+                  interventions: Sequence[Intervention] = (), read_points: Sequence[int] | None = None) -> np.ndarray:
+        """Gradient of the summed (scored) target log-probability with respect to the residual
+        stream at every read point ``0..L`` (or at ``read_points`` only), taken at each example's
+        final query token.
 
-        Returns an array shaped ``(L+1, N, d)`` (float32). Model parameters are
-        frozen, so the backward pass only produces activation gradients; the
-        forward pass is the unsteered teacher-forced pass used everywhere else.
+        Returns an array shaped ``(n_read_points, N, d)`` (float32). Model parameters are
+        frozen, so the backward pass only produces activation gradients; the forward pass is the
+        teacher-forced pass used everywhere else, with ``interventions`` applied (none by default).
+        With an additive intervention at a read point, the gradient there is also the gradient
+        with respect to the added vector (docs/DECISIONS.md D31).
         """
+        return self.gradients_with_scores(prompts, batch_size, interventions, read_points)[0]
+
+    def gradients_with_scores(self, prompts: Sequence[Prompt], batch_size: int | None = None,
+                              interventions: Sequence[Intervention] = (), read_points: Sequence[int] | None = None
+                              ) -> tuple[np.ndarray, np.ndarray]:
+        """``gradients`` plus the summed scored log-probability per example, ``(N,)`` float64, from the same pass."""
         bs = batch_size or self.cfg.batch_size
         parts = []
+        scores = []
         for start in range(0, len(prompts), bs):
             batch = prompts[start : start + bs]
             self.counters["gradient_examples"] += len(batch)
             self.counters["gradient_batches"] += 1
-            parts.append(self._gradient_batch(batch))
-        return np.concatenate(parts, axis=1)
+            g, s = self._gradient_batch(batch, interventions, read_points)
+            parts.append(g)
+            scores.append(s)
+        return np.concatenate(parts, axis=1), np.concatenate(scores)
 
     def _prepare_batch(self, prompts: Sequence[Prompt]) -> dict[str, Any]:
         encoded = [self._encode_prompt(p) for p in prompts]
@@ -562,12 +575,13 @@ class ModelBackend:
             argmax_changed=sc["argmax_changed"].cpu().numpy().astype(bool) if reference is not None else None,
         )
 
-    def _gradient_batch(self, prompts: Sequence[Prompt]) -> np.ndarray:
+    def _gradient_batch(self, prompts: Sequence[Prompt], interventions: Sequence[Intervention] = (),
+                        read_points: Sequence[int] | None = None) -> tuple[np.ndarray, np.ndarray]:
         batch = self._prepare_batch(prompts)
         session = _HookSession(
             n_layers=self.n_layers,
             query_pos=batch["query_pos"],
-            interventions=(),
+            interventions=interventions,
             capture=False,
             device=self.device,
             grad_capture=True,
@@ -575,7 +589,7 @@ class ModelBackend:
         with torch.enable_grad():
             sc = self._forward_scores(batch, session)
             sc["lp_sum"].sum().backward()
-        return session.stacked_gradients()
+        return session.stacked_gradients(read_points), sc["lp_sum"].detach().cpu().numpy().astype(np.float64)
 
 
 class _HookSession:
@@ -666,12 +680,14 @@ class _HookSession:
             self.grad_tensors[layer] = hidden
         return hidden
 
-    def stacked_gradients(self) -> np.ndarray:
-        """Gradients at the query token, ``(L+1, B, d)`` float32, after ``backward()``."""
-        missing = [l for l in range(self.n_layers + 1) if l not in self.grad_tensors or self.grad_tensors[l].grad is None]
+    def stacked_gradients(self, read_points: Sequence[int] | None = None) -> np.ndarray:
+        """Gradients at the query token, ``(n_read_points, B, d)`` float32, after ``backward()`` (all read
+        points ``0..L`` by default)."""
+        points = list(range(self.n_layers + 1)) if read_points is None else list(read_points)
+        missing = [l for l in points if l not in self.grad_tensors or self.grad_tensors[l].grad is None]
         if missing:
             raise RuntimeError(f"gradients not available at layers {missing}")
-        grads = [self.grad_tensors[l].grad[self.batch_idx, self.query_pos].detach().float().cpu() for l in range(self.n_layers + 1)]
+        grads = [self.grad_tensors[l].grad[self.batch_idx, self.query_pos].detach().float().cpu() for l in points]
         return torch.stack(grads).numpy().astype(np.float32)
 
     def stacked(self) -> np.ndarray:

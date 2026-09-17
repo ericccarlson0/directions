@@ -96,6 +96,39 @@ def test_task_labels_and_target_scoring():
         config_from_dict({"tasks": [{"name": "antonym", "label": "a/b"}]})
 
 
+LEARNED_CONFIGS = {
+    "learned_qwen3_0.6b.yaml": "Qwen/Qwen3-0.6B-Base",
+    "learned_qwen3_1.7b.yaml": "Qwen/Qwen3-1.7B-Base",
+    "learned_qwen3_4b.yaml": "Qwen/Qwen3-4B-Base",
+    "learned_qwen3_8b.yaml": "Qwen/Qwen3-8B-Base",
+}
+
+
+def test_learned_configs_are_the_pilot_with_the_learned_control():
+    """The learned-vector configs (D31) differ from the pilot only in the run name, the control (and its
+    settings) and the arithmetic task's label and scoring (D30)."""
+    pilot = config_to_dict(load_config(CONFIGS / "pilot_qwen3_0.6b.yaml"))
+    a = config_to_dict(load_config(CONFIGS / "learned_qwen3_0.6b.yaml"))
+    for fname, model_name in LEARNED_CONFIGS.items():
+        b = config_to_dict(load_config(CONFIGS / fname))
+        assert b["model"]["name"] == model_name, fname
+        b["model"]["name"] = a["model"]["name"]
+        assert a == b, fname
+    assert a["extraction"]["control"] == "learned_vector" and a["extraction"]["learned_vector"]["n_steps"] == 100
+    ext_a, ext_p = dict(a["extraction"]), dict(pilot["extraction"])
+    for k in ("control", "learned_vector"):
+        ext_a.pop(k), ext_p.pop(k)
+    assert ext_a == ext_p
+    tasks_a = [t for t in a["tasks"] if t["name"] != "arithmetic"]
+    tasks_p = [t for t in pilot["tasks"] if t["name"] != "arithmetic"]
+    assert tasks_a == tasks_p
+    arith = next(t for t in a["tasks"] if t["name"] == "arithmetic")
+    assert arith["label"] == "add_3" and arith["target_scoring"] == "changed_tokens" and arith["params"]["operand"] == 3
+    for key in ("model", "prompt", "data", "qualification", "calibration", "evaluation", "commitment", "exploratory",
+                "analysis", "figures", "seed"):
+        assert a[key] == pilot[key], key
+
+
 ARITH_CONFIGS = {
     "arith_qwen3_0.6b.yaml": "Qwen/Qwen3-0.6B-Base",
     "arith_qwen3_1.7b.yaml": "Qwen/Qwen3-1.7B-Base",
