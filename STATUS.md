@@ -1945,6 +1945,67 @@ head-mean run: add-3 again.
   stops being needed before the end for every task (commitment layers
   15–26 of 28).
 
+```
+# workflow run 35184285964 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
+uv run directions pilot --config configs/learned_qwen3_4b.yaml --run-id learned_qwen3_4b_seed20260907
+```
+
+4B: pipeline 78 min (fits 2.5–3 min per task, the null 2 min; the
+head-mean run took 116), determinism check passed. **10 of 10 qualify.**
+
+- Zero training loss at every layer (from 4.1–18.3 nats), stability
+  0.04–0.33, |cos| with PC1 ≤ 0.09, with the head-mean vector
+  0.04–0.13.
+- **Held out: 0.75–1.03 of the gap** (head mean 0.61–0.84), accuracy
+  0.76–1.00 (head mean 0.10–0.94); +1.6 to +8.0 over the permuted-target
+  nulls.
+- **Add-3: accuracy 0.98 from 0.00** (0.99 / 0.95 without / with carry),
+  +2.6 over its null, at only 0.30 nats of neutral damage (+0.15 over
+  the controls); arithmetic_words accuracy 0.94, +2.1 over its null, at
+  5.2 nats.
+- Query-token KL 12–27 nats; neutral-prose damage 0.29–0.52 nats for
+  five tasks (+0.15 to +0.38 over the controls), 0.8–1.4 for three, and
+  4.7, 5.2 and 6.7 for present_participle, arithmetic_words and
+  number_to_words.
+- Commitment: removal leaves ≥ 50 % from 0.12–0.36 of the downstream
+  depth, ≥ 90 % from 0.16–0.45; the direction alone suffices for 50 %
+  until 0.08–0.78; the direction stops being needed before the end for
+  every task (commitment layers 22–36 of 36).
+
+The learned vector on the four models, in one paragraph. Fitting one
+vector at one residual norm on 64 zero-shot prompts, with the model
+frozen, reaches zero training loss at every candidate layer on every
+task and model in under 30 steps, from a large solution set (cross-seed
+cosines 0.01–0.33) that is orthogonal to PC1 and to the head-mean
+function vector (|cos| ≤ 0.13). Held out, that one vector recovers
+0.75–1.04 of the few-shot gap on all 37 task-model pairs (the
+head-mean vector: 0.53–0.95) with accuracy 0.58–1.00, and beats a vector
+fitted the same way to permuted targets by 1.6–12.8 nats everywhere: it
+is a task vector, not a format vector. **It carries add-3 on every
+model** (accuracy 0.58, 0.91, 0.98, 0.99 on 0.6B, 1.7B, 4B, 8B; with the
+carry as well as without on the three larger models) and
+arithmetic_words on 4B and 8B (0.94, 0.95), which no set of heads' mean
+output carries: the rank-one limit predicted by the task-vector theory
+does not bind for these tasks in these models, and the head-mean
+construction, not the rank, was what failed in iteration 7a. The cost is
+in the distribution: the query-token KL from the unsteered model is
+12–30 nats (head mean 0.5–2.8) with the argmax changed for 96–100 % of
+prompts, and on neutral prose the learned vectors exceed the random
+controls' damage on every pair, by 0.02–0.6 nats for most tasks and by
+1–9 nats for a task or three per model (add-3 on 0.6B and 8B,
+number_to_words on 1.7B and 4B, present_participle and uppercase on 8B,
+past_tense on 1.7B, arithmetic_words on 4B), where the head-mean vectors
+sat at the controls' level. The commitment sweep gives the same
+qualitative picture as for the head-mean vectors, with an earlier
+hand-over (50 % by 0.05–0.50 of the downstream depth, 90 % by
+0.11–0.55) and, for the first time, the direction no longer needed
+against the random edits before the end on 35 of 37 pairs. The fit was
+scored on the changed digits for add-3, and on 0.6B that let it corrupt
+the unchanged ones (accuracy 0.53 without carry vs 0.71 with); a fit on
+all tokens is the obvious follow-up, as is a damage-penalised fit, since
+the vectors that exist are stronger than the model can bear on other
+text.
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
@@ -1967,7 +2028,16 @@ head-mean run: add-3 again.
   commitment curves are censored; a run at a lower strength would be
   needed to read them. The pilot configs still carry `arithmetic` and
   `arithmetic_words` at k = 3, which cost a third of the 4B wall time
-  for two guaranteed rejections.
+  for two guaranteed rejections under the head-mean control.
+- The learned vector (iteration 7b, D31) has run once per model with the
+  first step budget tried (100 steps, 0.05 of the norm; every fit
+  converged in under 30). Its fits are scored on the task's scoring
+  (the changed digits for add-3), which on 0.6B let the vector corrupt
+  the unchanged digits, and nothing in the objective limits the damage
+  to other text, which is large for a few tasks per model; a fit on all
+  tokens and a damage-penalised fit are the follow-ups, and a second
+  seed would show whether the held-out numbers are as stable as the
+  head-mean ones.
 - Data centers: EUR-NO-1 (the volume with the 0.6B–4B cache) currently
   offers nothing above 24 GB, and only US-CA-2, US-IL-1, US-MO-2, US-NC-2,
   EU-RO-1 and EUR-NO-1 can host a run at all (`docs/INFRA.md`;
