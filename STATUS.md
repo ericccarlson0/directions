@@ -1918,6 +1918,33 @@ head-mean vector has ever carried.
   random edits before the end for eight of ten tasks (commitment layers
   at read points 20–36).
 
+```
+# workflow run 35181498809 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
+uv run directions pilot --config configs/learned_qwen3_1.7b.yaml --run-id learned_qwen3_1.7b_seed20260907
+```
+
+1.7B: pipeline 50 min, determinism check passed. **9 of 10 qualify**
+(arithmetic_words fails the few-shot gate, 0.25), one more than the
+head-mean run: add-3 again.
+
+- Zero training loss at every layer (from 3.4–12.7 nats), stability
+  0.02–0.31, |cos| with PC1 ≤ 0.05, with the head-mean vector 0.03–0.12.
+- **Held out: 0.81–1.01 of the gap** (head mean 0.70–0.95), accuracy
+  0.72–0.99 (head mean 0.36–0.98); for antonym and uppercase the learned
+  and head-mean vectors tie (+5.47 vs +5.51, +4.69 vs +4.69), the only
+  ties in the four models. Every task beats its permuted-target null by
+  +1.6 to +8.6 nats.
+- **Add-3: accuracy 0.91 from 0.00** (0.98 on carrying items, 0.88 on
+  the rest), +2.4 over its permuted null, at 1.9 nats of neutral damage.
+- Query-token KL 19–28 nats; neutral-prose damage 0.10–0.60 nats for
+  six tasks (+0.02 to +0.51 over the controls), 1.1 for last_antonym,
+  and 3.3 and 4.5 for number_to_words and past_tense.
+- Commitment: removal leaves ≥ 50 % from 0.05–0.50 of the downstream
+  depth, ≥ 90 % from 0.21–0.55; the direction alone suffices for 50 %
+  until 0.09–0.35 (add-3 at the ceiling, to the end); the direction
+  stops being needed before the end for every task (commitment layers
+  15–26 of 28).
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
