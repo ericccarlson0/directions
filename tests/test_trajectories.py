@@ -19,6 +19,7 @@ from directions.trajectories import (
     projection_fraction,
     remove_direction,
     summarise_alignment,
+    unit_rows,
 )
 
 CONFIGS = Path(__file__).resolve().parents[1] / "configs"
@@ -50,6 +51,17 @@ def test_pair_cosines_match_a_naive_loop_and_mark_undefined_points():
         b = B[3, i] - (B[3, i] @ U[i]) * U[i]
         assert cos_na[3, i] == pytest.approx(_naive_cos(a, b))
         assert abs(remove_direction(A[3], U)[i] @ U[i]) < 1e-12
+    # one set of unit rows per read point removes, at read point m, that read point's rows
+    U3 = np.stack([U, -U, U, U, -U])
+    cos_na3 = pair_cosines(A, B, start=2, U=U3)
+    assert np.allclose(cos_na3[2:], cos_na[2:])
+    W = rng.normal(size=(L1, n, d))
+    W[1, 0] = 0.0
+    assert np.allclose(unit_rows(W)[1, 0], 0.0) and np.allclose(np.linalg.norm(unit_rows(W)[2], axis=1), 1.0)
+    cos_w = pair_cosines(A, B, start=2, U=unit_rows(W))
+    for i in range(n):
+        u = W[4, i] / np.linalg.norm(W[4, i])
+        assert cos_w[4, i] == pytest.approx(_naive_cos(A[4, i] - (A[4, i] @ u) * u, B[4, i] - (B[4, i] @ u) * u))
     frac = projection_fraction(A, A, start=2)
     assert np.allclose(frac[2:], 1.0) and np.isnan(frac[:2]).all()
     assert projection_fraction(2 * A, A, start=2)[3, 0] == pytest.approx(2.0)
@@ -173,19 +185,25 @@ def test_smoke_trajectories(smoke_runs):
                 natural = {"icl", "icl2", "task"}
                 start = 1 if a in natural and b in natural else layer  # the embedding of the query token is context-free
                 assert np.isnan(cos[:start]).all() and not np.isnan(cos[start:]).any()
-                assert f"L{layer}_cos_noanswer_{a}~{b}" in arrays.files
+                assert f"L{layer}_cos_noanswer_{a}~{b}" in arrays.files and f"L{layer}_cos_nogeneric_{a}~{b}" in arrays.files
+                assert np.isnan(arrays[f"L{layer}_cos_nogeneric_{a}~{b}"][:start]).all()
                 assert len(info["pairs"][f"{a}~{b}"]["mean_trajectory_cosine"]) == L1
             for c in ("pca", "fv", "learned"):
                 for other in ("icl", "task", "icl2"):
                     s = info["summaries"][f"{c}->{other}"]
                     assert s["label"] in ("never_aligns", "converges", "aligns_then_diverges", "aligns_then_partly_diverges", "partial")
                     assert len(s["curve"]["median"]) == L1 and len(s["floor"]["median"]) == L1
-                    assert s["answer_removed"]["label"] and s["start"] == layer
-                    assert f"L{layer}_floor_{c}_vs_{other}" in arrays.files
+                    assert s["answer_removed"]["label"] and s["generic_removed"]["label"] and s["start"] == layer
+                    assert f"L{layer}_floor_{c}_vs_{other}" in arrays.files and f"L{layer}_floor_nogeneric_{c}_vs_{other}" in arrays.files
                     assert f"L{layer}_projection_{c}_on_icl" in arrays.files
                 assert "alignment" in t["per_layer"][str(layer)]["constructions"][c]
                 assert t["per_layer"][str(layer)]["constructions"][c]["alignment"]["icl"]["label"]
-            assert set(info["ceilings"]) == {"icl~icl2", "icl~icl2_answer_removed", "icl~task"}
+            assert set(info["ceilings"]) == {"icl~icl2", "icl~icl2_answer_removed", "icl~icl2_generic_removed",
+                                             "icl~task", "icl~task_answer_removed", "icl~task_generic_removed"}
+            assert info["variants"] == ["raw", "answer_removed", "generic_removed"]
+            assert info["generic_response"]["n_controls"] == 3 * cfg.n_isotropic
+            assert len(info["generic_response"]["cos_with_answer_direction"]) == L1
+            assert arrays[f"L{layer}_mean_generic"].shape == (L1, meta["model"]["hidden_size"])
             assert info["isotropic"]["n"] == cfg.n_isotropic and info["isotropic"]["learned"]["alpha"] == cons["learned"]["alpha"]
             assert arrays[f"L{layer}_mean_delta_learned"].shape == (L1, meta["model"]["hidden_size"])
             assert (root / "figures" / f"{task}_trajectories_L{layer}.png").exists()

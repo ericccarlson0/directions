@@ -1170,11 +1170,26 @@ no extraction, fitting or calibration is repeated.
   significant decline), `aligns_then_diverges` (a significant decline to
   the floor), `aligns_then_partly_diverges`, `partial`. The curves and
   the numbers are the result; the label is a reading aid.
+* **The generic response removed** (amended after the first 0.6B and 8B
+  runs, before the others): the isotropic floor itself rises with depth,
+  to 0.3–0.5 at the last read point on most tasks, with a jump at the
+  final block. Any perturbation of these norms drives the late residual
+  along a shared direction, so a raw cosine of 0.7 against the natural
+  trajectory over a floor of 0.5 is a smaller alignment than it reads.
+  The third variant projects out, from both vectors of every pair, the
+  generic response: the mean of all the isotropic controls' trajectories
+  at the layer, per example and read point (the answer direction is the
+  same idea for the output; this is the same idea for the residual). A
+  control's own floor removes the mean of the other controls, so that
+  the floor is not deflated by removing the control from itself. The
+  generic response's cosine with the answer direction is recorded per
+  read point, so the two removals can be told apart.
 * **What is saved.** Per task: the per-example cosines of every pair at
-  every read point (with and without the answer direction), the
-  projection fractions, the floors' medians and the population-mean
-  trajectories per condition (float16), so that this comparison never
-  needs the passes again; not the residuals.
+  every read point (raw, without the answer direction, without the
+  generic response), the projection fractions, the floors' medians, the
+  population-mean trajectories per condition and the generic response's
+  mean (float16), so that this comparison never needs the passes again;
+  not the residuals.
 * **Reproducibility.** One repeated steered pass must be bit-identical
   (`metadata.json/determinism_check`); the comparison's own draws (the
   second demonstration sample, the derangements, the isotropic

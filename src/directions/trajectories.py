@@ -51,23 +51,40 @@ ALIGN_MIN_EXCESS = 0.05  # exploratory labels only: a decline smaller than this 
 
 
 def remove_direction(X: np.ndarray, U: np.ndarray | None) -> np.ndarray:
-    """``X`` (n, d) with its component along the unit rows of ``U`` (n, d) removed; unchanged when ``U`` is None."""
+    """``X`` (n, d) with its component along the unit rows of ``U`` (n, d) removed; unchanged when ``U`` is None.
+    Rows of ``U`` that vanish remove nothing."""
     if U is None:
         return X
     return X - (np.einsum("nd,nd->n", X, U))[:, None] * U
 
 
+def unit_rows(X: np.ndarray) -> np.ndarray:
+    """Rows of ``X`` (..., d) normalised to unit length in float64; vanishing rows stay zero."""
+    X = np.asarray(X, dtype=np.float64)
+    norm = np.linalg.norm(X, axis=-1, keepdims=True)
+    return np.divide(X, norm, out=np.zeros_like(X), where=norm > 0)
+
+
+def _rows_at(U: np.ndarray | None, m: int) -> np.ndarray | None:
+    """The unit rows to remove at read point ``m``: ``U`` is (n, d), the same at every read point, or
+    (L+1, n, d), one set per read point."""
+    if U is None:
+        return None
+    return U[m] if U.ndim == 3 else U
+
+
 def pair_cosines(A: np.ndarray, B: np.ndarray, start: int = 0, U: np.ndarray | None = None) -> np.ndarray:
     """Signed per-example cosine between ``A`` and ``B``, both (L+1, n, d), at every read point: (L+1, n).
 
-    Read points below ``start`` are nan, as is any example whose vector vanishes. With ``U`` (n, d) unit
-    rows, the cosine is taken after removing that direction from both vectors.
+    Read points below ``start`` are nan, as is any example whose vector vanishes. With ``U``, unit rows
+    shaped (n, d) or (L+1, n, d), the cosine is taken after removing that direction from both vectors.
     """
     L1, n, _ = A.shape
     out = np.full((L1, n), np.nan)
     for m in range(start, L1):
-        a = remove_direction(np.asarray(A[m], dtype=np.float64), U)
-        b = remove_direction(np.asarray(B[m], dtype=np.float64), U)
+        u = _rows_at(U, m)
+        a = remove_direction(np.asarray(A[m], dtype=np.float64), u)
+        b = remove_direction(np.asarray(B[m], dtype=np.float64), u)
         na, nb = np.linalg.norm(a, axis=1), np.linalg.norm(b, axis=1)
         ok = (na > 0) & (nb > 0)
         out[m, ok] = np.einsum("nd,nd->n", a[ok], b[ok]) / (na[ok] * nb[ok])
@@ -95,6 +112,14 @@ def mean_cosines(mean_a: np.ndarray, mean_b: np.ndarray, start: int = 0) -> np.n
         if na > 0 and nb > 0:
             out[m] = float(mean_a[m] @ mean_b[m] / (na * nb))
     return out
+
+
+VARIANT_PREFIX = {"raw": "", "answer_removed": "noanswer_", "generic_removed": "nogeneric_"}
+
+
+def _variant_prefix(tag: str) -> str:
+    """The array-name prefix of a comparison variant (``cos_<prefix><a>~<b>``, ``floor_<prefix><c>_vs_<o>``)."""
+    return VARIANT_PREFIX[tag]
 
 
 def unit_vectors(rng: np.random.Generator, n: int, d: int) -> np.ndarray:
@@ -521,8 +546,7 @@ class Trajectories:
                     arrays[f"projection_{other}_on_{ref}"] = frac.astype(np.float32)
                 pairs[key] = entry
         # matched isotropic directions at each construction's norm: the floor of every pair involving it
-        floors: dict[str, dict[str, np.ndarray]] = {c: {} for c in present}
-        floors_na: dict[str, dict[str, np.ndarray]] = {c: {} for c in present}
+        iso_deltas: dict[str, list[np.ndarray]] = {c: [] for c in present}
         iso_metrics: dict[str, list[dict[str, float]]] = {c: [] for c in present}
         for c in present:
             alpha = cons[c]["alpha"]
@@ -531,24 +555,60 @@ class Trajectories:
                 with self.prof.section("isotropic", name, layer):
                     r = self.backend.run(zs, interventions=[Intervention(layer, v, alpha)], capture=True)
                 assert r.residuals is not None
-                d_iso = r.residuals - base.residuals
+                iso_deltas[c].append(r.residuals - base.residuals)
                 iso_metrics[c].append(r.metrics_dict())
-                for other in named:
-                    cos = pair_cosines(d_iso, deltas[other], layer)
-                    floors[c].setdefault(other, []).append(cos)  # type: ignore[arg-type]
-                    if U is not None:
-                        floors_na[c].setdefault(other, []).append(pair_cosines(d_iso, deltas[other], layer, U))  # type: ignore[arg-type]
-                del d_iso, r
+                del r
         for c in present:
-            floors[c] = {o: np.concatenate(v, axis=1) for o, v in floors[c].items()}  # (L+1, k*n)
-            floors_na[c] = {o: np.concatenate(v, axis=1) for o, v in floors_na[c].items()}
-            for o in floors[c]:
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", RuntimeWarning)  # all-nan rows below the injection layer
-                    arrays[f"floor_{c}_vs_{o}"] = np.nanmedian(floors[c][o], axis=1).astype(np.float32)
             info["isotropic"][c] = {"alpha": cons[c]["alpha"],
                                     "improvement_per_token_mean": float(np.mean([m["logprob_per_token_mean"] for m in iso_metrics[c]])
                                                                        - float(np.mean(base.logprob_per_token)))}
+        # The generic response (D32, amended): what any perturbation of these norms does downstream, the mean
+        # of every isotropic control's trajectory, per example and read point; removed from both vectors of a
+        # pair like the answer direction. A control's own floor removes the mean of the other controls.
+        all_iso = [d for c in present for d in iso_deltas[c]]
+        G: np.ndarray | None = None
+        if cfg.remove_generic_response and all_iso:
+            total = np.zeros_like(all_iso[0], dtype=np.float64)
+            for d in all_iso:
+                total += d
+            G = unit_rows(total / len(all_iso))
+            arrays["mean_generic"] = (total / len(all_iso)).mean(axis=1).astype(np.float16)
+            info["generic_response"] = {"n_controls": len(all_iso),
+                                        "cos_with_answer_direction": None if U is None else
+                                        [float(np.nanmedian(np.einsum("nd,nd->n", G[m], U))) if m >= layer else None for m in range(G.shape[0])]}
+        variants: dict[str, np.ndarray | None] = {"raw": None}
+        if U is not None:
+            variants["answer_removed"] = U
+        if G is not None:
+            variants["generic_removed"] = G
+        for tag, R in variants.items():
+            if tag == "raw":
+                continue
+            for i, a in enumerate(named):
+                for b in named[i + 1:]:
+                    if tag == "answer_removed" and f"cos_noanswer_{a}~{b}" in arrays:
+                        continue  # computed above
+                    start = layer if (a in CONSTRUCTIONS or b in CONSTRUCTIONS) else 0
+                    arrays[f"cos_{_variant_prefix(tag)}{a}~{b}"] = pair_cosines(deltas[a], deltas[b], start, R).astype(np.float32)
+        floors: dict[str, dict[str, dict[str, np.ndarray]]] = {tag: {c: {} for c in present} for tag in variants}
+        for c in present:
+            for j_c, d_iso in enumerate(iso_deltas[c]):
+                loo: np.ndarray | None = None
+                if G is not None:
+                    loo = unit_rows((total - d_iso) / (len(all_iso) - 1)) if len(all_iso) > 1 else G
+                for other in named:
+                    for tag, R in variants.items():
+                        rem = loo if tag == "generic_removed" else R
+                        floors[tag][c].setdefault(other, []).append(pair_cosines(d_iso, deltas[other], layer, rem))  # type: ignore[arg-type]
+                del loo
+        del all_iso, iso_deltas
+        for tag in variants:
+            for c in present:
+                floors[tag][c] = {o: np.concatenate(v, axis=1) for o, v in floors[tag][c].items()}  # (L+1, k*n)
+                for o in floors[tag][c]:
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore", RuntimeWarning)  # all-nan rows below the injection layer
+                        arrays[f"floor_{_variant_prefix(tag)}{c}_vs_{o}"] = np.nanmedian(floors[tag][c][o], axis=1).astype(np.float32)
         # summaries: every construction against the natural trajectories and against the other constructions
         brng = rng_for(seed, "trajectories_bootstrap", name, layer)
         summaries: dict[str, Any] = {}
@@ -557,37 +617,49 @@ class Trajectories:
                 if o == c:
                     continue
                 key = f"{c}~{o}" if f"{c}~{o}" in pairs else f"{o}~{c}"
-                real = arrays[f"cos_{key}"].astype(np.float64)
-                summaries[f"{c}->{o}"] = summarise_alignment(real, floors[c][o], layer, brng, cfg.n_boot, cfg.ci_alpha)
-                if U is not None:
-                    real_na = arrays[f"cos_noanswer_{key}"].astype(np.float64)
-                    summaries[f"{c}->{o}"]["answer_removed"] = summarise_alignment(
-                        real_na, floors_na[c][o], layer, brng, cfg.n_boot, cfg.ci_alpha)
+                for tag in variants:
+                    real = arrays[f"cos_{_variant_prefix(tag)}{key}"].astype(np.float64)
+                    s = summarise_alignment(real, floors[tag][c][o], layer, brng, cfg.n_boot, cfg.ci_alpha)
+                    if tag == "raw":
+                        summaries[f"{c}->{o}"] = s
+                    else:
+                        summaries[f"{c}->{o}"][tag] = s
         ceilings: dict[str, Any] = {}
-        if "icl2" in deltas:
-            ceilings["icl~icl2"] = bootstrap_median_ci_rows(arrays["cos_icl~icl2"].astype(np.float64), brng, n_boot=cfg.n_boot, alpha=cfg.ci_alpha)
-            if U is not None:
-                ceilings["icl~icl2_answer_removed"] = bootstrap_median_ci_rows(arrays["cos_noanswer_icl~icl2"].astype(np.float64), brng, n_boot=cfg.n_boot, alpha=cfg.ci_alpha)
-        ceilings["icl~task"] = bootstrap_median_ci_rows(arrays["cos_icl~task"].astype(np.float64), brng, n_boot=cfg.n_boot, alpha=cfg.ci_alpha)
-        info.update({"pairs": pairs, "summaries": summaries, "ceilings": ceilings})
+        for tag in variants:
+            suffix = "" if tag == "raw" else f"_{tag}"
+            if "icl2" in deltas:
+                ceilings[f"icl~icl2{suffix}"] = bootstrap_median_ci_rows(arrays[f"cos_{_variant_prefix(tag)}icl~icl2"].astype(np.float64), brng, n_boot=cfg.n_boot, alpha=cfg.ci_alpha)
+            ceilings[f"icl~task{suffix}"] = bootstrap_median_ci_rows(arrays[f"cos_{_variant_prefix(tag)}icl~task"].astype(np.float64), brng, n_boot=cfg.n_boot, alpha=cfg.ci_alpha)
+        info.update({"pairs": pairs, "summaries": summaries, "ceilings": ceilings, "variants": list(variants)})
         for c in present:
             s = summaries.get(f"{c}->icl")
             if s and "peak" in s:
                 log.info("[%s] L%d %-7s alpha %.2f (%s) %+.2f nats/tok | cos with ICL: inj %.2f peak %.2f@%.2f final %.2f "
                          "(floor %.2f) %s%s", name, layer, c, cons[c]["alpha"], cons[c]["source"],
                          info["constructions"][c]["improvement_per_token"], s["at_injection"], s["peak"],
-                         s["peak_depth_fraction"], s["final"], s["floor_at_final"], s["label"],
-                         f" | no answer: final {s['answer_removed']['final']:.2f} {s['answer_removed']['label']}" if "answer_removed" in s else "")
+                         s["peak_depth_fraction"], s["final"], s["floor_at_final"], s["label"], _variant_note(s))
         for i, a in enumerate(present):
             for b in present[i + 1:]:
                 s = summaries.get(f"{a}->{b}")
                 if s and "peak" in s:
-                    log.info("[%s] L%d %s~%s: inj %.2f peak %.2f@%.2f final %.2f (floor %.2f) %s", name, layer, a, b,
-                             s["at_injection"], s["peak"], s["peak_depth_fraction"], s["final"], s["floor_at_final"], s["label"])
+                    log.info("[%s] L%d %s~%s: inj %.2f peak %.2f@%.2f final %.2f (floor %.2f) %s%s", name, layer, a, b,
+                             s["at_injection"], s["peak"], s["peak_depth_fraction"], s["final"], s["floor_at_final"], s["label"],
+                             _variant_note(s))
         if "icl~icl2" in ceilings:
-            log.info("[%s] L%d ceiling cos(icl, icl2): final %.2f; cos(icl, task): final %.2f", name, layer,
-                     ceilings["icl~icl2"]["median"][-1], ceilings["icl~task"]["median"][-1])
+            log.info("[%s] L%d ceiling cos(icl, icl2): final %.2f (generic removed %s); cos(icl, task): final %.2f", name, layer,
+                     ceilings["icl~icl2"]["median"][-1],
+                     f"{ceilings['icl~icl2_generic_removed']['median'][-1]:.2f}" if "icl~icl2_generic_removed" in ceilings else "n/a",
+                     ceilings["icl~task"]["median"][-1])
         return info, arrays
+
+
+def _variant_note(s: dict[str, Any]) -> str:
+    parts = []
+    for tag, label in (("answer_removed", "no answer"), ("generic_removed", "no generic")):
+        v = s.get(tag)
+        if v and "final" in v:
+            parts.append(f"{label}: peak {v['peak']:.2f} final {v['final']:.2f} (floor {v['floor_at_final']:.2f}) {v['label']}")
+    return (" | " + " | ".join(parts)) if parts else ""
 
 
 # --------------------------------------------------------------------------- #
@@ -614,8 +686,9 @@ def _task_summary(result: dict[str, Any]) -> dict[str, Any]:
                     continue
                 other = key.split("->")[1]
                 a = {k: s[k] for k in ("at_injection", "peak", "peak_depth_fraction", "final", "floor_at_final", "label")}
-                if "answer_removed" in s and "peak" in s["answer_removed"]:
-                    a["answer_removed"] = {k: s["answer_removed"][k] for k in ("peak", "final", "floor_at_final", "label")}
+                for tag in ("answer_removed", "generic_removed"):
+                    if tag in s and "peak" in s[tag]:
+                        a[tag] = {k: s[tag][k] for k in ("peak", "final", "floor_at_final", "label")}
                 row["alignment"][other] = a
             rows[c] = row
         ceilings = {k: v["median"][-1] for k, v in info["ceilings"].items()}
@@ -626,8 +699,8 @@ def _task_summary(result: dict[str, Any]) -> dict[str, Any]:
 def format_summary(summary: dict[str, Any]) -> str:
     """One line per task, layer and construction: effect, alignment with the natural trajectory (at injection,
     peak, final, floor), the same with the answer direction removed, and the cross-construction final cosines."""
-    lines = ["| task | layer | construction | gap frac | cos ICL inj | peak (depth) | final | floor | no-answer final | label | vs pca | vs fv | vs learned | ceiling |",
-             "|" + "---|" * 14]
+    lines = ["| task | layer | construction | gap frac | cos ICL inj | peak (depth) | final | floor | label | no generic: peak final (floor) label | vs pca | vs fv | vs learned | ceiling (no generic) |",
+             "|" + "---|" * 15]
     for task, t in summary.get("tasks", {}).items():
         for layer, info in t["per_layer"].items():
             for c, row in info["constructions"].items():
@@ -636,14 +709,15 @@ def format_summary(summary: dict[str, Any]) -> str:
                 for o in CONSTRUCTIONS:
                     x = row["alignment"].get(o)
                     cross.append("" if o == c else ("-" if not x else f"{x['final']:.2f}"))
-                na = a.get("answer_removed", {})
+                ng = a.get("generic_removed", {})
+                ng_text = (f"{ng['peak']:.2f} {ng['final']:.2f} ({ng['floor_at_final']:.2f}) {ng['label']}" if ng else "-")
+                ceil = info["ceiling_final"]
                 gap = "-" if row["gap_fraction"] is None else f"{row['gap_fraction']:.2f}"
                 lines.append(
                     f"| {task} | {layer}{'*' if int(layer) == t['primary_layer'] else ''} | {c} | {gap} | "
                     f"{a.get('at_injection', float('nan')):.2f} | {a.get('peak', float('nan')):.2f} ({a.get('peak_depth_fraction', float('nan')):.2f}) | "
-                    f"{a.get('final', float('nan')):.2f} | {a.get('floor_at_final', float('nan')):.2f} | "
-                    f"{na.get('final', float('nan')):.2f} {na.get('label', '')} | {a.get('label', '')} | "
-                    f"{cross[0]} | {cross[1]} | {cross[2]} | {info['ceiling_final'].get('icl~icl2', float('nan')):.2f} |")
+                    f"{a.get('final', float('nan')):.2f} | {a.get('floor_at_final', float('nan')):.2f} | {a.get('label', '')} | {ng_text} | "
+                    f"{cross[0]} | {cross[1]} | {cross[2]} | {ceil.get('icl~icl2', float('nan')):.2f} ({ceil.get('icl~icl2_generic_removed', float('nan')):.2f}) |")
     return "\n".join(lines)
 
 

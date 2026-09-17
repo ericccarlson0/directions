@@ -14,6 +14,7 @@ layers: selected               # per task: the learned run's selected layer (pri
 n_isotropic: 4                 # matched random directions per construction and layer, at the construction's strength (the floor)
 second_demo_sample: true       # a second few-shot sample per query: the ceiling of natural alignment
 remove_answer_direction: true  # every cosine also with the answer's unembedding direction projected out
+remove_generic_response: true  # and with the isotropic controls' mean trajectory (the generic response) projected out
 pc1_rho_grid: [0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0]  # PC1's strength: best point on the calibration pool, in median-residual-norm units
 
 n_boot: 2000

@@ -77,11 +77,12 @@ results/<run_id>/
                            summary against each natural trajectory and each other construction, the ceiling
   core/tasks/<task>/
       trajectories.json    per layer: strengths, condition metrics, every pair's median-cosine curve with CIs and floor,
-                           the answer-removed variant, the summaries and labels, the ceilings
-      trajectories_arrays.npz  per-example cosines of every pair at every read point (with and without the answer
-                           direction), projection fractions, floor medians, population-mean trajectories
+                           the variants without the answer direction and without the generic response, the
+                           summaries and labels, the ceilings
+      trajectories_arrays.npz  per-example cosines of every pair at every read point (raw and both variants),
+                           projection fractions, floor medians, population-mean trajectories, the generic response
   figures/                 per task and layer: cosine with the natural trajectory, the same without the answer
-                           direction, the constructions against one another
+                           direction and without the generic response, the constructions against one another
 ```
 
 ## Layout

@@ -384,52 +384,52 @@ def _function_vector_figure(root: Path, st: "TaskState", cfg: Config) -> None:
 
 def trajectory_figures(figdir: Path, result: dict, dpi: int = 110) -> None:
     """Per task and injection layer (``directions trajectories``, docs/DECISIONS.md D32): the median cosine of
-    each construction's downstream trajectory with the natural few-shot trajectory (left; the floor is the
-    matched isotropic directions', the ceiling the second demonstration sample's), the same with the answer
-    direction removed (middle), and the constructions' trajectories against one another (right)."""
+    each construction's downstream trajectory with the natural few-shot trajectory (the floor is the matched
+    isotropic directions', the ceiling the second demonstration sample's), the same with the answer direction
+    removed and with the generic response removed, and the constructions' trajectories against one another."""
     task = result["task"]
     L1 = result["n_read_points"]
     x = np.arange(L1)
     colors = {"pca": SERIES[0], "fv": SERIES[1], "learned": SERIES[2]}
     for layer, info in result["per_layer"].items():
         summaries = info["summaries"]
-        removed = any("answer_removed" in s for s in summaries.values())
-        fig, axes = plt.subplots(1, 3 if removed else 2, figsize=(13 if removed else 9, 3.4), sharey=True)
+        variants = [v for v in ("answer_removed", "generic_removed") if any(v in s for s in summaries.values())]
+        panels = ["raw", *variants, "cross"]
+        fig, axes = plt.subplots(1, len(panels), figsize=(4.3 * len(panels), 3.4), sharey=True)
         axes = list(np.atleast_1d(axes))
-        ax_icl = axes[0]
-        for c, color in colors.items():
-            s = summaries.get(f"{c}->icl")
-            if not s or "curve" not in s:
+        for ax, panel in zip(axes, panels):
+            if panel == "cross":
+                cross_colors = iter(SERIES[3:])
+                for a in colors:
+                    for b in colors:
+                        if a >= b:
+                            continue
+                        s = summaries.get(f"{a}->{b}") or summaries.get(f"{b}->{a}")
+                        if not s or "curve" not in s:
+                            continue
+                        color = next(cross_colors)
+                        _ci_line(ax, x, s["curve"], color, f"{a} vs {b}")
+                        ax.plot(x, s["floor"]["median"], color=color, linestyle=":", linewidth=1.0)
                 continue
-            _ci_line(ax_icl, x, s["curve"], color, f"{c} vs ICL")
-            ax_icl.plot(x, s["floor"]["median"], color=color, linestyle=":", linewidth=1.0, label=None)
-            if removed and "answer_removed" in s:
-                _ci_line(axes[1], x, s["answer_removed"]["curve"], color, f"{c} vs ICL, no answer")
-                axes[1].plot(x, s["answer_removed"]["floor"]["median"], color=color, linestyle=":", linewidth=1.0)
-        ceil = info["ceilings"].get("icl~icl2")
-        if ceil:
-            ax_icl.plot(x, ceil["median"], color=TEXT2, linestyle="--", linewidth=1.2, label="ICL vs second sample (ceiling)")
-            ceil_na = info["ceilings"].get("icl~icl2_answer_removed")
-            if removed and ceil_na:
-                axes[1].plot(x, ceil_na["median"], color=TEXT2, linestyle="--", linewidth=1.2)
-        ax_cross = axes[-1]
-        cross_colors = iter(SERIES[3:])
-        for a in colors:
-            for b in colors:
-                if a >= b:
-                    continue
-                s = summaries.get(f"{a}->{b}") or summaries.get(f"{b}->{a}")
+            for c, color in colors.items():
+                s = summaries.get(f"{c}->icl")
                 if not s or "curve" not in s:
                     continue
-                color = next(cross_colors)
-                _ci_line(ax_cross, x, s["curve"], color, f"{a} vs {b}")
-                ax_cross.plot(x, s["floor"]["median"], color=color, linestyle=":", linewidth=1.0)
-        titles = ["cosine with the natural trajectory"] + (["answer direction removed"] if removed else []) + ["constructions against one another"]
-        for ax, title in zip(axes, titles):
+                v = s if panel == "raw" else s.get(panel)
+                if not v or "curve" not in v:
+                    continue
+                _ci_line(ax, x, v["curve"], color, f"{c} vs ICL")
+                ax.plot(x, v["floor"]["median"], color=color, linestyle=":", linewidth=1.0)
+            ceil = info["ceilings"].get("icl~icl2" if panel == "raw" else f"icl~icl2_{panel}")
+            if ceil:
+                ax.plot(x, ceil["median"], color=TEXT2, linestyle="--", linewidth=1.2, label="ICL vs second sample (ceiling)")
+        titles = {"raw": "cosine with the natural trajectory", "answer_removed": "answer direction removed",
+                  "generic_removed": "generic response removed", "cross": "constructions against one another"}
+        for ax, panel in zip(axes, panels):
             _mark_intervention(ax, int(layer))
             ax.axhline(0, color=GRID, linewidth=0.8)
             ax.set_xlabel("read point")
-            ax.set_title(title, fontsize=9)
+            ax.set_title(titles[panel], fontsize=9)
             ax.legend(fontsize=7, loc="best")
         axes[0].set_ylabel("median cosine (dotted: matched random floor)")
         fig.suptitle(f"{task}: downstream trajectories after injection at layer {layer}", fontsize=10)

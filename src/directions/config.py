@@ -311,6 +311,9 @@ class TrajectoriesConfig:
     remove_answer_direction  also compare the trajectories with the answer's unembedding direction (the
                     final norm's scale times the first target token's unembedding row) projected out, so that
                     two trajectories that merely raise the same answer do not read as one computation
+    remove_generic_response  also compare them with the generic response projected out: the mean trajectory of
+                    the isotropic controls (per example and read point), what any perturbation of these norms
+                    does downstream, which alone aligns every trajectory with every other late in the stack
     pc1_rho_grid    PC1 has no calibration in the two runs: its strength at a layer is the grid point (in
                     units of the median residual norm, the D1 unit) with the largest mean improvement of the
                     per-token log-probability on the calibration pool
@@ -323,6 +326,7 @@ class TrajectoriesConfig:
     n_isotropic: int = 4
     second_demo_sample: bool = True
     remove_answer_direction: bool = True
+    remove_generic_response: bool = True
     pc1_rho_grid: list[float] = field(default_factory=lambda: [0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0])
     n_boot: int = 2000
     ci_alpha: float = 0.05
