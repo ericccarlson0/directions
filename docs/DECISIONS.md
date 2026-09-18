@@ -1183,7 +1183,11 @@ no extraction, fitting or calibration is repeated.
   control's own floor removes the mean of the other controls, so that
   the floor is not deflated by removing the control from itself. The
   generic response's cosine with the answer direction is recorded per
-  read point, so the two removals can be told apart.
+  read point, so the two removals can be told apart, and so is the
+  *coherence* of the random responses (the norm of their mean over the
+  mean of their norms, per example and read point; 1 when every random
+  push produces the same downstream change), pooled and per
+  construction: how much of a random push's effect is this shared part.
 * **What is saved.** Per task: the per-example cosines of every pair at
   every read point (raw, without the answer direction, without the
   generic response), the projection fractions, the floors' medians, the

@@ -114,6 +114,22 @@ def mean_cosines(mean_a: np.ndarray, mean_b: np.ndarray, start: int = 0) -> np.n
     return out
 
 
+def coherence_curve(deltas: list[np.ndarray], start: int) -> list[float | None]:
+    """How much of a random push's downstream change is shared by all of them: at every read point from
+    ``start`` on, the norm of the mean of the ``deltas`` (each (L+1, n, d)) over the mean of their norms, per
+    example, summarised by the median over examples. 1 when every push produces the same change, near 0
+    when the changes are unrelated; None below ``start``."""
+    L1 = deltas[0].shape[0]
+    out: list[float | None] = [None] * L1
+    for m in range(start, L1):
+        stack = np.stack([np.asarray(d[m], dtype=np.float64) for d in deltas])  # (K, n, d)
+        mean_norm = np.linalg.norm(stack.mean(axis=0), axis=1)
+        norm_mean = np.linalg.norm(stack, axis=2).mean(axis=0)
+        ok = norm_mean > 0
+        out[m] = float(np.median(mean_norm[ok] / norm_mean[ok])) if ok.any() else None
+    return out
+
+
 VARIANT_PREFIX = {"raw": "", "answer_removed": "noanswer_", "generic_removed": "nogeneric_"}
 
 
@@ -575,7 +591,12 @@ class Trajectories:
             arrays["mean_generic"] = (total / len(all_iso)).mean(axis=1).astype(np.float16)
             info["generic_response"] = {"n_controls": len(all_iso),
                                         "cos_with_answer_direction": None if U is None else
-                                        [float(np.nanmedian(np.einsum("nd,nd->n", G[m], U))) if m >= layer else None for m in range(G.shape[0])]}
+                                        [float(np.nanmedian(np.einsum("nd,nd->n", G[m], U))) if m >= layer else None for m in range(G.shape[0])],
+                                        # coherence of the random responses: the norm of their mean over the mean of their
+                                        # norms, per example and read point (median over examples); 1 = every random push
+                                        # produces the same downstream change, 0 = unrelated changes
+                                        "coherence": coherence_curve(all_iso, layer),
+                                        "coherence_by_construction": {c: coherence_curve(iso_deltas[c], layer) for c in present}}
         variants: dict[str, np.ndarray | None] = {"raw": None}
         if U is not None:
             variants["answer_removed"] = U

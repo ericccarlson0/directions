@@ -14,6 +14,7 @@ from directions.seeds import rng_for
 from directions.tasks import build_task
 from directions.trajectories import (
     alpha_from_calibration,
+    coherence_curve,
     mean_cosines,
     pair_cosines,
     projection_fraction,
@@ -67,6 +68,20 @@ def test_pair_cosines_match_a_naive_loop_and_mark_undefined_points():
     assert projection_fraction(2 * A, A, start=2)[3, 0] == pytest.approx(2.0)
     mc = mean_cosines(A.mean(axis=1), A.mean(axis=1), start=2)
     assert np.allclose(mc[2:], 1.0) and np.isnan(mc[:2]).all()
+
+
+def test_coherence_curve_is_one_for_identical_and_near_zero_for_unrelated_pushes():
+    rng = np.random.default_rng(3)
+    L1, n, d = 4, 5, 200
+    base = rng.normal(size=(L1, n, d))
+    same = coherence_curve([base, base.copy(), base.copy()], start=1)
+    assert same[0] is None and all(v == pytest.approx(1.0) for v in same[1:])
+    unrelated = coherence_curve([rng.normal(size=(L1, n, d)) for _ in range(8)], start=1)
+    assert all(0.2 < v < 0.5 for v in unrelated[1:])  # ~ 1/sqrt(8) for independent directions
+    # a shared component plus noise: between the two
+    shared = rng.normal(size=(L1, n, d))
+    mixed = coherence_curve([shared + 0.5 * rng.normal(size=(L1, n, d)) for _ in range(8)], start=1)
+    assert all(0.8 < v < 0.95 for v in mixed[1:])
 
 
 def test_alpha_from_calibration_follows_the_runs_rule():
@@ -203,6 +218,9 @@ def test_smoke_trajectories(smoke_runs):
             assert info["variants"] == ["raw", "answer_removed", "generic_removed"]
             assert info["generic_response"]["n_controls"] == 3 * cfg.n_isotropic
             assert len(info["generic_response"]["cos_with_answer_direction"]) == L1
+            coh = info["generic_response"]["coherence"]
+            assert len(coh) == L1 and all(v is None for v in coh[:layer]) and all(0 <= v <= 1 + 1e-9 for v in coh[layer:])
+            assert set(info["generic_response"]["coherence_by_construction"]) == {"pca", "fv", "learned"}
             assert arrays[f"L{layer}_mean_generic"].shape == (L1, meta["model"]["hidden_size"])
             assert info["isotropic"]["n"] == cfg.n_isotropic and info["isotropic"]["learned"]["alpha"] == cons["learned"]["alpha"]
             assert arrays[f"L{layer}_mean_delta_learned"].shape == (L1, meta["model"]["hidden_size"])

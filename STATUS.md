@@ -2230,8 +2230,11 @@ on the same runs (limitations below).
   steered run, or removing it, at the read point where the alignment
   arrives) and what the generic response is (a fixed direction of the
   late residual, e.g. the massive-activation dimensions, or a
-  prompt-dependent one; its mean is saved per run). Both are one more
-  captured-pass experiment each on the same runs.
+  prompt-dependent one; its mean is saved per run, and since the runs
+  above the code also records the coherence of the random responses,
+  the norm of their mean over the mean of their norms, which the four
+  runs recorded here do not have). Both are one more captured-pass
+  experiment each on the same runs.
 - Data centers: EUR-NO-1 (the volume with the 0.6B–4B cache) currently
   offers nothing above 24 GB, and only US-CA-2, US-IL-1, US-MO-2, US-NC-2,
   EU-RO-1 and EUR-NO-1 can host a run at all (`docs/INFRA.md`;
