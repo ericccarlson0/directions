@@ -80,7 +80,9 @@ results/<run_id>/
       trajectories.json    per layer: strengths, condition metrics, every pair's median-cosine curve with CIs and floor,
                            the variants without the answer direction and without the generic response, the
                            summaries and labels, the ceilings; the same at the other strength factors, the
-                           cross-strength cosines, the generic-response diagnostics and the patch test (D33)
+                           cross-strength cosines, the generic-response diagnostics and the patch test (D33);
+                           the role of every compared layer (primary, the head-mean run's, a neighbouring
+                           candidate) when `neighbour_layers` adds the candidates around the primary one
       trajectories_arrays.npz  per-example cosines of every pair at every read point (raw and both variants),
                            projection fractions, floor medians, population-mean trajectories, the generic response
   figures/                 per task and layer: cosine with the natural trajectory, the same without the answer

@@ -4,16 +4,17 @@ name: smoke_toy_trajectories
 seed: 1234
 output_dir: results
 layers: selected
+neighbour_layers: 1
 n_isotropic: 2
 second_demo_sample: true
 remove_answer_direction: true
 remove_generic_response: true
 pc1_rho_grid: [0.1, 0.5, 1.0]
-strength_factors: [1.0, 0.5]
+strength_factors: [1.0, 0.5, 0.25]
 generic_diagnostics: true
 diagnostic_top_k: [1, 4, 16]
 logit_lens_top: 5
-patch: {enabled: true, constructions: [learned], depth_fractions: [0.5, 1.0], n_controls: 2, reference: icl}
+patch: {enabled: true, constructions: [learned], layers: all, depth_fractions: [0.5, 1.0], n_controls: 2, reference: icl}
 n_boot: 100
 ci_alpha: 0.05
 determinism_check: true

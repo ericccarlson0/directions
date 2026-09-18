@@ -11,18 +11,21 @@ seed: 20260907                 # the comparison's own draws: second demonstratio
 output_dir: results
 
 layers: selected               # per task: the learned run's selected layer (primary) and the head-mean run's, when different
+neighbour_layers: 1            # D33 amended: plus the nearest candidate layer below and above the primary (each construction at its
+                               # own calibrated strength there; a side without a candidate is noted)
 n_isotropic: 4                 # matched random directions per construction and layer, at the construction's strength (the floor)
 second_demo_sample: true       # a second few-shot sample per query: the ceiling of natural alignment
 remove_answer_direction: true  # every cosine also with the answer's unembedding direction projected out
 remove_generic_response: true  # and with the isotropic controls' mean trajectory (the generic response) projected out
 pc1_rho_grid: [0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0]  # PC1's strength: best point on the calibration pool, in median-residual-norm units
-strength_factors: [1.0, 0.5]   # D33: the comparison at each multiple of the canonical strength (the first is the primary)
+strength_factors: [1.0, 0.5, 0.25]   # D33 (amended): the comparison at each multiple of the canonical strength (the first is the primary)
 generic_diagnostics: true      # D33: what the generic response is (coordinates, residual overlap, logit lens)
 diagnostic_top_k: [1, 4, 16, 64]
 logit_lens_top: 10
-patch:                         # D33: the patch test at the primary layer, canonical strength
+patch:                         # D33: the patch test at the canonical strength
   enabled: true
   constructions: [learned]
+  layers: all                  # D33 amended: at every compared layer (the neighbouring candidates included), not only the primary
   depth_fractions: [0.5, 0.75, 1.0]   # 1.0 is the last read point: an edit there reaches the first target token only
   n_controls: 3
   reference: icl

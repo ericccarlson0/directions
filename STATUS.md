@@ -2511,37 +2511,59 @@ factor cost 15 passes per layer and nothing else.
 ## Next commands
 
 ```bash
-uv run pytest                                                           # 150 tests
+uv run pytest                                                           # 181 tests
 # GPU runs: edit .github/gpu-run.yaml (command + a new `request` label), commit, push; the run-gpu
 # workflow triggers on the push (README, "Run on GPUs"). One run per push; the ci environment runs
-# them one at a time. Then:
+# them one at a time (8B goes through the ci-8b environment in US-CA-2). Then:
 gh run list --workflow=run-gpu.yml --branch fable --limit 1 && gh run watch <RUN_ID>
 gh run download <RUN_ID> --dir results/remote/<name>
-# iteration 4b (D21 + D22: function-vector control at the canonical strength; the configs default to it)
-# on the other models and seeds, as request-file commands (the PCA-control protocol is `extraction.control: pca` with `calibration.strength_unit: layer_norm`):
-uv run directions pilot --config configs/pilot_qwen3_0.6b.yaml --seed 1 --run-id pilot4b_qwen3_0.6b_seed1
-uv run directions aggregate results/remote/<a>/... results/remote/<b>/... --out results/aggregate4b_qwen3_0.6b.json
+uv run --with boto3 python scripts/runpod_log.py <RUN_ID> --follow      # the live worker log
+# iteration 10 (D33 amended: quarter strength, the neighbouring candidate layers, the patch test at every
+# compared layer), from the finished head-mean (iteration 6) and learned-vector (iteration 7b) runs on the volume;
+# not yet requested for any model (projected 6.5 / 9 / 21 / 9 min, about $1.40 of compute for the four):
+uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-35036855067/pilot6_qwen3_0.6b_seed20260907 --learned-run /runpod-volume/results/run-35181427862/learned_qwen3_0.6b_seed20260907 --run-id trajectories10_qwen3_0.6b_seed20260907
+uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-35037075704/pilot6_qwen3_1.7b_seed20260907 --learned-run /runpod-volume/results/run-35181498809/learned_qwen3_1.7b_seed20260907 --run-id trajectories10_qwen3_1.7b_seed20260907
+uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-35038665604/pilot6_qwen3_4b_seed20260907 --learned-run /runpod-volume/results/run-35184285964/learned_qwen3_4b_seed20260907 --run-id trajectories10_qwen3_4b_seed20260907
+uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-35041155731/pilot6_qwen3_8b_seed20260907 --learned-run /runpod-volume/results/run-35181465402/learned_qwen3_8b_seed20260907 --run-id trajectories10_qwen3_8b_seed20260907
+# the pilot protocols, for reference (head-mean control: pilot_*.yaml; learned vector: learned_*.yaml; add-k: arith_*.yaml):
+uv run directions pilot --config configs/learned_qwen3_0.6b.yaml --run-id learned_qwen3_0.6b_seed20260907
+uv run directions aggregate results/remote/<a>/... results/remote/<b>/... --out results/aggregate_<model>.json   # multi-seed summary
 uv run directions compare results/<run_a> results/<run_b>                # diff two runs (only after a change of the numerical path, D23)
-# iteration 8 (D32): the downstream trajectories of the three constructions against the natural one, from two finished runs
-uv run directions trajectories --config configs/trajectories.yaml --fv-run results/remote/<head-mean run> --learned-run results/remote/<learned run> --run-id trajectories_<model>_seed<seed>
 ```
 
-Suggested next steps, in order:
+Suggested next steps (2026-09-18; the list of two days ago with the state of each):
 
-1. Run seeds 1 and 2 of iteration 3 on all four models (commands above) so
-   the gate stability and the readout z-scores have a cross-seed spread.
-2. Separate the shared component from the task-specific one: extract the
-   cross-task common direction at each layer (mean or PC1 of the per-task
-   directions), inject it as a sixth control kind, and re-express `T_l`
-   against the task direction with that component projected out. The
-   other-task results above predict that the common direction steers most
-   tasks as well as their own direction.
-3. Add a gradient readout at the target positions (the perturbation is
-   measured at the query token; the behavioural effect is read at the
-   target tokens), and the first-order prediction `δ_l · ∇ log p` as a
-   compared metric, to test whether the excess over random is first-order
-   anywhere.
-4. Iteration-2 conclusions that still hold and need no more runs: the
-   geometric profile (cascade + amplification, expansion in the larger
-   models) is not direction-specific; singular-8B is the only cumulative-gain
-   excess over the structured nulls.
+1. **Strength dependence** (partial): half strength is done on all four
+   models (iteration 9); the quarter strength is implemented (D33 amended,
+   `strength_factors: [1.0, 0.5, 0.25]`) and not yet run. Double strength
+   is not planned (the calibration grids were still rising at their
+   ceiling; the canonical strength already overshoots on 1.7B and 8B).
+2. **Commitment at every candidate injection layer** (implemented, not
+   run): the comparison and the patch test at the nearest candidate layer
+   below and above the primary one (`neighbour_layers: 1`,
+   `patch.layers: all`). Both are the iteration-10 runs above, one per
+   model, to be requested together.
+3. **Useful dimensionality of the perturbation** (partial): the effect
+   leaves the injected direction (D29) and by three-quarter depth one
+   direction per prompt, the prompt's own natural difference, carries all
+   of it (D33). Not measured: the rank of that per-prompt family across
+   prompts, and whether a rank-k operator carries what one vector cannot
+   (add-k, iteration 7a). The next measurement is the spectrum of the
+   shared components across prompts at the hand-over depth.
+4. **Mechanism** (partial): the answer-direction variant, the logit lens
+   of the generic response and the first-token readouts exist; a logit
+   lens of the common direction (D28) and of the learned vector at the
+   last read point, and a head attribution downstream of the injection,
+   do not. The unembedding code is in the backend.
+5. **Another model family** (not started): every config is Qwen3; the
+   backend assumes Llama-style module names and a scaled RMSNorm final
+   norm, so Llama 3 should load unchanged and Gemma needs checks (scaled
+   embeddings, a (1 + w) norm, soft-capped logits). A new family means new
+   configs and a cold model cache on the volume.
+6. **Hardening** (partial): the determinism check, the device geometry
+   and the workflow are in place; iterations 7a, 7b, 8 and 9 have one
+   seed each, so a second seed of the learned-vector run and of the
+   trajectory comparison is the next hardening step, before any write-up
+   states their numbers with error bars.
+
+The generic-response line is closed (docs/GENERIC_RESPONSE.md).

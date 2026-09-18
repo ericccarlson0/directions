@@ -302,7 +302,9 @@ class PatchConfig:
     difference itself patched in. Each edit is matched against the same edit along random per-example
     directions (paired excess test), the depth-of-commitment mechanics (D29) with a per-example reference.
 
-    constructions    which constructions to test (at the primary layer, at the canonical strength)
+    constructions    which constructions to test (at the canonical strength)
+    layers           "primary": at the primary injection layer only; "all": at every compared layer (the
+                     neighbouring candidate layers included, D33 amended)
     depth_fractions  read points as fractions of the downstream depth (0 = the injection layer, 1 = the end)
     n_controls       random per-example directions matched to each edit
     reference        the natural trajectory the shared component is taken along: "icl" (demos minus none)
@@ -311,6 +313,7 @@ class PatchConfig:
 
     enabled: bool = True
     constructions: list[str] = field(default_factory=lambda: ["learned"])
+    layers: str = "primary"
     depth_fractions: list[float] = field(default_factory=lambda: [0.5, 0.75, 1.0])
     n_controls: int = 3
     reference: str = "icl"
@@ -327,6 +330,10 @@ class TrajectoriesConfig:
 
     layers          "selected": per task, the union of the two runs' selected layers (the learned run's is
                     the primary); or an explicit list of candidate layers (calibrated in both runs)
+    neighbour_layers  with "selected": also the n nearest candidate layers of the learned run below and above
+                    the primary layer (D33 amended; 0 = none). At a neighbouring layer each construction
+                    enters at the strength its run's calibration gives it there (the reliable grid point
+                    nearest the reference rho, else the natural norm); PC1 is calibrated as everywhere.
     n_isotropic     matched random directions per construction and layer, at the construction's norm: the
                     floor of every alignment
     second_demo_sample  a second few-shot sample per query: the cosine between two natural trajectories is
@@ -354,6 +361,7 @@ class TrajectoriesConfig:
     seed: int = 20260907
     output_dir: str = "results"
     layers: str | list[int] = "selected"
+    neighbour_layers: int = 0
     n_isotropic: int = 4
     second_demo_sample: bool = True
     remove_answer_direction: bool = True
@@ -381,6 +389,8 @@ def load_trajectories_config(path: str | Path) -> TrajectoriesConfig:
         raise ValueError("layers must be 'selected' or a list of layers")
     if not isinstance(cfg.layers, str) and (not cfg.layers or any(int(l) != l or l < 0 for l in cfg.layers)):
         raise ValueError("layers must be a non-empty list of non-negative integers")
+    if cfg.neighbour_layers < 0:
+        raise ValueError("neighbour_layers must be non-negative")
     if not cfg.pc1_rho_grid or any(r <= 0 for r in cfg.pc1_rho_grid):
         raise ValueError("pc1_rho_grid must be positive")
     if not cfg.strength_factors or cfg.strength_factors[0] != 1.0 or any(f <= 0 for f in cfg.strength_factors) \
@@ -393,6 +403,8 @@ def load_trajectories_config(path: str | Path) -> TrajectoriesConfig:
         raise ValueError("patch.reference must be 'icl' or 'task'")
     if any(c not in ("pca", "fv", "learned") for c in p.constructions):
         raise ValueError("patch.constructions must be among pca, fv, learned")
+    if p.layers not in ("primary", "all"):
+        raise ValueError("patch.layers must be 'primary' or 'all'")
     if any(not (0 < f <= 1) for f in p.depth_fractions) or p.n_controls < 1:
         raise ValueError("patch.depth_fractions must lie in (0, 1] and patch.n_controls be at least 1")
     return cfg

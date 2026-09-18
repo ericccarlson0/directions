@@ -229,6 +229,15 @@ def test_smoke_trajectories(smoke_runs):
         res = json.loads((d / "trajectories.json").read_text())
         L1 = res["n_read_points"]
         assert res["primary_layer"] in res["layers"] and str(t["primary_layer"]) in t["per_layer"]
+        # D33 amended: the nearest candidate layer on each side of the primary (the toy has candidates 1 and 2,
+        # so one side is missing and noted), with its role recorded
+        candidates = sorted(int(l) for l in np.load(runs["learned"] / "core" / "tasks" / task / "directions.npz")["layers"])
+        assert set(res["layers"]) == set(candidates) and len(candidates) == 2
+        roles = res["layer_roles"]
+        assert roles[str(res["primary_layer"])][0] == "primary" and t["layer_roles"] == roles
+        other = next(l for l in res["layers"] if l != res["primary_layer"])
+        assert ("neighbour_above" if other > res["primary_layer"] else "neighbour_below") in roles[str(other)]
+        assert any("of 1 candidate layers" in n for n in res["notes"])
         for cond in ("base", "icl", "icl2", "deranged"):
             assert "logprob_per_token_mean" in res["conditions"][cond]
         arrays = np.load(d / "trajectories_arrays.npz")
@@ -268,22 +277,24 @@ def test_smoke_trajectories(smoke_runs):
             assert len(coh) == L1 and all(v is None for v in coh[:layer]) and all(0 <= v <= 1 + 1e-9 for v in coh[layer:])
             assert set(info["generic_response"]["coherence_by_construction"]) == {"pca", "fv", "learned"}
             assert arrays[f"L{layer}_mean_generic"].shape == (L1, meta["model"]["hidden_size"])
-            # D33: the other strength, its own floors and generic response, the cross-strength cosines
-            assert set(info["other_strengths"]) == {"0.5"} and info["strength_factor"] == 1.0
+            # D33 (amended): the other strengths, each with its own floors and generic response, the cross-strength cosines
+            assert set(info["other_strengths"]) == {"0.5", "0.25"} and info["strength_factor"] == 1.0
+            for f, tag in ((0.5, "0.5"), (0.25, "0.25")):
+                sub = info["other_strengths"][tag]
+                assert sub["strength_factor"] == f and set(sub["constructions"]) == {"pca", "fv", "learned"}
+                for c in ("pca", "fv", "learned"):
+                    assert sub["constructions"][c]["alpha"] == pytest.approx(f * cons[c]["alpha"])
+                    assert sub["constructions"][c]["canonical_alpha"] == pytest.approx(cons[c]["alpha"])
+                    assert "generic_removed" in sub["summaries"][f"{c}->icl"]
+                    x = info["cross_strength"][tag][c]
+                    assert len(x["curve"]["median"]) == L1 and x["at_injection"] == pytest.approx(1.0, abs=1e-5)
+                    assert f"L{layer}_r{tag}_cross_cos_{c}" in arrays.files and f"L{layer}_r{tag}_cos_icl~{c}" in arrays.files
+                assert len(info["cross_strength"][tag]["generic_cosine"]) == L1
+                assert len(sub["generic_response"]["coherence"]) == L1
             half = info["other_strengths"]["0.5"]
-            assert half["strength_factor"] == 0.5 and set(half["constructions"]) == {"pca", "fv", "learned"}
-            for c in ("pca", "fv", "learned"):
-                assert half["constructions"][c]["alpha"] == pytest.approx(0.5 * cons[c]["alpha"])
-                assert half["constructions"][c]["canonical_alpha"] == pytest.approx(cons[c]["alpha"])
-                assert "generic_removed" in half["summaries"][f"{c}->icl"]
-                x = info["cross_strength"]["0.5"][c]
-                assert len(x["curve"]["median"]) == L1 and x["at_injection"] == pytest.approx(1.0, abs=1e-5)
-                assert f"L{layer}_r0.5_cross_cos_{c}" in arrays.files and f"L{layer}_r0.5_cos_icl~{c}" in arrays.files
-            assert len(info["cross_strength"]["0.5"]["generic_cosine"]) == L1
-            assert len(half["generic_response"]["coherence"]) == L1
             # D33: what the generic response is
             diag = info["generic_diagnostics"]
-            assert set(diag["per_factor"]) == {"1", "0.5"}
+            assert set(diag["per_factor"]) == {"1", "0.5", "0.25"}
             for f, e in diag["per_factor"].items():
                 for k in diag["top_k"]:
                     own, mass = e["energy_in_own_top_k"][str(k)], e["energy_in_residual_top_k"][str(k)]
@@ -295,20 +306,17 @@ def test_smoke_trajectories(smoke_runs):
                 assert all(isinstance(tok, str) and v >= 0 for tok, v in lens["promoted"])
                 assert lens["mean_abs_logit_change"] > 0
             assert "_first_token_logprob" not in info and "_first_token_logprob" not in half
-            # D33: the patch test at the primary layer only, for the learned vector
-            if layer == res["primary_layer"]:
-                patch = info["patch"]
-                assert patch["reference"] == "icl" and set(patch["constructions"]) == {"learned"}
-                rows = patch["constructions"]["learned"]["rows"]
-                assert [r["read_point"] for r in rows] == patch["read_points"] and all(layer < r["read_point"] <= L1 - 1 for r in rows)
-                for r in rows:
-                    for e in ("remove", "keep", "patch"):
-                        assert set(r[e]) >= {"effect", "retained", "random_effect_mean", "excess_vs_random", "effect_test",
-                                             "first_token_effect", "first_token_retained"}
-                        assert 0 <= r[e]["excess_vs_random"]["p_value"] <= 1
-                assert t["per_layer"][str(layer)]["patch"]["learned"][0]["remove"]["p"] == rows[0]["remove"]["excess_vs_random"]["p_value"]
-            else:
-                assert "patch" not in info
+            # D33 (amended): the patch test at every compared layer (patch.layers: all), for the learned vector
+            patch = info["patch"]
+            assert patch["reference"] == "icl" and set(patch["constructions"]) == {"learned"}
+            rows = patch["constructions"]["learned"]["rows"]
+            assert [r["read_point"] for r in rows] == patch["read_points"] and all(layer < r["read_point"] <= L1 - 1 for r in rows)
+            for r in rows:
+                for e in ("remove", "keep", "patch"):
+                    assert set(r[e]) >= {"effect", "retained", "random_effect_mean", "excess_vs_random", "effect_test",
+                                         "first_token_effect", "first_token_retained"}
+                    assert 0 <= r[e]["excess_vs_random"]["p_value"] <= 1
+            assert t["per_layer"][str(layer)]["patch"]["learned"][0]["remove"]["p"] == rows[0]["remove"]["excess_vs_random"]["p_value"]
             assert info["isotropic"]["n"] == cfg.n_isotropic and info["isotropic"]["learned"]["alpha"] == cons["learned"]["alpha"]
             assert arrays[f"L{layer}_mean_delta_learned"].shape == (L1, meta["model"]["hidden_size"])
             assert (root / "figures" / f"{task}_trajectories_L{layer}.png").exists()

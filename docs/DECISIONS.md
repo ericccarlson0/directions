@@ -1296,3 +1296,49 @@ factor adds 15 passes per layer, the patch test 36 passes per task at
 the primary layer (3 read points × 3 edits × 4 runs), the diagnostics
 nothing. The whole iteration is about a fifth of the D32 runs' wall
 time despite doing twice the passes.
+
+### D33, amended (2026-09-18): a quarter strength, and the neighbouring candidate layers with their own patch test
+
+Context: the iteration-9 runs answered the strength question at two
+points (canonical and half) and the commitment question at one injection
+layer per task (the learned run's selected layer). Half strength aligned
+at least as well as the canonical one and removed the late decline on
+1.7B and 8B, so the strength axis is still open below; and every
+statement about the hand-over depth rests on the one layer the selection
+rule preferred, which leaves open whether the hand-over is a property of
+the layer or of the vector.
+
+Decision, two config extensions of the D33 protocol, no change of method:
+
+* **`strength_factors: [1.0, 0.5, 0.25]`.** The quarter strength is
+  added as a third factor with everything the half strength has (its own
+  steered passes, matched floors, generic response, coherence, all pairs
+  in the three variants, summaries, ceilings, the cosine with the
+  canonical trajectories and between the generic responses). The
+  canonical factor remains the primary result. Double strength is not
+  added: the calibration grids were still rising at their ceiling on
+  three models, and the half-strength result says the canonical strength
+  already overshoots on two of them.
+* **`neighbour_layers: 1`** with `layers: selected`: per task, the nearest
+  candidate layer of the learned run below and above the primary layer
+  is compared as well (the head-mean run's selected layer stays in when
+  it differs). Only candidate layers qualify, because the learned vector
+  and PC1 exist there and nowhere else; with candidates at 0.2–0.5 of the
+  depth (D27) a primary at the top or bottom candidate has one neighbour,
+  which the task's notes record. At a neighbouring layer each
+  construction enters at the strength its own run's calibration gives it
+  there (the reliable grid point nearest the reference rho, else the
+  natural norm; PC1 calibrated on the calibration pool as at every
+  layer), so the comparison at a neighbour is the comparison the
+  selection rule would have made had it chosen that layer. The role of
+  every layer (`primary`, `fv_selected`, `neighbour_below`,
+  `neighbour_above`, `listed`) is written with the task's result.
+* **`patch.layers: all`**: the patch test runs at every compared layer,
+  not only the primary one, at the same depth fractions of each layer's
+  own downstream depth, so the hand-over can be read per injection layer.
+
+Cost: from the iteration-9 profiles (per layer and factor 3–11 s of
+passes, per patch test 3–6 s), the runs go from 15–17 compared layers per
+model to 26–28 and from two factors to three: about 2.2–2.4 × the
+iteration-9 wall time (6.5, 9, 21 and 9 min projected for 0.6B, 1.7B, 4B
+and 8B), roughly $1.40 of compute for the four models against $0.60.

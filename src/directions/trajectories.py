@@ -523,14 +523,38 @@ class Trajectories:
 
     # ------------------------------------------------------------------ #
 
-    def _layers(self, inputs: TaskInputs) -> tuple[list[int], int]:
+    def _layers(self, inputs: TaskInputs) -> tuple[list[int], int, dict[int, list[str]]]:
+        """The injection layers compared for a task, the primary one, and why each layer is in: ``primary``
+        (the learned run's selected layer), ``fv_selected`` (the head-mean run's), ``neighbour_below`` /
+        ``neighbour_above`` (the nearest candidate layers of the learned run on each side, D33 amended;
+        a side with no candidate is noted), ``listed`` (an explicit list)."""
         primary = int(inputs.learned_qual["selection"]["layer"])
+        roles: dict[int, list[str]] = {}
+
+        def add(layer: int, role: str) -> None:
+            roles.setdefault(layer, []).append(role)
+
         if isinstance(self.cfg.layers, list):
-            return sorted({int(l) for l in self.cfg.layers}), primary
-        layers = {primary}
+            for l in self.cfg.layers:
+                add(int(l), "primary" if int(l) == primary else "listed")
+            return sorted(roles), primary, {l: roles[l] for l in sorted(roles)}
+        add(primary, "primary")
         if inputs.fv_qual and inputs.fv_qual.get("selection"):
-            layers.add(int(inputs.fv_qual["selection"]["layer"]))
-        return sorted(layers), primary
+            add(int(inputs.fv_qual["selection"]["layer"]), "fv_selected")
+        k = self.cfg.neighbour_layers
+        if k > 0:
+            candidates = sorted(int(l) for l in inputs.learned_arrays["layers"])
+            below = [l for l in candidates if l < primary][-k:]
+            above = [l for l in candidates if l > primary][:k]
+            for l in below:
+                add(l, "neighbour_below")
+            for l in above:
+                add(l, "neighbour_above")
+            for side, found in (("below", below), ("above", above)):
+                if len(found) < k:
+                    inputs.notes.append(f"{len(found)} of {k} candidate layers {side} the primary layer {primary} "
+                                        f"(candidates {candidates})")
+        return sorted(roles), primary, {l: roles[l] for l in sorted(roles)}
 
     def _constructions(self, inputs: TaskInputs, layer: int, calibration_base: ForwardResult,
                        calibration_prompts: list[Prompt]) -> dict[str, dict[str, Any]]:
@@ -596,9 +620,10 @@ class Trajectories:
         fs2 = [few_shot_prompt(pc, ev, x, rng2) for x in ev]
         drng = rng_for(cfg.seed, "trajectories_derangement", name)
         der = [deranged_prompt(pc, p, drng) for p in fs]
-        layers, primary = self._layers(inputs)
-        log.info("[%s] %d held-out prompts; layers %s (primary %d); strengths x%s; %s", name, len(ev), layers, primary,
-                 cfg.strength_factors, "; ".join(inputs.notes) or "both runs present")
+        layers, primary, roles = self._layers(inputs)
+        log.info("[%s] %d held-out prompts; layers %s (primary %d; %s); strengths x%s; %s", name, len(ev), layers, primary,
+                 ", ".join(f"{l}: {'/'.join(r)}" for l, r in roles.items()), cfg.strength_factors,
+                 "; ".join(inputs.notes) or "both runs present")
 
         with self.prof.section("natural", name):
             base = self.backend.run(zs, capture=True)
@@ -631,7 +656,8 @@ class Trajectories:
 
         result: dict[str, Any] = {"task": name, "registry_task": inputs.learned_qual.get("registry_task"),
                                   "n_examples": len(ev), "n_read_points": self.backend.n_layers + 1,
-                                  "layers": layers, "primary_layer": primary, "notes": inputs.notes,
+                                  "layers": layers, "primary_layer": primary, "layer_roles": {str(l): r for l, r in roles.items()},
+                                  "notes": inputs.notes,
                                   "conditions": conditions, "fewshot_gap_per_token": gap,
                                   "answer_direction_removed": cfg.remove_answer_direction,
                                   "strength_factors": list(cfg.strength_factors), "per_layer": {}}
@@ -685,7 +711,7 @@ class Trajectories:
         if cfg.generic_diagnostics and generic_by_factor:
             with self.prof.section("diagnostics", name, layer):
                 info["generic_diagnostics"] = self._generic_diagnostics(layer, generic_by_factor, base_t, zs, U)
-        if cfg.patch.enabled and primary:
+        if cfg.patch.enabled and (primary or cfg.patch.layers == "all"):
             with self.prof.section("patch", name, layer):
                 info["patch"] = self._patch_test(inputs, layer, cons, zs, base, base_t, natural, deltas_by_factor[1.0], info)
         for sub in (info, *info["other_strengths"].values()):
@@ -1084,7 +1110,7 @@ def _task_summary(result: dict[str, Any]) -> dict[str, Any]:
     coherence, the cross-strength cosines and the patch test where present."""
     gap = result["fewshot_gap_per_token"]
     out: dict[str, Any] = {"layers": result["layers"], "primary_layer": result["primary_layer"],
-                           "fewshot_gap_per_token": gap, "per_layer": {}}
+                           "layer_roles": result.get("layer_roles", {}), "fewshot_gap_per_token": gap, "per_layer": {}}
     for layer, info in result["per_layer"].items():
         entry: dict[str, Any] = {"constructions": _construction_rows(info, gap),
                                  "ceiling_final": {k: v["median"][-1] for k, v in info["ceilings"].items()},
