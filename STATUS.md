@@ -2189,6 +2189,232 @@ effect (a patch of it at the read point where the alignment arrives),
 and what the generic response is; both are one captured-pass experiment
 on the same runs (limitations below).
 
+### Iteration 9 (D33: the geometry on the device, two strengths, the generic response, the patch test)
+
+The `trajectories` command with its geometry moved onto the model's
+device (the NumPy functions stay as the tested reference), run once per
+model on the same head-mean and learned runs as iteration 8, with the
+comparison repeated at half the canonical strength, the coherence of the
+random responses, the generic-response diagnostics and the patch test
+(configs/trajectories.yaml). The four runs took 3–7 min against 14–50 for
+iteration 8's, doing twice the passes: the geometry is now a small part
+of a run. All numbers below are at the primary layer with the generic
+response removed unless said otherwise; "x1" is the canonical strength,
+"x0.5" half of it. Skipped tasks and layers are as in iteration 8.
+
+```
+# workflow run 35296239774 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
+uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-35036855067/pilot6_qwen3_0.6b_seed20260907 --learned-run /runpod-volume/results/run-35181427862/learned_qwen3_0.6b_seed20260907 --run-id trajectories9_qwen3_0.6b_seed20260907
+```
+
+0.6B: 2.8 min, determinism check passed; 8 tasks.
+
+- **The patch test: the shared component carries the effect.** For the
+  learned vector at three quarters of the downstream depth, keeping only
+  the component along the prompt's own natural difference retains
+  0.97–1.15 of the held-out effect (random per-example directions keep
+  0.00–0.11), removing it leaves −0.76 to 0.25 (random removal 1.00;
+  negative means worse than the unsteered model), and the natural
+  difference patched into the unsteered run, with nothing injected at
+  the injection layer, gives 0.89–1.25 of the effect by itself (random
+  vectors of the same norm −0.27 to −0.07); every contrast p = 0.000
+  (seven lexical tasks). At half depth the hand-over is under way: keep
+  retains 0.18–1.03, remove leaves −0.94 to 0.99, the patch alone gives
+  0.19–1.23, in step with the alignment there (0.19–0.44 against
+  0.51–0.80 at three quarters). Add-3 is the exception by construction:
+  its scored digits sit at later target positions whose predictions
+  read the query position through the keys and values of earlier
+  layers, so every edit at or after half depth is a no-op on the
+  per-token score (retained 1.00, the patch 0.02), and the first-token
+  ratios are undefined (a first-token effect of 0.1 nats).
+- **Half strength.** The learned vector at x0.5 still recovers
+  0.45–0.91 of the gap (x1 0.81–1.03) and aligns with the natural
+  trajectory as much (final 0.47–0.80 against 0.50–0.92; converges on 6
+  of 8, partly diverges on 2); the head mean at x0.5 keeps 0.04–0.27 of
+  the gap (x1 0.20–0.71). The same construction's trajectories at the two
+  strengths start identical and end at a cosine of 0.30–0.75 (learned)
+  and 0.42–0.93 (head mean): the downstream change is not proportional
+  to the push.
+- **The random responses are coherent from the first block.** The norm
+  of their mean over the mean of their norms is 0.35–0.53 one block after
+  injection and 0.53–0.81 at the end at x1, 0.32–0.51 and 0.42–0.74 at
+  x0.5: half of a random push's downstream change is the shared part,
+  at either strength. The generic response's norm is 0.11–0.16 of the
+  residual's at x1 and 0.04–0.08 at x0.5, so its size is close to
+  proportional to the push while its coherence is not.
+- **What the generic response is.** Its energy sits 0.29–0.64 in the
+  residual's 16 largest coordinates (of 1024) and 0.39–0.70 in the
+  largest 64; its cosine with the mean residual is −0.63 to −0.77 at
+  mid-depth and −0.32 to −0.82 at the end; the generic responses at the
+  two strengths agree at 0.35–0.88 at the end. The logit lens of the mean
+  random response promotes fragments and function words ('CUR', 'number',
+  'culture', 'and', '=') and demotes ' yes', ' Sure', ' options': a push
+  away from the background along the massive coordinates that reads out
+  as a mild move toward generic tokens (mean absolute logit change
+  0.3–0.7).
+
+```
+# workflow run 35296599331 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
+uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-35037075704/pilot6_qwen3_1.7b_seed20260907 --learned-run /runpod-volume/results/run-35181498809/learned_qwen3_1.7b_seed20260907 --run-id trajectories9_qwen3_1.7b_seed20260907
+```
+
+1.7B: 4.2 min, determinism check passed; 9 tasks.
+
+- **Patch test**, learned vector, eight lexical tasks: at three quarters
+  of the depth keep retains 0.87–1.19 (random −0.00 to 0.12), remove
+  leaves −1.14 to −0.14 (random 1.00), the natural patch alone gives
+  0.90–1.24 (random −0.15 to −0.05), all p = 0.000; at half depth keep
+  0.23–1.09, remove −0.57 to 0.94, patch 0.45–1.21 (alignment 0.10–0.41
+  there, 0.39–0.76 at three quarters). For add-3 the first digit's
+  effect is carried by the shared component from half depth on (the
+  natural patch alone gives 0.96 of it; removal costs nothing at half
+  depth and everything at three quarters).
+- **Half strength removes the late decline.** At x1 the learned vector
+  partly diverged after its peak on 8 of 9 tasks (iteration 8: the last
+  block pulled it away); at x0.5 it converges on 7 of 9, with a final
+  alignment of 0.19–0.91 (median 0.68) against 0.28–0.79 (median 0.45),
+  while keeping 0.31–1.07 of the gap (median 0.75; x1 0.81–1.01). The
+  head mean at x0.5 keeps 0.34–0.65 of the gap (x1 0.64–0.91) and ends
+  at 0.20–0.68 (x1 0.31–0.77). The two strengths' trajectories end at a
+  cosine of 0.20–0.97 (median 0.64) for the learned vector, 0.75–0.95
+  for the head mean.
+- **Coherence** 0.35–0.58 one block after injection, 0.66–0.84 at the
+  end (x0.5: 0.33–0.56, 0.46–0.76); the generic response's norm is
+  0.05–0.23 of the residual's at x1 (median 0.19, the largest of the
+  four models) and 0.03–0.18 at x0.5.
+- **The generic response here is almost the negative of the residual
+  mean**: cosine −0.42 to −0.82 at mid-depth and −0.56 to −0.97 at the
+  end, with 0.17–0.49 of its energy in the residual's 16 largest
+  coordinates (of 2048) and 0.36–0.76 in the largest 64; the two
+  strengths' generic responses agree at 0.73–0.97. Its logit lens
+  promotes punctuation (',', '.', ':') and demotes answer-opening
+  adverbs (' Indeed', ' Typically', ' Essentially', ' True').
+
+```
+# workflow run 35296680682 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
+uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-35038665604/pilot6_qwen3_4b_seed20260907 --learned-run /runpod-volume/results/run-35184285964/learned_qwen3_4b_seed20260907 --run-id trajectories9_qwen3_4b_seed20260907
+```
+
+4B: 8.8 min (50 in iteration 8), determinism check passed; 10 tasks.
+
+- **Patch test**, learned vector, nine lexical tasks: the hand-over is
+  complete by half depth here. Keep retains 0.94–1.20 at half depth and
+  0.98–1.29 at three quarters (random 0.00–0.47, the 0.47 on
+  arithmetic_words), remove leaves −0.19 to 0.84 and −0.73 to 0.52
+  (random 1.00), the natural patch alone gives 0.53–1.31 and 0.52–1.33
+  (random −0.11 to −0.01), all p = 0.000; the alignment is 0.35–0.55 at
+  half depth and 0.54–0.73 at three quarters. Add-3's first digit: the
+  natural patch alone gives 0.98 of its effect at half depth.
+- **Half strength**: the learned vector keeps 0.66–1.05 of the gap
+  (median 0.91; x1 0.75–1.03) and converges on 10 of 10 at both
+  strengths, final 0.51–0.86 (median 0.82) against 0.67–0.83 (median
+  0.76); the head mean at x0.5 keeps 0.05–0.35 (x1 0.33–0.69). The two
+  strengths' trajectories end at 0.57–0.93 (learned), 0.67–0.93 (head
+  mean).
+- **Coherence** 0.34–0.45 one block after injection, 0.56–0.67 at the
+  end (x0.5: 0.33–0.47, 0.44–0.56); the generic response's norm 0.05–0.14
+  of the residual's at x1, 0.02–0.04 at x0.5.
+- **Generic response**: 0.03–0.19 of its energy in the residual's 16
+  largest coordinates (of 2560), 0.08–0.36 in the largest 64; cosine
+  with the mean residual −0.48 to −0.76 at mid-depth and −0.84 to 0.45
+  at the end; the two strengths agree at 0.67–0.93. The logit lens is
+  the least regular of the four models (fragments, a few nouns, ':' and
+  ','; demotes ' option', ' typically', markup tokens).
+
+```
+# workflow run 35296238273 (push-triggered request), H100 80GB HBM3 (ADA_80_PRO), US-CA-2, Flash environment ci-8b
+uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-35041155731/pilot6_qwen3_8b_seed20260907 --learned-run /runpod-volume/results/run-35181465402/learned_qwen3_8b_seed20260907 --run-id trajectories9_qwen3_8b_seed20260907
+```
+
+8B: 4.1 min, determinism check passed; 10 tasks.
+
+- **Patch test**, learned vector, nine lexical tasks: at three quarters
+  of the depth keep retains 0.98–1.15 (random 0.00–0.45, the 0.45 on
+  arithmetic_words), remove leaves −0.48 to 0.76 (random 1.00), the
+  natural patch alone gives 0.52–1.20 (random −0.10 to −0.02), all
+  p = 0.000; at half depth keep 0.45–0.99, remove 0.68–1.00, patch
+  0.21–1.13 (alignment 0.16–0.49 there, 0.46–0.72 at three quarters).
+  Add-3's per-token rows are no-ops as on 0.6B, but its first-token
+  effect (1.0 nats on the first digit) reads normally: at half depth
+  the natural patch alone gives 0.98 of it and keeping the shared
+  component 0.95, removing it 0.77; at three quarters removal leaves
+  0.08.
+- **Half strength suits the learned vector better here.** At x0.5 it
+  recovers 0.34–1.01 of the gap (median 0.95; x1 0.83–1.04) and aligns
+  with the natural trajectory *more* than at x1: final 0.59–0.93
+  (median 0.74) against 0.49–0.81 (median 0.63), converging on 9 of 10
+  where x1 partly diverged on 6. The head mean at x0.5 keeps 0.04–0.75
+  of the gap (median 0.15). Trajectories at the two strengths end at a
+  cosine of 0.14–0.94 (median 0.85) for the learned vector, lowest for
+  arithmetic_words (0.14) and past_tense (0.26), the two tasks where
+  half strength loses most of the effect.
+- **Coherence** 0.35–0.52 one block after injection, 0.48–0.76 at the
+  end (x0.5: 0.33–0.51, 0.41–0.76); the generic response's norm
+  0.04–0.14 of the residual's at x1, 0.02–0.09 at x0.5.
+- **The generic response on 8B is less a matter of the massive
+  coordinates**: 0.06–0.40 of its energy in the residual's 16 largest
+  coordinates (of 4096) and 0.11–0.56 in the largest 64, most of it
+  put there by the last block (0.04–0.36 before it, 0.11–0.56 after;
+  past_tense 0.14 to 0.49);
+  cosine with the mean residual −0.29 to −0.61 at mid-depth, −0.59 to
+  0.59 at the end (positive only for arithmetic_words). Its
+  logit lens promotes punctuation and Chinese function words (',', '.',
+  '不', '和', '当然') and demotes content tokens of the task's kind
+  (' produces', ' performs' on plural and singular; ' islands',
+  ' hurricane' on the antonym tasks): a move toward the model's
+  unconditional defaults.
+
+Iteration 9 on the four models, in one paragraph. **The shared component
+is what carries the effect.** On 33 lexical task-model pairs, by three
+quarters of the downstream depth, keeping only the component of the
+fitted vector's perturbation along the prompt's own natural difference
+retains 0.87–1.33 of the held-out effect (random per-example directions
+0.00–0.12, except 0.45–0.47 on two arithmetic_words pairs), removing that
+component leaves −1.14 to 0.76 (random removal 1.00), and the natural
+difference patched into the unsteered run, with nothing injected, gives
+0.52–1.34 of the effect by itself (random vectors of its norm −0.27 to
+−0.01), every contrast at p = 0.000. At half depth the same edits are
+partial on 0.6B, 1.7B and 8B (keep 0.18–1.09, patch 0.19–1.23) and
+already complete on 4B, in step with the alignment measured there. So the
+cosines of iteration 8 were reading a causal quantity: where the fitted
+trajectory has come to agree with the natural one, that agreement is
+necessary and sufficient for the task, and the natural difference alone
+often does slightly more than the fitted vector. For add-3, whose scored
+digits are predicted at later positions, edits at the query token from
+half depth on are no-ops on the per-token score (those digits read the
+query position through earlier layers' keys and values) while the first
+digit behaves like the lexical tasks. **Half strength.** At half the
+canonical strength the learned vector keeps most of its effect (medians
+0.75–0.95 of the gap; the head mean 0.15–0.59) and aligns with the
+natural trajectory at least as well (final medians 0.68–0.82 against
+0.45–0.76 at full strength), and the late decline seen at full strength
+on 1.7B and 8B largely disappears (converging on 7 of 9 and 9 of 10 where
+full strength converged on 1 and 4): the canonical strength overshoots on
+those models. The same construction's trajectories at the two strengths
+start identical and end at cosines of 0.14–0.97 (learned) and 0.42–0.96
+(head mean): the downstream change is not proportional to the push.
+**The generic response.** Random pushes produce coherent downstream
+changes from the first block on: the norm of their mean over the mean of
+their norms is 0.34–0.58 one block after injection and 0.48–0.84 at the
+end on every model, and the same at half strength (0.32–0.56, 0.41–0.76),
+so the shared response is not a large-push nonlinearity, while its size
+scales with the push (0.04–0.23 of the residual's norm at full strength,
+0.02–0.18 at half). What it is: at mid-depth it points against the mean
+residual on every model (cosine −0.29 to −0.82), and at the end still on
+the two small ones (0.6B −0.32 to −0.82, 1.7B −0.56 to −0.97) and less so
+on 4B and 8B (−0.84 to 0.59); its energy sits in the residual's largest
+coordinates in proportion to their weight, 0.29–0.64 in the 16 largest on
+0.6B and 0.03–0.40 on 4B and 8B, where the last block puts most of it
+there; its readout promotes punctuation, function words and the model's
+default tokens and demotes answer-opening adverbs and task-content words.
+A shrinkage of the background along the massive coordinates, with a
+drift toward the unconditional defaults, at a magnitude of a few percent
+of the residual: that is the component the generic-removed variant takes
+out, and it is orthogonal to the answer on every model. **Cost.** The
+four runs took 2.8, 4.2, 8.8 and 4.1 min, about $0.60 in total, against
+$3.20 for iteration 8's; the geometry on the device makes a strength
+factor cost 15 passes per layer and nothing else.
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
@@ -2221,20 +2447,18 @@ on the same runs (limitations below).
   tokens and a damage-penalised fit are the follow-ups, and a second
   seed would show whether the held-out numbers are as stable as the
   head-mean ones.
-- The trajectory comparison (iteration 8, D32) has run once per model,
-  on the seed-20260907 runs only; its alignment labels are exploratory
-  (the peak is chosen on the same data), and the read point where the
-  natural and the injected trajectories meet is measured only in cosine.
-  Two things it does not measure: whether the shared component is
-  *causal* (patching the natural trajectory's component into the
-  steered run, or removing it, at the read point where the alignment
-  arrives) and what the generic response is (a fixed direction of the
-  late residual, e.g. the massive-activation dimensions, or a
-  prompt-dependent one; its mean is saved per run, and since the runs
-  above the code also records the coherence of the random responses,
-  the norm of their mean over the mean of their norms, which the four
-  runs recorded here do not have). Both are one more captured-pass
-  experiment each on the same runs.
+- The trajectory comparison (iterations 8 and 9, D32, D33) has run once
+  per model, on the seed-20260907 runs only; its alignment labels are
+  exploratory (the peak is chosen on the same data). The patch test ran
+  for the learned vector only (the head mean is a config switch away),
+  at depth fractions 0.5, 0.75 and 1.0: on 4B the hand-over is complete
+  by 0.5 and for add-3's later digits earlier than any edited read
+  point, so an earlier fraction (12 passes per task) would locate it;
+  four isotropic controls per construction and strength are few for the
+  floors' quantiles; and the generic-response diagnostics are taken on
+  population means (the logit lens with the mean random response), not
+  per prompt. Two strengths were run; a grid would cost 15 passes per
+  layer per strength.
 - Data centers: EUR-NO-1 (the volume with the 0.6B–4B cache) currently
   offers nothing above 24 GB, and only US-CA-2, US-IL-1, US-MO-2, US-NC-2,
   EU-RO-1 and EUR-NO-1 can host a run at all (`docs/INFRA.md`;
