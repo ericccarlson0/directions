@@ -294,6 +294,29 @@ class Config:
 
 
 @dataclass
+class PatchConfig:
+    """The patch test (docs/DECISIONS.md D33): is the component a construction's trajectory shares with the
+    natural one what carries the effect? At read points at fixed fractions of the downstream depth, the
+    steered perturbation is edited on the query token before the remaining blocks run: the component along
+    the natural difference of that prompt removed, or kept alone; and, in the unsteered run, the natural
+    difference itself patched in. Each edit is matched against the same edit along random per-example
+    directions (paired excess test), the depth-of-commitment mechanics (D29) with a per-example reference.
+
+    constructions    which constructions to test (at the primary layer, at the canonical strength)
+    depth_fractions  read points as fractions of the downstream depth (0 = the injection layer, 1 = the end)
+    n_controls       random per-example directions matched to each edit
+    reference        the natural trajectory the shared component is taken along: "icl" (demos minus none)
+                     or "task" (demos minus deranged demos)
+    """
+
+    enabled: bool = True
+    constructions: list[str] = field(default_factory=lambda: ["learned"])
+    depth_fractions: list[float] = field(default_factory=lambda: [0.5, 0.75, 1.0])
+    n_controls: int = 3
+    reference: str = "icl"
+
+
+@dataclass
 class TrajectoriesConfig:
     """The all-to-all trajectory comparison (`directions trajectories`; docs/DECISIONS.md D32).
 
@@ -317,6 +340,14 @@ class TrajectoriesConfig:
     pc1_rho_grid    PC1 has no calibration in the two runs: its strength at a layer is the grid point (in
                     units of the median residual norm, the D1 unit) with the largest mean improvement of the
                     per-token log-probability on the calibration pool
+    strength_factors  multiples of each construction's canonical strength at which the comparison is repeated
+                    (D33); the first must be 1.0 (the canonical strength, the primary result); every other
+                    factor gets its own steered passes, floors, generic response and coherence, plus the
+                    cosine between the same construction's trajectories at the two strengths
+    generic_diagnostics  record what the generic response is: its energy in its top coordinates and in the
+                    unsteered residual's largest coordinates, its cosine with the residual mean, its logit
+                    lens (the tokens it promotes at the last read point), and its cosine across strengths
+    patch           the patch test (PatchConfig)
     """
 
     name: str = "trajectories"
@@ -328,6 +359,11 @@ class TrajectoriesConfig:
     remove_answer_direction: bool = True
     remove_generic_response: bool = True
     pc1_rho_grid: list[float] = field(default_factory=lambda: [0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0])
+    strength_factors: list[float] = field(default_factory=lambda: [1.0, 0.5])
+    generic_diagnostics: bool = True
+    diagnostic_top_k: list[int] = field(default_factory=lambda: [1, 4, 16, 64])
+    logit_lens_top: int = 10
+    patch: PatchConfig = field(default_factory=PatchConfig)
     n_boot: int = 2000
     ci_alpha: float = 0.05
     determinism_check: bool = True
@@ -347,6 +383,18 @@ def load_trajectories_config(path: str | Path) -> TrajectoriesConfig:
         raise ValueError("layers must be a non-empty list of non-negative integers")
     if not cfg.pc1_rho_grid or any(r <= 0 for r in cfg.pc1_rho_grid):
         raise ValueError("pc1_rho_grid must be positive")
+    if not cfg.strength_factors or cfg.strength_factors[0] != 1.0 or any(f <= 0 for f in cfg.strength_factors) \
+            or len(set(cfg.strength_factors)) != len(cfg.strength_factors):
+        raise ValueError("strength_factors must start with 1.0 and be positive and distinct")
+    if any(k < 1 for k in cfg.diagnostic_top_k):
+        raise ValueError("diagnostic_top_k must be positive")
+    p = cfg.patch
+    if p.reference not in ("icl", "task"):
+        raise ValueError("patch.reference must be 'icl' or 'task'")
+    if any(c not in ("pca", "fv", "learned") for c in p.constructions):
+        raise ValueError("patch.constructions must be among pca, fv, learned")
+    if any(not (0 < f <= 1) for f in p.depth_fractions) or p.n_controls < 1:
+        raise ValueError("patch.depth_fractions must lie in (0, 1] and patch.n_controls be at least 1")
     return cfg
 
 

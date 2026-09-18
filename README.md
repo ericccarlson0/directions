@@ -78,11 +78,13 @@ results/<run_id>/
   core/tasks/<task>/
       trajectories.json    per layer: strengths, condition metrics, every pair's median-cosine curve with CIs and floor,
                            the variants without the answer direction and without the generic response, the
-                           summaries and labels, the ceilings
+                           summaries and labels, the ceilings; the same at the other strength factors, the
+                           cross-strength cosines, the generic-response diagnostics and the patch test (D33)
       trajectories_arrays.npz  per-example cosines of every pair at every read point (raw and both variants),
                            projection fractions, floor medians, population-mean trajectories, the generic response
   figures/                 per task and layer: cosine with the natural trajectory, the same without the answer
-                           direction and without the generic response, the constructions against one another
+                           direction and without the generic response, the constructions against one another;
+                           alignment by strength, coherence and location of the generic response, the patch test
 ```
 
 ## Layout

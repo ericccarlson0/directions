@@ -1204,3 +1204,95 @@ Cost: per task, four captured passes over the held-out prompts, ten
 short passes over the calibration pool per layer for PC1, and per layer
 three steered passes plus `n_isotropic` × 3 control passes, all captured:
 about half of one pipeline profile stage per task, and no gradients.
+
+## 2026-09-18 — Iteration 9: the geometry on the device, strengths, the generic response, the patch test
+
+### D33. The trajectories at two strengths, what the generic response is, and whether the shared component carries the effect
+
+Context: iteration 8 (D32) found the fitted vector's trajectory collapsing
+progressively onto the natural one, at cosines of 0.5–0.9 against floors
+near zero once the generic response is removed, with the constructions
+not converging onto each other. Three things it could not say. Whether
+the alignment depends on the size of the push (every construction was
+injected at its canonical strength, one point on the strength axis, and
+the generic response was measured at that one norm). What the generic
+response is (a fixed direction of the late residual or a prompt-dependent
+one; the mean of the random pushes was saved, nothing else). And whether
+the shared late component is what carries the effect, which cosines
+cannot tell from a bystander. A fourth problem was cost: the trajectory
+geometry ran in NumPy on the worker's CPU while the GPU sat idle, 85 % of
+the runs' time (43 of 50 min on 4B), so adding a strength would have
+doubled a run.
+
+Decision, four parts.
+
+* **The geometry runs on the model's device.** Every trajectory stays on
+  the device as float32 (L+1, n, d); the cosines with and without the
+  removals, the projection fractions, the coherence, the leave-one-out
+  generic directions and the row-wise bootstraps of the medians are
+  computed in torch in float64, the same arithmetic as the NumPy
+  functions, which remain in the module as the reference the tests
+  compare the device path against (cosines to 1e-9, bootstrap medians
+  exactly, CIs within sampling noise). The bootstrap draws come from a
+  torch generator seeded from the config seed through the stable digest,
+  so a run is deterministic on a device type; the small paired tests stay
+  in NumPy. The run is bounded by its forward passes again, as the
+  profile stage has been since D22.
+* **Strength factors.** `strength_factors: [1.0, 0.5]`: the whole
+  comparison (steered passes, matched floors at that norm, generic
+  response, coherence, all pairs in the three variants, summaries,
+  ceilings) is repeated at each factor times each construction's
+  canonical strength, and the same construction's trajectories at the
+  canonical and at the weaker strength are compared per example (raw
+  cosine, its median curve, and the cosine between the two factors'
+  generic responses). The canonical factor remains the primary result and
+  keeps the D32 output layout; the others are nested under
+  `other_strengths`. Half strength is the one factor added now: it is
+  where a fit at one residual norm still steers on most tasks (the
+  calibration grids), so the alignment at two working strengths is the
+  question, and one factor costs one more set of passes.
+* **What the generic response is**, recorded per factor and layer from
+  the population means: the fraction of its energy in its own top k
+  coordinates and in the k largest coordinates of the unsteered residual
+  at the same read point (the massive-activation coordinates), with those
+  coordinates listed; its cosine with the residual mean; its norm against
+  the residual's; its logit lens at the last read point (the mean random
+  response added to each prompt's final residual, through the final norm
+  and the unembedding in float32: the ten tokens it promotes and demotes
+  and the mean absolute logit change); the coherence of the random
+  responses (the norm of their mean over the mean of their norms, per
+  example and read point, pooled and per construction); and its cosine
+  across strengths. Together these tell a background rescaling (energy
+  in the massive coordinates, aligned with the residual mean, promoting
+  nothing in particular, coherent at every norm) from an off-distribution
+  reaction (energy spread, specific tokens promoted, coherence growing
+  with the norm).
+* **The patch test**, at the primary layer and the canonical strength for
+  the constructions in `patch.constructions` (the learned vector by
+  default; the head mean can be added). At read points at fixed fractions
+  of the downstream depth (0.5, 0.75, 1.0; fixed in advance, not chosen
+  on the alignment curve), the steered perturbation at the query token is
+  edited before the remaining blocks run, with the depth-of-commitment
+  mechanics (D29) and a per-example reference: `remove` takes out the
+  component along the prompt's own natural difference δ_m^ICL(x), `keep`
+  leaves only that component, and `patch` adds δ_m^ICL(x) itself to the
+  unsteered run with nothing injected at the injection layer. Each edit
+  is matched against the same edit along `patch.n_controls` random
+  per-example unit directions (for `patch`, random vectors of the same
+  per-example norm) by the paired excess test, and reported as the
+  effect retained (per-token log-probability, and the first-token
+  log-probability beside it, since an edit at the last read point can
+  reach only the query position's own prediction: no block follows to
+  carry it to later target positions, so for a multi-token target scored
+  on later tokens the depth-1.0 row is a first-token statement). The
+  alignment at the edited read point is recorded with each row. The
+  reading: `remove` costing more than random removal says the shared
+  component is needed; `keep` retaining more than random keeping says it
+  suffices; `patch` giving the effect alone says the natural component
+  is sufficient by itself.
+
+Cost: on the device the geometry is minutes per model; each strength
+factor adds 15 passes per layer, the patch test 36 passes per task at
+the primary layer (3 read points × 3 edits × 4 runs), the diagnostics
+nothing. The whole iteration is about a fifth of the D32 runs' wall
+time despite doing twice the passes.

@@ -1,4 +1,4 @@
-"""All-to-all comparison of downstream trajectories (docs/DECISIONS.md D32).
+"""All-to-all comparison of downstream trajectories (docs/DECISIONS.md D32, D33).
 
 Two finished runs of one model (the head-mean and the learned-vector run: same seed, splits and held-out
 prompts) supply three constructions of a task direction, the pooled PC1, the head-mean function vector and
@@ -13,8 +13,14 @@ is compared with the natural difference the demonstrations make,
 
 and with the other constructions' differences, pair by pair, per example and per read point. Matched
 isotropic directions at each construction's norm give the floor of every alignment; a second demonstration
-sample gives its ceiling. A variant with the answer's unembedding direction projected out tells "raises the
-same answer" from "runs the same computation".
+sample gives its ceiling. Two further variants remove, from both vectors of a pair, the answer's unembedding
+direction and the generic response (the mean trajectory of the isotropic controls). D33 repeats the whole
+comparison at further multiples of the canonical strength, records the coherence of the random responses and
+what the generic response is, and runs the patch test: whether the component a construction's trajectory
+shares with the natural one is what carries the effect.
+
+All geometry over the trajectories runs in torch on the model's device (D33; the NumPy functions below are
+the reference the tests compare against), so a run is bounded by its forward passes.
 """
 
 from __future__ import annotations
@@ -35,7 +41,7 @@ from .profiling import Profiler
 from .prompts import Prompt, deranged_prompt, few_shot_prompt, zero_shot_prompt
 from .runinfo import git_info, read_json, setup_logging, write_json
 from .seeds import derive_seed, rng_for
-from .stats import bootstrap_median_ci_rows, paired_bootstrap_test
+from .stats import bootstrap_median_ci_rows, paired_bootstrap_test, paired_excess_test
 from .tasks import Item
 
 CONSTRUCTIONS = ("pca", "fv", "learned")  # the three implementations of a task direction
@@ -43,10 +49,21 @@ NATURAL = ("icl", "icl2", "task")  # the natural trajectories: two demonstration
 REFERENCES = ("icl", "task")  # what a construction's alignment is summarised against
 NAMED = NATURAL + CONSTRUCTIONS
 ALIGN_MIN_EXCESS = 0.05  # exploratory labels only: a decline smaller than this is not a divergence
+VARIANT_PREFIX = {"raw": "", "answer_removed": "noanswer_", "generic_removed": "nogeneric_"}
+PATCH_EDITS = ("remove", "keep", "patch")
+
+
+def _variant_prefix(tag: str) -> str:
+    """The array-name prefix of a comparison variant (``cos_<prefix><a>~<b>``, ``floor_<prefix><c>_vs_<o>``)."""
+    return VARIANT_PREFIX[tag]
+
+
+def _factor_tag(f: float) -> str:
+    return f"r{f:g}"
 
 
 # --------------------------------------------------------------------------- #
-# Geometry (pure NumPy; tested against naive loops)
+# Geometry, NumPy reference (tested against naive loops; the torch path below is tested against these)
 # --------------------------------------------------------------------------- #
 
 
@@ -130,17 +147,133 @@ def coherence_curve(deltas: list[np.ndarray], start: int) -> list[float | None]:
     return out
 
 
-VARIANT_PREFIX = {"raw": "", "answer_removed": "noanswer_", "generic_removed": "nogeneric_"}
-
-
-def _variant_prefix(tag: str) -> str:
-    """The array-name prefix of a comparison variant (``cos_<prefix><a>~<b>``, ``floor_<prefix><c>_vs_<o>``)."""
-    return VARIANT_PREFIX[tag]
-
-
 def unit_vectors(rng: np.random.Generator, n: int, d: int) -> np.ndarray:
     v = rng.normal(size=(n, d))
     return v / np.linalg.norm(v, axis=1, keepdims=True)
+
+
+# --------------------------------------------------------------------------- #
+# Geometry on the device (D33): the same quantities in torch, the trajectories never leaving the device
+# --------------------------------------------------------------------------- #
+
+
+class Geometry:
+    """Trajectory geometry and the row-wise bootstraps in torch on ``device`` (the model's device; CPU in the
+    tests). Inputs are tensors kept on the device as float32 (L+1, n, d); every computation is in float64;
+    outputs come back as NumPy arrays. Each method mirrors the NumPy reference of the same name."""
+
+    def __init__(self, device: Any, seed: int) -> None:
+        import torch
+
+        self.torch = torch
+        self.device = torch.device(device)
+        self.gen = torch.Generator(device=self.device)
+        self.gen.manual_seed(int(seed))
+
+    # ---- tensors ------------------------------------------------------- #
+
+    def tensor(self, x: Any, dtype: Any = None) -> Any:
+        t = self.torch
+        if isinstance(x, t.Tensor):
+            return x.to(self.device) if dtype is None else x.to(self.device, dtype)
+        return t.as_tensor(np.asarray(x), dtype=dtype or t.float32, device=self.device)
+
+    def unit_rows(self, X: Any) -> Any:
+        t = self.torch
+        X = X.to(t.float64)
+        norm = X.norm(dim=-1, keepdim=True)
+        return t.where(norm > 0, X / t.where(norm > 0, norm, t.ones_like(norm)), t.zeros_like(X))
+
+    def median(self, x: Any, dim: int = 0) -> Any:
+        """``np.median`` along ``dim`` (the mean of the two middle values when even)."""
+        s, _ = x.sort(dim=dim)
+        n = s.shape[dim]
+        if n % 2:
+            return s.narrow(dim, n // 2, 1).squeeze(dim)
+        return 0.5 * (s.narrow(dim, n // 2 - 1, 1) + s.narrow(dim, n // 2, 1)).squeeze(dim)
+
+    @staticmethod
+    def _rows_at(U: Any, m: int) -> Any:
+        if U is None:
+            return None
+        return U[m] if U.dim() == 3 else U
+
+    # ---- per-example curves -------------------------------------------- #
+
+    def pair_cosines(self, A: Any, B: Any, start: int = 0, U: Any = None) -> np.ndarray:
+        t = self.torch
+        L1, n, _ = A.shape
+        out = t.full((L1, n), float("nan"), dtype=t.float64, device=self.device)
+        for m in range(start, L1):
+            u = self._rows_at(U, m)
+            a, b = A[m].to(t.float64), B[m].to(t.float64)
+            if u is not None:
+                a = a - (a * u).sum(1, keepdim=True) * u
+                b = b - (b * u).sum(1, keepdim=True) * u
+            na, nb = a.norm(dim=1), b.norm(dim=1)
+            ok = (na > 0) & (nb > 0)
+            denom = t.where(ok, na * nb, t.ones_like(na))
+            out[m] = t.where(ok, (a * b).sum(1) / denom, t.full_like(na, float("nan")))
+        return out.cpu().numpy()
+
+    def projection_fraction(self, A: Any, B: Any, start: int = 0) -> np.ndarray:
+        t = self.torch
+        L1, n, _ = A.shape
+        out = t.full((L1, n), float("nan"), dtype=t.float64, device=self.device)
+        for m in range(start, L1):
+            a, b = A[m].to(t.float64), B[m].to(t.float64)
+            nb2 = (b * b).sum(1)
+            ok = nb2 > 0
+            out[m] = t.where(ok, (a * b).sum(1) / t.where(ok, nb2, t.ones_like(nb2)), t.full_like(nb2, float("nan")))
+        return out.cpu().numpy()
+
+    def coherence(self, deltas: list[Any], start: int) -> list[float | None]:
+        t = self.torch
+        L1 = deltas[0].shape[0]
+        out: list[float | None] = [None] * L1
+        for m in range(start, L1):
+            stack = t.stack([d[m].to(t.float64) for d in deltas])  # (K, n, d)
+            mean_norm = stack.mean(0).norm(dim=1)
+            norm_mean = stack.norm(dim=2).mean(0)
+            ok = norm_mean > 0
+            if bool(ok.any()):
+                out[m] = float(self.median(mean_norm[ok] / norm_mean[ok]).cpu())
+        return out
+
+    def mean_over_examples(self, X: Any) -> np.ndarray:
+        """Population mean of a trajectory (L+1, n, d) -> (L+1, d) float64 on the host."""
+        return X.to(self.torch.float64).mean(1).cpu().numpy()
+
+    # ---- bootstraps ---------------------------------------------------- #
+
+    def bootstrap_rows(self, X: np.ndarray, n_boot: int, alpha: float) -> dict[str, list[float]]:
+        """Row-wise median with a percentile bootstrap CI (nan entries dropped), like
+        :func:`directions.stats.bootstrap_median_ci_rows`, drawn on the device from this geometry's generator.
+        Rows with the same number of finite entries are resampled in one batch."""
+        t = self.torch
+        Xt = t.as_tensor(np.asarray(X, dtype=np.float64), device=self.device)
+        R = Xt.shape[0]
+        finite = t.isfinite(Xt)
+        counts = finite.sum(1)
+        med = t.full((R,), float("nan"), dtype=t.float64, device=self.device)
+        low = med.clone()
+        high = med.clone()
+        for k in t.unique(counts).tolist():
+            rows = t.nonzero(counts == k).flatten()
+            if k == 0:
+                continue
+            vals = t.stack([Xt[r][finite[r]] for r in rows.tolist()])  # (r, k)
+            med[rows] = self.median(vals, dim=1)
+            if k == 1:
+                low[rows] = vals[:, 0]
+                high[rows] = vals[:, 0]
+                continue
+            idx = t.randint(0, k, (rows.shape[0], n_boot, k), generator=self.gen, device=self.device)
+            samp = t.gather(vals.unsqueeze(1).expand(-1, n_boot, -1), 2, idx)  # (r, n_boot, k)
+            meds = self.median(samp, dim=2)  # (r, n_boot)
+            q = t.quantile(meds, t.tensor([alpha / 2, 1 - alpha / 2], dtype=t.float64, device=self.device), dim=1)
+            low[rows], high[rows] = q[0], q[1]
+        return {"median": med.cpu().tolist(), "low": low.cpu().tolist(), "high": high.cpu().tolist(), "n": counts.cpu().tolist()}
 
 
 # --------------------------------------------------------------------------- #
@@ -177,7 +310,8 @@ def alpha_from_calibration(cal: dict[str, Any] | None, layer: int) -> dict[str, 
 
 
 def summarise_alignment(
-    real: np.ndarray, floor: np.ndarray, start: int, rng: np.random.Generator, n_boot: int, alpha: float
+    real: np.ndarray, floor: np.ndarray, start: int, rng: np.random.Generator, n_boot: int, alpha: float,
+    boot: Any = None,
 ) -> dict[str, Any]:
     """Where and how much a per-example alignment curve ``real`` (L+1, n) exceeds its floor ``floor``
     (L+1, k) (the matched random directions' alignments, pooled), from read point ``start`` on.
@@ -189,11 +323,14 @@ def summarise_alignment(
     when it clears the floor at the end without a significant decline from its peak,
     ``aligns_then_diverges`` when it clears the floor somewhere but declines significantly to the end and
     ends at the floor, ``aligns_then_partly_diverges`` when it declines significantly but ends above the
-    floor, and ``partial`` otherwise.
+    floor, and ``partial`` otherwise. ``boot(X)`` computes the row-wise bootstrap (the device path); the
+    NumPy one with ``rng`` by default.
     """
     L = real.shape[0] - 1
-    med = bootstrap_median_ci_rows(real, rng, n_boot=n_boot, alpha=alpha)
-    fl = bootstrap_median_ci_rows(floor, rng, n_boot=n_boot, alpha=alpha)
+    if boot is None:
+        boot = lambda X: bootstrap_median_ci_rows(X, rng, n_boot=n_boot, alpha=alpha)  # noqa: E731
+    med = boot(real)
+    fl = boot(floor)
     rm = np.asarray(med["median"], dtype=np.float64)
     above = [bool(l > h) if not (np.isnan(l) or np.isnan(h)) else False
              for l, h in zip(med["low"], fl["high"])]
@@ -368,6 +505,9 @@ class Trajectories:
             self.backend = ModelBackend(self.run_cfg.model, run_seed=self.run_cfg.seed)
         self.prof.backend = self.backend
         self.metadata["model"] = self.backend.metadata()
+        # the geometry runs on the model's device (D33): its draws come from the config seed
+        self.geo = Geometry(self.backend.device, derive_seed(self.cfg.seed, "trajectories_geometry"))
+        self.metadata["linalg_device"] = str(self.backend.device)
         names = sorted(p.name for p in (self.learned_root / "core" / "tasks").iterdir() if p.is_dir())
         summary: dict[str, Any] = {"tasks": {}, "skipped": {}}
         for name in names:
@@ -394,7 +534,7 @@ class Trajectories:
 
     def _constructions(self, inputs: TaskInputs, layer: int, calibration_base: ForwardResult,
                        calibration_prompts: list[Prompt]) -> dict[str, dict[str, Any]]:
-        """Unit direction and strength of every construction available at ``layer``."""
+        """Unit direction and canonical strength of every construction available at ``layer``."""
         out: dict[str, dict[str, Any]] = {}
         la = inputs.learned_arrays
         layers = [int(l) for l in la["layers"]]
@@ -457,8 +597,8 @@ class Trajectories:
         drng = rng_for(cfg.seed, "trajectories_derangement", name)
         der = [deranged_prompt(pc, p, drng) for p in fs]
         layers, primary = self._layers(inputs)
-        log.info("[%s] %d held-out prompts; layers %s (primary %d); %s", name, len(ev), layers, primary,
-                 "; ".join(inputs.notes) or "both runs present")
+        log.info("[%s] %d held-out prompts; layers %s (primary %d); strengths x%s; %s", name, len(ev), layers, primary,
+                 cfg.strength_factors, "; ".join(inputs.notes) or "both runs present")
 
         with self.prof.section("natural", name):
             base = self.backend.run(zs, capture=True)
@@ -466,18 +606,20 @@ class Trajectories:
             icl2 = self.backend.run(fs2, capture=True) if cfg.second_demo_sample else None
             deranged = self.backend.run(der, capture=True)
         assert base.residuals is not None and icl.residuals is not None and deranged.residuals is not None
-        natural: dict[str, np.ndarray] = {"icl": icl.residuals - base.residuals, "task": icl.residuals - deranged.residuals}
+        base_t = self.geo.tensor(base.residuals)
+        natural: dict[str, Any] = {"icl": self.geo.tensor(icl.residuals) - base_t,
+                                   "task": self.geo.tensor(icl.residuals) - self.geo.tensor(deranged.residuals)}
         if icl2 is not None:
             assert icl2.residuals is not None
-            natural["icl2"] = icl2.residuals - base.residuals
+            natural["icl2"] = self.geo.tensor(icl2.residuals) - base_t
         conditions: dict[str, Any] = {"base": base.metrics_dict(), "icl": icl.metrics_dict(), "deranged": deranged.metrics_dict()}
         if icl2 is not None:
             conditions["icl2"] = icl2.metrics_dict()
         gap = float(np.mean(icl.logprob_per_token) - np.mean(base.logprob_per_token))
         U = None
         if cfg.remove_answer_direction:
-            U = self.backend.unembedding_directions(self.backend.first_target_token_ids(zs))
-            U = U / np.linalg.norm(U, axis=1, keepdims=True)
+            U = self.geo.unit_rows(self.geo.tensor(self.backend.unembedding_directions(self.backend.first_target_token_ids(zs)),
+                                                   self.geo.torch.float64))
         log.info("[%s] zero-shot lp/tok %.3f, few-shot %.3f (gap %.3f), deranged %.3f%s", name,
                  conditions["base"]["logprob_per_token_mean"], conditions["icl"]["logprob_per_token_mean"], gap,
                  conditions["deranged"]["logprob_per_token_mean"],
@@ -491,138 +633,174 @@ class Trajectories:
                                   "n_examples": len(ev), "n_read_points": self.backend.n_layers + 1,
                                   "layers": layers, "primary_layer": primary, "notes": inputs.notes,
                                   "conditions": conditions, "fewshot_gap_per_token": gap,
-                                  "answer_direction_removed": cfg.remove_answer_direction, "per_layer": {}}
+                                  "answer_direction_removed": cfg.remove_answer_direction,
+                                  "strength_factors": list(cfg.strength_factors), "per_layer": {}}
         arrays: dict[str, np.ndarray] = {}
         for m, D in natural.items():
-            arrays[f"mean_delta_{m}"] = D.mean(axis=1).astype(np.float16)
+            arrays[f"mean_delta_{m}"] = self.geo.mean_over_examples(D).astype(np.float16)
+        arrays["mean_residual"] = self.geo.mean_over_examples(base_t).astype(np.float16)
         for layer in layers:
             with self.prof.section("layer", name, layer):
-                res, arr = self._layer(inputs, layer, zs, base, natural, U, cal_base, cal_prompts)
+                res, arr = self._layer(inputs, layer, layer == primary, zs, base, base_t, natural, U, cal_base, cal_prompts)
             result["per_layer"][str(layer)] = res
             arrays.update({f"L{layer}_{k}": v for k, v in arr.items()})
+        del natural, base_t
         write_json(out_dir / "trajectories.json", result)
         np.savez_compressed(out_dir / "trajectories_arrays.npz", **arrays)
         if cfg.figures:
-            from .figures import trajectory_figures
+            from .figures import strength_figures, trajectory_figures
 
             trajectory_figures(self.root / "figures", result)
+            strength_figures(self.root / "figures", result)
         return _task_summary(result)
 
     # ------------------------------------------------------------------ #
 
-    def _layer(self, inputs: TaskInputs, layer: int, zs: list[Prompt], base: ForwardResult,
-               natural: dict[str, np.ndarray], U: np.ndarray | None, cal_base: ForwardResult,
-               cal_prompts: list[Prompt]) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
-        cfg, name, log, seed = self.cfg, inputs.name, self.log, self.cfg.seed
+    def _layer(self, inputs: TaskInputs, layer: int, primary: bool, zs: list[Prompt], base: ForwardResult, base_t: Any,
+               natural: dict[str, Any], U: Any, cal_base: ForwardResult, cal_prompts: list[Prompt],
+               ) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
+        cfg, name = self.cfg, inputs.name
         with self.prof.section("strengths", name, layer):
             cons = self._constructions(inputs, layer, cal_base, cal_prompts)
-        assert base.residuals is not None
-        deltas: dict[str, np.ndarray] = dict(natural)
-        info: dict[str, Any] = {"layer": layer, "constructions": {}, "isotropic": {"n": cfg.n_isotropic}}
+        arrays: dict[str, np.ndarray] = {}
+        per_factor: dict[float, dict[str, Any]] = {}
+        deltas_by_factor: dict[float, dict[str, Any]] = {}
+        generic_by_factor: dict[float, np.ndarray] = {}
+        for f in cfg.strength_factors:
+            with self.prof.section("factor", name, layer, _factor_tag(f)):
+                info_f, arr_f, deltas_f, gmean = self._factor(inputs, layer, f, cons, zs, base, base_t, natural, U)
+            per_factor[f] = info_f
+            deltas_by_factor[f] = deltas_f
+            if gmean is not None:
+                generic_by_factor[f] = gmean
+            prefix = "" if f == 1.0 else f"{_factor_tag(f)}_"
+            arrays.update({f"{prefix}{k}": v for k, v in arr_f.items()})
+        info = per_factor[1.0]
+        info["other_strengths"] = {f"{f:g}": per_factor[f] for f in cfg.strength_factors if f != 1.0}
+        # the same construction at two strengths: does the direction of its downstream change depend on the push?
+        if len(cfg.strength_factors) > 1:
+            with self.prof.section("cross_strength", name, layer):
+                info["cross_strength"], arr = self._cross_strength(inputs, layer, cons, deltas_by_factor, generic_by_factor, natural)
+            arrays.update(arr)
+        if cfg.generic_diagnostics and generic_by_factor:
+            with self.prof.section("diagnostics", name, layer):
+                info["generic_diagnostics"] = self._generic_diagnostics(layer, generic_by_factor, base_t, zs, U)
+        if cfg.patch.enabled and primary:
+            with self.prof.section("patch", name, layer):
+                info["patch"] = self._patch_test(inputs, layer, cons, zs, base, base_t, natural, deltas_by_factor[1.0], info)
+        for sub in (info, *info["other_strengths"].values()):
+            sub.pop("_first_token_logprob", None)
+        del deltas_by_factor
+        return info, arrays
+
+    # ------------------------------------------------------------------ #
+
+    def _factor(self, inputs: TaskInputs, layer: int, factor: float, cons: dict[str, dict[str, Any]], zs: list[Prompt],
+                base: ForwardResult, base_t: Any, natural: dict[str, Any], U: Any,
+                ) -> tuple[dict[str, Any], dict[str, np.ndarray], dict[str, Any], np.ndarray | None]:
+        """The comparison at ``factor`` times each construction's canonical strength: steered passes, the
+        matched isotropic floors, the generic response and its coherence, every pair's cosines in the three
+        variants, the summaries and the ceilings."""
+        cfg, name, log, seed, geo = self.cfg, inputs.name, self.log, self.cfg.seed, self.geo
+        t = geo.torch
+        deltas: dict[str, Any] = dict(natural)
+        first_token: dict[str, np.ndarray] = {}
+        info: dict[str, Any] = {"layer": layer, "strength_factor": factor, "constructions": {}, "isotropic": {"n": cfg.n_isotropic}}
         arrays: dict[str, np.ndarray] = {}
         base_lp = float(np.mean(base.logprob_per_token))
-        # the constructions' steered passes
         for c in CONSTRUCTIONS:
             if c not in cons:
                 continue
             spec = cons[c]
+            alpha = factor * spec["alpha"]
             with self.prof.section("steered", name, layer, c):
-                r = self.backend.run(zs, interventions=[Intervention(layer, spec["direction"], spec["alpha"])], capture=True)
+                r = self.backend.run(zs, interventions=[Intervention(layer, spec["direction"], alpha)], capture=True)
             if cfg.determinism_check and "determinism_check" not in self.metadata and c == "learned":
-                again = self.backend.run(zs, interventions=[Intervention(layer, spec["direction"], spec["alpha"])], capture=True)
+                again = self.backend.run(zs, interventions=[Intervention(layer, spec["direction"], alpha)], capture=True)
                 assert again.residuals is not None
                 identical = bool(np.array_equal(again.residuals, r.residuals) and np.array_equal(again.logprob_sum, r.logprob_sum))
                 self.metadata["determinism_check"] = {"task": name, "layer": layer, "construction": c, "identical": identical}
                 if not identical:
                     raise RuntimeError("determinism check failed: a repeated steered pass differs")
-            assert r.residuals is not None
-            deltas[c] = r.residuals - base.residuals
+            assert r.residuals is not None and r.first_token_logprob is not None
+            deltas[c] = geo.tensor(r.residuals) - base_t
+            first_token[c] = r.first_token_logprob
             m = r.metrics_dict()
             info["constructions"][c] = {k: v for k, v in spec.items() if k != "direction"}
-            info["constructions"][c].update({"metrics": m, "improvement_per_token": m["logprob_per_token_mean"] - base_lp})
-            arrays[f"mean_delta_{c}"] = deltas[c].mean(axis=1).astype(np.float16)
+            info["constructions"][c].update({"alpha": alpha, "canonical_alpha": spec["alpha"], "metrics": m,
+                                             "improvement_per_token": m["logprob_per_token_mean"] - base_lp})
+            arrays[f"mean_delta_{c}"] = geo.mean_over_examples(deltas[c]).astype(np.float16)
         present = [c for c in CONSTRUCTIONS if c in deltas]
         named = [n for n in NAMED if n in deltas]
+        # matched isotropic directions at each construction's norm: the floor of every pair involving it
+        iso_deltas: dict[str, list[Any]] = {c: [] for c in present}
+        iso_metrics: dict[str, list[dict[str, float]]] = {c: [] for c in present}
+        for c in present:
+            alpha = info["constructions"][c]["alpha"]
+            for k in range(cfg.n_isotropic):
+                v = unit_vectors(rng_for(seed, "trajectories_isotropic", name, layer, c, k), 1, self.backend.hidden_size)[0]
+                with self.prof.section("isotropic", name, layer):
+                    r = self.backend.run(zs, interventions=[Intervention(layer, v, alpha)], capture=True)
+                assert r.residuals is not None
+                iso_deltas[c].append(geo.tensor(r.residuals) - base_t)
+                iso_metrics[c].append(r.metrics_dict())
+                del r
+        for c in present:
+            info["isotropic"][c] = {"alpha": info["constructions"][c]["alpha"],
+                                    "improvement_per_token_mean": float(np.mean([m["logprob_per_token_mean"] for m in iso_metrics[c]]) - base_lp)}
+        # The generic response (D32, amended): the mean of every isotropic control's trajectory, per example
+        # and read point; removed from both vectors of a pair like the answer direction. A control's own floor
+        # removes the mean of the other controls.
+        all_iso = [d for c in present for d in iso_deltas[c]]
+        G = None
+        total = None
+        gmean: np.ndarray | None = None
+        if cfg.remove_generic_response and all_iso:
+            total = t.zeros_like(all_iso[0], dtype=t.float64)
+            for d in all_iso:
+                total += d
+            G = geo.unit_rows(total / len(all_iso))
+            gmean = geo.mean_over_examples(total / len(all_iso))
+            arrays["mean_generic"] = gmean.astype(np.float16)
+            cos_ans = None
+            if U is not None:
+                cos_ans = [float(geo.median((G[m] * U).sum(1)).cpu()) if m >= layer else None for m in range(G.shape[0])]
+            info["generic_response"] = {"n_controls": len(all_iso), "cos_with_answer_direction": cos_ans,
+                                        # coherence of the random responses: the norm of their mean over the mean of their
+                                        # norms, per example and read point (median over examples); 1 = every random push
+                                        # produces the same downstream change, 0 = unrelated changes
+                                        "coherence": geo.coherence(all_iso, layer),
+                                        "coherence_by_construction": {c: geo.coherence(iso_deltas[c], layer) for c in present}}
+        variants: dict[str, Any] = {"raw": None}
+        if U is not None:
+            variants["answer_removed"] = U
+        if G is not None:
+            variants["generic_removed"] = G
         # pairwise cosines among the named trajectories (from the injection layer on when a construction is involved)
         pairs: dict[str, Any] = {}
         for i, a in enumerate(named):
             for b in named[i + 1:]:
                 start = layer if (a in CONSTRUCTIONS or b in CONSTRUCTIONS) else 0
                 key = f"{a}~{b}"
-                cos = pair_cosines(deltas[a], deltas[b], start)
-                arrays[f"cos_{key}"] = cos.astype(np.float32)
-                entry: dict[str, Any] = {"a": a, "b": b, "start": start,
-                                         "mean_trajectory_cosine": mean_cosines(deltas[a].mean(axis=1), deltas[b].mean(axis=1), start).tolist()}
-                if U is not None:
-                    cos_na = pair_cosines(deltas[a], deltas[b], start, U)
-                    arrays[f"cos_noanswer_{key}"] = cos_na.astype(np.float32)
+                pairs[key] = {"a": a, "b": b, "start": start,
+                              "mean_trajectory_cosine": mean_cosines(geo.mean_over_examples(deltas[a]), geo.mean_over_examples(deltas[b]), start).tolist()}
+                for tag, R in variants.items():
+                    arrays[f"cos_{_variant_prefix(tag)}{key}"] = geo.pair_cosines(deltas[a], deltas[b], start, R).astype(np.float32)
                 if b in REFERENCES or a in REFERENCES:
                     ref, other = (b, a) if b in REFERENCES else (a, b)
-                    frac = projection_fraction(deltas[other], deltas[ref], start)
-                    arrays[f"projection_{other}_on_{ref}"] = frac.astype(np.float32)
-                pairs[key] = entry
-        # matched isotropic directions at each construction's norm: the floor of every pair involving it
-        iso_deltas: dict[str, list[np.ndarray]] = {c: [] for c in present}
-        iso_metrics: dict[str, list[dict[str, float]]] = {c: [] for c in present}
+                    arrays[f"projection_{other}_on_{ref}"] = geo.projection_fraction(deltas[other], deltas[ref], start).astype(np.float32)
+        floors: dict[str, dict[str, dict[str, Any]]] = {tag: {c: {} for c in present} for tag in variants}
         for c in present:
-            alpha = cons[c]["alpha"]
-            for k in range(cfg.n_isotropic):
-                v = unit_vectors(rng_for(seed, "trajectories_isotropic", name, layer, c, k), 1, self.backend.hidden_size)[0]
-                with self.prof.section("isotropic", name, layer):
-                    r = self.backend.run(zs, interventions=[Intervention(layer, v, alpha)], capture=True)
-                assert r.residuals is not None
-                iso_deltas[c].append(r.residuals - base.residuals)
-                iso_metrics[c].append(r.metrics_dict())
-                del r
-        for c in present:
-            info["isotropic"][c] = {"alpha": cons[c]["alpha"],
-                                    "improvement_per_token_mean": float(np.mean([m["logprob_per_token_mean"] for m in iso_metrics[c]])
-                                                                       - float(np.mean(base.logprob_per_token)))}
-        # The generic response (D32, amended): what any perturbation of these norms does downstream, the mean
-        # of every isotropic control's trajectory, per example and read point; removed from both vectors of a
-        # pair like the answer direction. A control's own floor removes the mean of the other controls.
-        all_iso = [d for c in present for d in iso_deltas[c]]
-        G: np.ndarray | None = None
-        if cfg.remove_generic_response and all_iso:
-            total = np.zeros_like(all_iso[0], dtype=np.float64)
-            for d in all_iso:
-                total += d
-            G = unit_rows(total / len(all_iso))
-            arrays["mean_generic"] = (total / len(all_iso)).mean(axis=1).astype(np.float16)
-            info["generic_response"] = {"n_controls": len(all_iso),
-                                        "cos_with_answer_direction": None if U is None else
-                                        [float(np.nanmedian(np.einsum("nd,nd->n", G[m], U))) if m >= layer else None for m in range(G.shape[0])],
-                                        # coherence of the random responses: the norm of their mean over the mean of their
-                                        # norms, per example and read point (median over examples); 1 = every random push
-                                        # produces the same downstream change, 0 = unrelated changes
-                                        "coherence": coherence_curve(all_iso, layer),
-                                        "coherence_by_construction": {c: coherence_curve(iso_deltas[c], layer) for c in present}}
-        variants: dict[str, np.ndarray | None] = {"raw": None}
-        if U is not None:
-            variants["answer_removed"] = U
-        if G is not None:
-            variants["generic_removed"] = G
-        for tag, R in variants.items():
-            if tag == "raw":
-                continue
-            for i, a in enumerate(named):
-                for b in named[i + 1:]:
-                    if tag == "answer_removed" and f"cos_noanswer_{a}~{b}" in arrays:
-                        continue  # computed above
-                    start = layer if (a in CONSTRUCTIONS or b in CONSTRUCTIONS) else 0
-                    arrays[f"cos_{_variant_prefix(tag)}{a}~{b}"] = pair_cosines(deltas[a], deltas[b], start, R).astype(np.float32)
-        floors: dict[str, dict[str, dict[str, np.ndarray]]] = {tag: {c: {} for c in present} for tag in variants}
-        for c in present:
-            for j_c, d_iso in enumerate(iso_deltas[c]):
-                loo: np.ndarray | None = None
+            for d_iso in iso_deltas[c]:
+                loo = None
                 if G is not None:
-                    loo = unit_rows((total - d_iso) / (len(all_iso) - 1)) if len(all_iso) > 1 else G
+                    loo = geo.unit_rows((total - d_iso) / (len(all_iso) - 1)) if len(all_iso) > 1 else G
                 for other in named:
                     for tag, R in variants.items():
                         rem = loo if tag == "generic_removed" else R
-                        floors[tag][c].setdefault(other, []).append(pair_cosines(d_iso, deltas[other], layer, rem))  # type: ignore[arg-type]
+                        floors[tag][c].setdefault(other, []).append(geo.pair_cosines(d_iso, deltas[other], layer, rem))
                 del loo
-        del all_iso, iso_deltas
+        del all_iso, iso_deltas, total
         for tag in variants:
             for c in present:
                 floors[tag][c] = {o: np.concatenate(v, axis=1) for o, v in floors[tag][c].items()}  # (L+1, k*n)
@@ -631,7 +809,8 @@ class Trajectories:
                         warnings.simplefilter("ignore", RuntimeWarning)  # all-nan rows below the injection layer
                         arrays[f"floor_{_variant_prefix(tag)}{c}_vs_{o}"] = np.nanmedian(floors[tag][c][o], axis=1).astype(np.float32)
         # summaries: every construction against the natural trajectories and against the other constructions
-        brng = rng_for(seed, "trajectories_bootstrap", name, layer)
+        brng = rng_for(seed, "trajectories_bootstrap", name, layer, _factor_tag(factor))
+        boot = lambda X: geo.bootstrap_rows(X, cfg.n_boot, cfg.ci_alpha)  # noqa: E731
         summaries: dict[str, Any] = {}
         for c in present:
             for o in named:
@@ -640,7 +819,7 @@ class Trajectories:
                 key = f"{c}~{o}" if f"{c}~{o}" in pairs else f"{o}~{c}"
                 for tag in variants:
                     real = arrays[f"cos_{_variant_prefix(tag)}{key}"].astype(np.float64)
-                    s = summarise_alignment(real, floors[tag][c][o], layer, brng, cfg.n_boot, cfg.ci_alpha)
+                    s = summarise_alignment(real, floors[tag][c][o], layer, brng, cfg.n_boot, cfg.ci_alpha, boot=boot)
                     if tag == "raw":
                         summaries[f"{c}->{o}"] = s
                     else:
@@ -649,29 +828,219 @@ class Trajectories:
         for tag in variants:
             suffix = "" if tag == "raw" else f"_{tag}"
             if "icl2" in deltas:
-                ceilings[f"icl~icl2{suffix}"] = bootstrap_median_ci_rows(arrays[f"cos_{_variant_prefix(tag)}icl~icl2"].astype(np.float64), brng, n_boot=cfg.n_boot, alpha=cfg.ci_alpha)
-            ceilings[f"icl~task{suffix}"] = bootstrap_median_ci_rows(arrays[f"cos_{_variant_prefix(tag)}icl~task"].astype(np.float64), brng, n_boot=cfg.n_boot, alpha=cfg.ci_alpha)
+                ceilings[f"icl~icl2{suffix}"] = boot(arrays[f"cos_{_variant_prefix(tag)}icl~icl2"].astype(np.float64))
+            ceilings[f"icl~task{suffix}"] = boot(arrays[f"cos_{_variant_prefix(tag)}icl~task"].astype(np.float64))
         info.update({"pairs": pairs, "summaries": summaries, "ceilings": ceilings, "variants": list(variants)})
         for c in present:
             s = summaries.get(f"{c}->icl")
             if s and "peak" in s:
-                log.info("[%s] L%d %-7s alpha %.2f (%s) %+.2f nats/tok | cos with ICL: inj %.2f peak %.2f@%.2f final %.2f "
-                         "(floor %.2f) %s%s", name, layer, c, cons[c]["alpha"], cons[c]["source"],
+                log.info("[%s] L%d x%g %-7s alpha %.2f (%s) %+.2f nats/tok | cos with ICL: inj %.2f peak %.2f@%.2f final %.2f "
+                         "(floor %.2f) %s%s", name, layer, factor, c, info["constructions"][c]["alpha"], cons[c]["source"],
                          info["constructions"][c]["improvement_per_token"], s["at_injection"], s["peak"],
                          s["peak_depth_fraction"], s["final"], s["floor_at_final"], s["label"], _variant_note(s))
         for i, a in enumerate(present):
             for b in present[i + 1:]:
                 s = summaries.get(f"{a}->{b}")
                 if s and "peak" in s:
-                    log.info("[%s] L%d %s~%s: inj %.2f peak %.2f@%.2f final %.2f (floor %.2f) %s%s", name, layer, a, b,
+                    log.info("[%s] L%d x%g %s~%s: inj %.2f peak %.2f@%.2f final %.2f (floor %.2f) %s%s", name, layer, factor, a, b,
                              s["at_injection"], s["peak"], s["peak_depth_fraction"], s["final"], s["floor_at_final"], s["label"],
                              _variant_note(s))
-        if "icl~icl2" in ceilings:
-            log.info("[%s] L%d ceiling cos(icl, icl2): final %.2f (generic removed %s); cos(icl, task): final %.2f", name, layer,
-                     ceilings["icl~icl2"]["median"][-1],
-                     f"{ceilings['icl~icl2_generic_removed']['median'][-1]:.2f}" if "icl~icl2_generic_removed" in ceilings else "n/a",
-                     ceilings["icl~task"]["median"][-1])
-        return info, arrays
+        if "generic_response" in info:
+            coh = [v for v in info["generic_response"]["coherence"] if v is not None]
+            log.info("[%s] L%d x%g coherence of the random responses: %.2f right after injection, %.2f mid, %.2f at the end; "
+                     "ceiling cos(icl, icl2): final %.2f (generic removed %s)", name, layer, factor,
+                     coh[min(1, len(coh) - 1)], coh[len(coh) // 2], coh[-1],
+                     ceilings.get("icl~icl2", {"median": [float("nan")]})["median"][-1],
+                     f"{ceilings['icl~icl2_generic_removed']['median'][-1]:.2f}" if "icl~icl2_generic_removed" in ceilings else "n/a")
+        kept = {c: deltas[c] for c in present}
+        info["_first_token_logprob"] = first_token  # consumed by the patch test, not written
+        return info, arrays, kept, gmean
+
+    # ------------------------------------------------------------------ #
+
+    def _cross_strength(self, inputs: TaskInputs, layer: int, cons: dict[str, dict[str, Any]],
+                        deltas_by_factor: dict[float, dict[str, Any]], generic_by_factor: dict[float, np.ndarray],
+                        natural: dict[str, Any]) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
+        """The same construction's trajectories at the canonical strength and at each other factor: per-example
+        cosine (raw and with the canonical generic response removed), summarised with the canonical floors'
+        counterpart (the canonical isotropic controls against the weaker trajectory are not kept; the floor
+        here is the weaker trajectory's own generic-removed floor against the construction at the canonical
+        strength, taken from the factor's summaries), plus the cosine between the generic responses."""
+        cfg, geo = self.cfg, self.geo
+        out: dict[str, Any] = {}
+        arrays: dict[str, np.ndarray] = {}
+        base_f = 1.0
+        for f in cfg.strength_factors:
+            if f == base_f:
+                continue
+            tag = _factor_tag(f)
+            entry: dict[str, Any] = {}
+            for c in deltas_by_factor[base_f]:
+                if c not in deltas_by_factor[f]:
+                    continue
+                A, B = deltas_by_factor[base_f][c], deltas_by_factor[f][c]
+                cos = geo.pair_cosines(A, B, layer)
+                arrays[f"{tag}_cross_cos_{c}"] = cos.astype(np.float32)
+                boot = lambda X: geo.bootstrap_rows(X, cfg.n_boot, cfg.ci_alpha)  # noqa: E731
+                entry[c] = {"curve": boot(cos.astype(np.float64)),
+                            "mean_trajectory_cosine": mean_cosines(geo.mean_over_examples(A), geo.mean_over_examples(B), layer).tolist()}
+                curve = entry[c]["curve"]["median"]
+                vals = [v for v in curve[layer:] if v is not None and not np.isnan(v)]
+                entry[c].update({"at_injection": vals[0] if vals else None, "final": vals[-1] if vals else None,
+                                 "min_after_injection": min(vals[1:]) if len(vals) > 1 else None})
+            if base_f in generic_by_factor and f in generic_by_factor:
+                entry["generic_cosine"] = mean_cosines(generic_by_factor[base_f], generic_by_factor[f], layer).tolist()
+            out[f"{f:g}"] = entry
+            for c, e in entry.items():
+                if c in CONSTRUCTIONS:
+                    self.log.info("[%s] L%d %s at x1 vs x%g: cos at injection %.2f, min after %.2f, final %.2f", inputs.name, layer,
+                                  c, f, e["at_injection"] or float("nan"), e["min_after_injection"] or float("nan"), e["final"] or float("nan"))
+        return out, arrays
+
+    # ------------------------------------------------------------------ #
+
+    def _generic_diagnostics(self, layer: int, generic_by_factor: dict[float, np.ndarray], base_t: Any, zs: list[Prompt],
+                             U: Any) -> dict[str, Any]:
+        """What the generic response is (D33), from the population means: the fraction of its energy in its
+        own top coordinates and in the unsteered residual's largest coordinates (the massive activations), its
+        cosine with the residual mean, and its logit lens at the last read point (the tokens the mean random
+        response promotes and demotes, through the final norm and the unembedding)."""
+        cfg, geo, t = self.cfg, self.geo, self.geo.torch
+        L1 = base_t.shape[0]
+        L = L1 - 1
+        mean_resid = geo.mean_over_examples(base_t)  # (L+1, d)
+        mean_abs = base_t.abs().to(t.float64).mean(1).cpu().numpy()  # (L+1, d): which coordinates are large
+        ks = [k for k in cfg.diagnostic_top_k if k <= mean_resid.shape[1]]
+        out: dict[str, Any] = {"top_k": ks, "per_factor": {}}
+        for f, g in generic_by_factor.items():
+            energy_own = {str(k): [None] * L1 for k in ks}
+            energy_massive = {str(k): [None] * L1 for k in ks}
+            cos_resid = [None] * L1
+            massive_coords = [None] * L1
+            own_coords = [None] * L1
+            for m in range(layer, L1):
+                e = g[m] ** 2
+                tot = float(e.sum())
+                if tot <= 0:
+                    continue
+                order_own = np.argsort(-e)
+                order_massive = np.argsort(-mean_abs[m])
+                for k in ks:
+                    energy_own[str(k)][m] = float(e[order_own[:k]].sum() / tot)
+                    energy_massive[str(k)][m] = float(e[order_massive[:k]].sum() / tot)
+                nr = np.linalg.norm(mean_resid[m])
+                cos_resid[m] = float(g[m] @ mean_resid[m] / (np.sqrt(tot) * nr)) if nr > 0 else None
+                massive_coords[m] = [int(i) for i in order_massive[:4]]
+                own_coords[m] = [int(i) for i in order_own[:4]]
+            entry: dict[str, Any] = {"energy_in_own_top_k": energy_own, "energy_in_residual_top_k": energy_massive,
+                                     "cos_with_residual_mean": cos_resid, "residual_top_coordinates": massive_coords,
+                                     "own_top_coordinates": own_coords,
+                                     "norm": [float(np.linalg.norm(g[m])) if m >= layer else None for m in range(L1)],
+                                     "residual_norm": [float(np.linalg.norm(mean_resid[m])) for m in range(L1)]}
+            # logit lens at the last read point: the mean random response added to each prompt's final residual
+            with t.inference_mode():
+                h = base_t[L]
+                gvec = geo.tensor(g[L], t.float32).unsqueeze(0).expand_as(h)
+                delta_logits = (self.backend.logits_from_residual(h + gvec) - self.backend.logits_from_residual(h)).mean(0)
+            top = t.topk(delta_logits, cfg.logit_lens_top)
+            bottom = t.topk(-delta_logits, cfg.logit_lens_top)
+            entry["logit_lens_last"] = {
+                "promoted": [(self.backend.tokenizer.decode([int(i)]), float(v)) for v, i in zip(top.values.cpu(), top.indices.cpu())],
+                "demoted": [(self.backend.tokenizer.decode([int(i)]), float(-v)) for v, i in zip(bottom.values.cpu(), bottom.indices.cpu())],
+                "mean_abs_logit_change": float(delta_logits.abs().mean().cpu()),
+            }
+            out["per_factor"][f"{f:g}"] = entry
+            self.log.info("[diag] L%d x%g generic: energy in own top 16 %.2f, in the residual's top 16 %.2f, cos with residual mean %.2f "
+                          "at the end; promotes %s", layer, f, energy_own.get("16", [None] * L1)[L] or float("nan"),
+                          energy_massive.get("16", [None] * L1)[L] or float("nan"), cos_resid[L] or float("nan"),
+                          ", ".join(repr(s) for s, _ in entry["logit_lens_last"]["promoted"][:5]))
+        return out
+
+    # ------------------------------------------------------------------ #
+
+    def _patch_test(self, inputs: TaskInputs, layer: int, cons: dict[str, dict[str, Any]], zs: list[Prompt], base: ForwardResult,
+                    base_t: Any, natural: dict[str, Any], deltas: dict[str, Any], info: dict[str, Any]) -> dict[str, Any]:
+        """Is the component a construction's trajectory shares with the natural one what carries the effect?
+        At read points at fixed fractions of the downstream depth, the steered perturbation is edited on the
+        query token before the remaining blocks run (its component along the prompt's natural difference
+        removed, or kept alone), and, in the unsteered run, the natural difference itself is patched in. Each
+        edit is matched against the same edit along random per-example directions (D29 mechanics)."""
+        cfg, geo, t, name, seed = self.cfg, self.geo, self.geo.torch, inputs.name, self.cfg.seed
+        L = base_t.shape[0] - 1
+        ref = natural[cfg.patch.reference]
+        steered_first: dict[str, np.ndarray] = info.get("_first_token_logprob", {})
+        read_points = sorted({min(L, max(layer + 1, layer + int(round(fr * (L - layer))))) for fr in cfg.patch.depth_fractions})
+        base_lp = base.logprob_per_token
+        assert base.first_token_logprob is not None
+        base_first = base.first_token_logprob
+        brng = rng_for(seed, "trajectories_patch_bootstrap", name, layer)
+        out: dict[str, Any] = {"reference": cfg.patch.reference, "read_points": read_points, "n_controls": cfg.patch.n_controls,
+                               "constructions": {}}
+        for c in cfg.patch.constructions:
+            if c not in deltas:
+                continue
+            spec = info["constructions"][c]
+            inject = Intervention(layer, cons[c]["direction"], spec["alpha"])
+            full = spec["improvement_per_token"]
+            full_first = float(np.mean(steered_first[c] - base_first)) if c in steered_first else 0.0
+            rows = []
+            for m in read_points:
+                d_m = deltas[c][m].to(t.float64)
+                u = geo.unit_rows(ref[m])  # the natural difference's direction, per prompt
+                along = (d_m * u).sum(1, keepdim=True) * u
+                edits = {"remove": (-along).float().cpu().numpy(), "keep": (along - d_m).float().cpu().numpy(),
+                         "patch": ref[m].float().cpu().numpy()}
+                real: dict[str, np.ndarray] = {}
+                real_first: dict[str, np.ndarray] = {}
+                ctl: dict[str, list[np.ndarray]] = {e: [] for e in PATCH_EDITS}
+                ctl_first: dict[str, list[np.ndarray]] = {e: [] for e in PATCH_EDITS}
+                for e, vec in edits.items():
+                    ivs = [Intervention(m, vec, 1.0)] if e == "patch" else [inject, Intervention(m, vec, 1.0)]
+                    r = self.backend.run(zs, interventions=ivs)
+                    real[e] = r.logprob_per_token - base_lp
+                    real_first[e] = r.first_token_logprob - base_first
+                ref_norm = ref[m].to(t.float64).norm(dim=1, keepdim=True)
+                for k in range(cfg.patch.n_controls):
+                    R = geo.unit_rows(geo.tensor(unit_vectors(rng_for(seed, "trajectories_patch", name, layer, c, m, k), len(zs),
+                                                              self.backend.hidden_size), t.float64))
+                    along_r = (d_m * R).sum(1, keepdim=True) * R
+                    cedits = {"remove": (-along_r).float().cpu().numpy(), "keep": (along_r - d_m).float().cpu().numpy(),
+                              "patch": (R * ref_norm).float().cpu().numpy()}
+                    for e, vec in cedits.items():
+                        ivs = [Intervention(m, vec, 1.0)] if e == "patch" else [inject, Intervention(m, vec, 1.0)]
+                        r = self.backend.run(zs, interventions=ivs)
+                        ctl[e].append(r.logprob_per_token - base_lp)
+                        ctl_first[e].append(r.first_token_logprob - base_first)
+                align = info["summaries"].get(f"{c}->{cfg.patch.reference}", {}).get("generic_removed", {}).get("curve", {}).get("median")
+                row: dict[str, Any] = {"read_point": m, "depth_fraction": (m - layer) / (L - layer) if L > layer else 1.0,
+                                       "alignment_generic_removed": None if not align else align[m]}
+                for e in PATCH_EDITS:
+                    r_e, c_e = real[e], np.stack(ctl[e])
+                    sign = -1.0 if e == "remove" else 1.0  # remove: the real edit should cost more; keep/patch: retain more
+                    # An edit at the last read point reaches only the query position's own prediction (no block
+                    # follows to carry it to later target positions), so the first-token effect is kept beside
+                    # the per-token one; they coincide for one-token targets.
+                    row[e] = {"effect": float(np.mean(r_e)), "retained": None if full == 0 else float(np.mean(r_e) / full),
+                              "random_effect_mean": float(np.mean(c_e)),
+                              "random_retained_mean": None if full == 0 else float(np.mean(c_e) / full),
+                              "excess_vs_random": paired_excess_test(sign * r_e, sign * c_e, brng, n_boot=cfg.n_boot).__dict__,
+                              "effect_test": paired_bootstrap_test(r_e + base_lp, base_lp, brng, n_boot=cfg.n_boot).__dict__,
+                              "first_token_effect": float(np.mean(real_first[e])),
+                              "first_token_retained": None if full_first == 0 else float(np.mean(real_first[e]) / full_first),
+                              "first_token_random_retained_mean": None if full_first == 0 else float(np.mean(np.stack(ctl_first[e])) / full_first)}
+                rows.append(row)
+                self.log.info("[%s] L%d patch %s at m=%d (%.2f of the depth, alignment %s): remove keeps %.2f (random %.2f, p %.3f); "
+                              "keep retains %.2f (random %.2f, p %.3f); natural patch alone gives %.2f of the effect (random %.2f, p %.3f)",
+                              name, layer, c, m, row["depth_fraction"],
+                              "n/a" if row["alignment_generic_removed"] is None else f"{row['alignment_generic_removed']:.2f}",
+                              row["remove"]["retained"] or float("nan"), row["remove"]["random_retained_mean"] or float("nan"),
+                              row["remove"]["excess_vs_random"]["p_value"],
+                              row["keep"]["retained"] or float("nan"), row["keep"]["random_retained_mean"] or float("nan"),
+                              row["keep"]["excess_vs_random"]["p_value"],
+                              row["patch"]["retained"] or float("nan"), row["patch"]["random_retained_mean"] or float("nan"),
+                              row["patch"]["excess_vs_random"]["p_value"])
+            out["constructions"][c] = {"full_effect": full, "alpha": spec["alpha"], "rows": rows}
+        return out
 
 
 def _variant_note(s: dict[str, Any]) -> str:
@@ -688,58 +1057,102 @@ def _variant_note(s: dict[str, Any]) -> str:
 # --------------------------------------------------------------------------- #
 
 
+def _construction_rows(info: dict[str, Any], gap: float) -> dict[str, Any]:
+    rows: dict[str, Any] = {}
+    for c, spec in info["constructions"].items():
+        row: dict[str, Any] = {"alpha": spec["alpha"], "rho": spec["rho"], "source": spec["source"],
+                               "qualified_here": spec.get("qualified_here"),
+                               "improvement_per_token": spec["improvement_per_token"],
+                               "gap_fraction": (spec["improvement_per_token"] / gap if gap else None),
+                               "accuracy": spec["metrics"]["accuracy"], "alignment": {}}
+        for key, s in info["summaries"].items():
+            if not key.startswith(f"{c}->") or "peak" not in s:
+                continue
+            other = key.split("->")[1]
+            a = {k: s[k] for k in ("at_injection", "peak", "peak_depth_fraction", "final", "floor_at_final", "label")}
+            for tag in ("answer_removed", "generic_removed"):
+                if tag in s and "peak" in s[tag]:
+                    a[tag] = {k: s[tag][k] for k in ("peak", "final", "floor_at_final", "label")}
+            row["alignment"][other] = a
+        rows[c] = row
+    return rows
+
+
 def _task_summary(result: dict[str, Any]) -> dict[str, Any]:
-    """The per-task rows of ``core/summary.json``: per layer and construction, the strength, the effect and the
-    alignment summary against each natural trajectory and each other construction."""
+    """The per-task rows of ``core/summary.json``: per layer, strength factor and construction, the strength,
+    the effect and the alignment summary against each natural trajectory and each other construction; the
+    coherence, the cross-strength cosines and the patch test where present."""
+    gap = result["fewshot_gap_per_token"]
     out: dict[str, Any] = {"layers": result["layers"], "primary_layer": result["primary_layer"],
-                           "fewshot_gap_per_token": result["fewshot_gap_per_token"], "per_layer": {}}
+                           "fewshot_gap_per_token": gap, "per_layer": {}}
     for layer, info in result["per_layer"].items():
-        rows: dict[str, Any] = {}
-        for c, spec in info["constructions"].items():
-            row: dict[str, Any] = {"alpha": spec["alpha"], "rho": spec["rho"], "source": spec["source"],
-                                   "qualified_here": spec.get("qualified_here"),
-                                   "improvement_per_token": spec["improvement_per_token"],
-                                   "gap_fraction": (spec["improvement_per_token"] / result["fewshot_gap_per_token"]
-                                                    if result["fewshot_gap_per_token"] else None),
-                                   "accuracy": spec["metrics"]["accuracy"], "alignment": {}}
-            for key, s in info["summaries"].items():
-                if not key.startswith(f"{c}->") or "peak" not in s:
-                    continue
-                other = key.split("->")[1]
-                a = {k: s[k] for k in ("at_injection", "peak", "peak_depth_fraction", "final", "floor_at_final", "label")}
-                for tag in ("answer_removed", "generic_removed"):
-                    if tag in s and "peak" in s[tag]:
-                        a[tag] = {k: s[tag][k] for k in ("peak", "final", "floor_at_final", "label")}
-                row["alignment"][other] = a
-            rows[c] = row
-        ceilings = {k: v["median"][-1] for k, v in info["ceilings"].items()}
-        out["per_layer"][layer] = {"constructions": rows, "ceiling_final": ceilings}
+        entry: dict[str, Any] = {"constructions": _construction_rows(info, gap),
+                                 "ceiling_final": {k: v["median"][-1] for k, v in info["ceilings"].items()},
+                                 "coherence_final": (info.get("generic_response") or {}).get("coherence", [None])[-1],
+                                 "other_strengths": {}}
+        for f, sub in (info.get("other_strengths") or {}).items():
+            entry["other_strengths"][f] = {"constructions": _construction_rows(sub, gap),
+                                           "coherence_final": (sub.get("generic_response") or {}).get("coherence", [None])[-1]}
+        if "cross_strength" in info:
+            entry["cross_strength"] = {f: {c: {k: e.get(k) for k in ("at_injection", "min_after_injection", "final")}
+                                           for c, e in sub.items() if c in CONSTRUCTIONS}
+                                       for f, sub in info["cross_strength"].items()}
+        if "patch" in info:
+            entry["patch"] = {c: [{"read_point": r["read_point"], "depth_fraction": r["depth_fraction"],
+                                   "alignment": r["alignment_generic_removed"],
+                                   **{e: {"retained": r[e]["retained"], "random_retained": r[e]["random_retained_mean"],
+                                          "p": r[e]["excess_vs_random"]["p_value"],
+                                          "first_token_retained": r[e]["first_token_retained"]} for e in PATCH_EDITS}}
+                                  for r in v["rows"]] for c, v in info["patch"]["constructions"].items()}
+        out["per_layer"][layer] = entry
     return out
 
 
 def format_summary(summary: dict[str, Any]) -> str:
-    """One line per task, layer and construction: effect, alignment with the natural trajectory (at injection,
-    peak, final, floor), the same with the answer direction removed, and the cross-construction final cosines."""
-    lines = ["| task | layer | construction | gap frac | cos ICL inj | peak (depth) | final | floor | label | no generic: peak final (floor) label | vs pca | vs fv | vs learned | ceiling (no generic) |",
-             "|" + "---|" * 15]
+    """One line per task, layer and construction at the canonical strength: effect, alignment with the natural
+    trajectory (generic response removed: injection, peak, final, floor, label), the same at the other
+    strengths, the cross-strength final cosine, the cross-construction finals, the coherence and the ceiling."""
+    lines = ["| task | layer | construction | gap frac | inj | peak (depth) | final | floor | label | other strengths: gap, final (floor) | x1 vs other | vs pca | vs fv | vs learned | coherence | ceiling |",
+             "|" + "---|" * 16]
     for task, t in summary.get("tasks", {}).items():
         for layer, info in t["per_layer"].items():
             for c, row in info["constructions"].items():
                 a = row["alignment"].get("icl", {})
+                g = a.get("generic_removed", a)
                 cross = []
                 for o in CONSTRUCTIONS:
                     x = row["alignment"].get(o)
+                    x = x.get("generic_removed", x) if x else None
                     cross.append("" if o == c else ("-" if not x else f"{x['final']:.2f}"))
-                ng = a.get("generic_removed", {})
-                ng_text = (f"{ng['peak']:.2f} {ng['final']:.2f} ({ng['floor_at_final']:.2f}) {ng['label']}" if ng else "-")
-                ceil = info["ceiling_final"]
+                others = []
+                for f, sub in info.get("other_strengths", {}).items():
+                    r2 = sub["constructions"].get(c)
+                    if r2:
+                        a2 = r2["alignment"].get("icl", {})
+                        g2 = a2.get("generic_removed", a2)
+                        others.append(f"x{f}: {_fmt(r2['gap_fraction'])}, {g2.get('final', float('nan')):.2f} ({g2.get('floor_at_final', float('nan')):.2f})")
+                xs = [f"{v[c]['final']:.2f}" for f, v in info.get("cross_strength", {}).items() if c in v and v[c].get("final") is not None]
                 gap = "-" if row["gap_fraction"] is None else f"{row['gap_fraction']:.2f}"
+                coh = info.get("coherence_final")
+                ceil = info["ceiling_final"]
                 lines.append(
                     f"| {task} | {layer}{'*' if int(layer) == t['primary_layer'] else ''} | {c} | {gap} | "
-                    f"{a.get('at_injection', float('nan')):.2f} | {a.get('peak', float('nan')):.2f} ({a.get('peak_depth_fraction', float('nan')):.2f}) | "
-                    f"{a.get('final', float('nan')):.2f} | {a.get('floor_at_final', float('nan')):.2f} | {a.get('label', '')} | {ng_text} | "
-                    f"{cross[0]} | {cross[1]} | {cross[2]} | {ceil.get('icl~icl2', float('nan')):.2f} ({ceil.get('icl~icl2_generic_removed', float('nan')):.2f}) |")
+                    f"{g.get('at_injection', a.get('at_injection', float('nan'))):.2f} | {g.get('peak', float('nan')):.2f} ({g.get('peak_depth_fraction', a.get('peak_depth_fraction', float('nan'))):.2f}) | "
+                    f"{g.get('final', float('nan')):.2f} | {g.get('floor_at_final', float('nan')):.2f} | {g.get('label', '')} | {'; '.join(others) or '-'} | "
+                    f"{', '.join(xs) or '-'} | {cross[0]} | {cross[1]} | {cross[2]} | {'-' if coh is None else f'{coh:.2f}'} | "
+                    f"{ceil.get('icl~icl2_generic_removed', ceil.get('icl~icl2', float('nan'))):.2f} |")
+            if "patch" in info:
+                for c, rows in info["patch"].items():
+                    for r in rows:
+                        lines.append(f"| {task} | {layer} | patch {c} @{r['read_point']} ({r['depth_fraction']:.2f}, align {_fmt(r['alignment'])}) | "
+                                     f"remove keeps {_fmt(r['remove']['retained'])} (rand {_fmt(r['remove']['random_retained'])}, p {r['remove']['p']:.3f}); "
+                                     f"keep retains {_fmt(r['keep']['retained'])} (rand {_fmt(r['keep']['random_retained'])}, p {r['keep']['p']:.3f}); "
+                                     f"natural patch {_fmt(r['patch']['retained'])} (rand {_fmt(r['patch']['random_retained'])}, p {r['patch']['p']:.3f}) |" + " |" * 12)
     return "\n".join(lines)
+
+
+def _fmt(x: float | None) -> str:
+    return "-" if x is None else f"{x:.2f}"
 
 
 def run_trajectories(cfg: TrajectoriesConfig, fv_run: str | Path, learned_run: str | Path,

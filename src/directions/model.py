@@ -364,6 +364,19 @@ class ModelBackend:
             rows = rows * gain.detach().to(torch.float64)[None, :]
         return rows.cpu().numpy()
 
+    def logits_from_residual(self, h: Any) -> Any:
+        """The next-token logits the model would produce from final-block residuals ``h`` (n, d): the final
+        norm and the unembedding, evaluated in float32 (the logit lens of a residual-stream vector; D33).
+        ``h`` is a tensor on the model's device or an array; returns a float32 tensor (n, V) on the device."""
+        x = torch.as_tensor(np.asarray(h) if not isinstance(h, torch.Tensor) else h, device=self.device).to(torch.float32)
+        norm = getattr(getattr(self.model, "model", None), "norm", None)
+        if norm is not None and getattr(norm, "weight", None) is not None:
+            eps = float(getattr(norm, "variance_epsilon", getattr(norm, "eps", 1e-6)))
+            x = x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + eps) * norm.weight.detach().to(torch.float32)
+        W = self.model.lm_head.weight.detach().to(torch.float32)
+        with torch.inference_mode():
+            return torch.nn.functional.linear(x, W)
+
     def _encode_prompt(self, p: Prompt) -> tuple[list[int], list[int]]:
         prompt_ids = self.tokenizer.encode(p.prompt, add_special_tokens=True)
         target_ids = self.tokenizer.encode(p.target, add_special_tokens=False)

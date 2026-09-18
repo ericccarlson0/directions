@@ -436,6 +436,72 @@ def trajectory_figures(figdir: Path, result: dict, dpi: int = 110) -> None:
         _save(fig, figdir / f"{task}_trajectories_L{layer}.png", dpi)
 
 
+def strength_figures(figdir: Path, result: dict, dpi: int = 110) -> None:
+    """Per task and injection layer (D33): each construction's alignment with the natural trajectory (generic
+    response removed) at the canonical strength and at the other factors (left), the coherence of the random
+    responses per factor with the generic response's overlap with the residual's largest coordinates (middle),
+    and the patch test's retained effect per edit and read point against its random matches (right)."""
+    task = result["task"]
+    L1 = result["n_read_points"]
+    x = np.arange(L1)
+    colors = {"pca": SERIES[0], "fv": SERIES[1], "learned": SERIES[2]}
+    for layer, info in result["per_layer"].items():
+        if not info.get("other_strengths") and "patch" not in info and "generic_diagnostics" not in info:
+            continue
+        fig, axes = plt.subplots(1, 3, figsize=(13, 3.4))
+        ax = axes[0]
+        variants = [("1", info)] + [(f, sub) for f, sub in (info.get("other_strengths") or {}).items()]
+        for c, color in colors.items():
+            for j, (f, sub) in enumerate(variants):
+                s = (sub["summaries"].get(f"{c}->icl") or {}).get("generic_removed")
+                if not s or "curve" not in s:
+                    continue
+                ax.plot(x, s["curve"]["median"], color=color, linestyle=["-", "--", ":", "-."][j % 4], label=f"{c} x{f}")
+        _mark_intervention(ax, int(layer))
+        ax.axhline(0, color=GRID, linewidth=0.8)
+        ax.set_xlabel("read point")
+        ax.set_ylabel("median cosine with ICL, generic removed")
+        ax.set_title("alignment by strength", fontsize=9)
+        ax.legend(fontsize=7, loc="best")
+        ax = axes[1]
+        for j, (f, sub) in enumerate(variants):
+            g = sub.get("generic_response") or {}
+            if g.get("coherence"):
+                ax.plot(x, [np.nan if v is None else v for v in g["coherence"]], color=SERIES[3], linestyle=["-", "--", ":", "-."][j % 4],
+                        label=f"coherence x{f}")
+        diag = info.get("generic_diagnostics") or {}
+        for j, (f, e) in enumerate((diag.get("per_factor") or {}).items()):
+            k = str(max(diag.get("top_k", [16])))
+            if k in e.get("energy_in_residual_top_k", {}):
+                ax.plot(x, [np.nan if v is None else v for v in e["energy_in_residual_top_k"][k]], color=SERIES[4],
+                        linestyle=["-", "--", ":", "-."][j % 4], label=f"energy in residual top {k} x{f}")
+        _mark_intervention(ax, int(layer))
+        ax.set_ylim(0, 1.02)
+        ax.set_xlabel("read point")
+        ax.set_title("random responses: coherence and location", fontsize=9)
+        ax.legend(fontsize=7, loc="best")
+        ax = axes[2]
+        patch = info.get("patch") or {}
+        for c, entry in (patch.get("constructions") or {}).items():
+            rows = entry["rows"]
+            pts = [r["read_point"] for r in rows]
+            for e, color, marker in (("remove", SERIES[7], "v"), ("keep", SERIES[5], "^"), ("patch", SERIES[6], "o")):
+                ax.plot(pts, [np.nan if r[e]["retained"] is None else r[e]["retained"] for r in rows], color=color, marker=marker,
+                        label=f"{c}: {e}")
+                ax.plot(pts, [np.nan if r[e]["random_retained_mean"] is None else r[e]["random_retained_mean"] for r in rows],
+                        color=color, marker=marker, linestyle=":", linewidth=1.0, markersize=3)
+        ax.axhline(1, color=GRID, linewidth=0.8)
+        ax.axhline(0, color=GRID, linewidth=0.8)
+        _mark_intervention(ax, int(layer))
+        ax.set_xlabel("edit read point")
+        ax.set_ylabel("effect retained (dotted: random edits)")
+        ax.set_title("patch test", fontsize=9)
+        if patch:
+            ax.legend(fontsize=7, loc="best")
+        fig.suptitle(f"{task}: strength, generic response and patch test, injection at layer {layer}", fontsize=10)
+        _save(fig, figdir / f"{task}_strength_L{layer}.png", dpi)
+
+
 def make_all_figures(root: Path, states: dict[str, "TaskState"], cfg: Config) -> None:
     for st in states.values():
         if st.head_effects is not None:

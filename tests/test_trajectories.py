@@ -7,12 +7,14 @@ import pytest
 
 from directions.cli import main
 from directions.config import ModelConfig, PromptConfig, load_config, load_trajectories_config
+from directions.stats import bootstrap_median_ci_rows
 from directions.model import ModelBackend
 from directions.pipeline import run_pipeline
 from directions.prompts import deranged_prompt, few_shot_prompt
 from directions.seeds import rng_for
 from directions.tasks import build_task
 from directions.trajectories import (
+    Geometry,
     alpha_from_calibration,
     coherence_curve,
     mean_cosines,
@@ -82,6 +84,50 @@ def test_coherence_curve_is_one_for_identical_and_near_zero_for_unrelated_pushes
     shared = rng.normal(size=(L1, n, d))
     mixed = coherence_curve([shared + 0.5 * rng.normal(size=(L1, n, d)) for _ in range(8)], start=1)
     assert all(0.8 < v < 0.95 for v in mixed[1:])
+
+
+def test_torch_geometry_matches_the_numpy_reference():
+    """The device path (D33) reproduces the NumPy reference: cosines with and without removals, projection
+    fractions, coherence, and the row-wise bootstrap (medians exactly, the CIs statistically)."""
+    rng = np.random.default_rng(4)
+    L1, n, d = 6, 40, 24
+    A = rng.normal(size=(L1, n, d)).astype(np.float32)
+    B = rng.normal(size=(L1, n, d)).astype(np.float32)
+    A[:2] = 0.0
+    U2 = unit_rows(rng.normal(size=(n, d)))
+    U3 = unit_rows(rng.normal(size=(L1, n, d)))
+    U3[1, 3] = 0.0
+    geo = Geometry("cpu", seed=11)
+    At, Bt = geo.tensor(A), geo.tensor(B)
+    for U, Ut in ((None, None), (U2, geo.tensor(U2, geo.torch.float64)), (U3, geo.tensor(U3, geo.torch.float64))):
+        ref = pair_cosines(A, B, 2, U)
+        got = geo.pair_cosines(At, Bt, 2, Ut)
+        assert np.isnan(got[:2]).all() and np.allclose(got[2:], ref[2:], atol=1e-9)
+    assert np.allclose(geo.projection_fraction(At, Bt, 2)[2:], projection_fraction(A, B, 2)[2:], atol=1e-9)
+    assert np.allclose(geo.unit_rows(geo.tensor(U3 * 3.0, geo.torch.float64)).cpu().numpy(), U3, atol=1e-12)
+    deltas = [rng.normal(size=(L1, n, d)).astype(np.float32) for _ in range(5)]
+    ref_c = coherence_curve(deltas, 1)
+    got_c = geo.coherence([geo.tensor(x) for x in deltas], 1)
+    assert got_c[0] is None and all(abs(a - b) < 1e-9 for a, b in zip(got_c[1:], ref_c[1:]))
+    assert np.allclose(geo.mean_over_examples(At), A.astype(np.float64).mean(1))
+    # bootstrap: identical medians and counts, CIs within sampling noise of the NumPy draws
+    X = rng.normal(size=(L1, n))
+    X[:2] = np.nan
+    X[3, 5] = np.nan
+    ref_b = bootstrap_median_ci_rows(X, np.random.default_rng(0), n_boot=3000, alpha=0.05)
+    got_b = geo.bootstrap_rows(X, n_boot=3000, alpha=0.05)
+    assert got_b["n"] == ref_b["n"] and np.allclose(np.nan_to_num(got_b["median"]), np.nan_to_num(ref_b["median"]))
+    for k in ("low", "high"):
+        assert np.allclose(np.nan_to_num(got_b[k]), np.nan_to_num(ref_b[k]), atol=0.12)
+    assert all(lo <= med <= hi for lo, med, hi in zip(got_b["low"][2:], got_b["median"][2:], got_b["high"][2:]))
+    # single-entry rows and the generator's determinism
+    Y = np.full((2, 3), np.nan)
+    Y[1, 0] = 0.7
+    single = geo.bootstrap_rows(Y, 100, 0.05)
+    assert single["median"][1] == 0.7 and single["low"][1] == 0.7 and single["n"] == [0, 1]
+    g1, g2 = Geometry("cpu", seed=5), Geometry("cpu", seed=5)
+    b1, b2 = g1.bootstrap_rows(X, 200, 0.05), g2.bootstrap_rows(X, 200, 0.05)
+    assert all(np.array_equal(np.nan_to_num(b1[k]), np.nan_to_num(b2[k])) for k in ("median", "low", "high", "n"))
 
 
 def test_alpha_from_calibration_follows_the_runs_rule():
@@ -222,10 +268,52 @@ def test_smoke_trajectories(smoke_runs):
             assert len(coh) == L1 and all(v is None for v in coh[:layer]) and all(0 <= v <= 1 + 1e-9 for v in coh[layer:])
             assert set(info["generic_response"]["coherence_by_construction"]) == {"pca", "fv", "learned"}
             assert arrays[f"L{layer}_mean_generic"].shape == (L1, meta["model"]["hidden_size"])
+            # D33: the other strength, its own floors and generic response, the cross-strength cosines
+            assert set(info["other_strengths"]) == {"0.5"} and info["strength_factor"] == 1.0
+            half = info["other_strengths"]["0.5"]
+            assert half["strength_factor"] == 0.5 and set(half["constructions"]) == {"pca", "fv", "learned"}
+            for c in ("pca", "fv", "learned"):
+                assert half["constructions"][c]["alpha"] == pytest.approx(0.5 * cons[c]["alpha"])
+                assert half["constructions"][c]["canonical_alpha"] == pytest.approx(cons[c]["alpha"])
+                assert "generic_removed" in half["summaries"][f"{c}->icl"]
+                x = info["cross_strength"]["0.5"][c]
+                assert len(x["curve"]["median"]) == L1 and x["at_injection"] == pytest.approx(1.0, abs=1e-5)
+                assert f"L{layer}_r0.5_cross_cos_{c}" in arrays.files and f"L{layer}_r0.5_cos_icl~{c}" in arrays.files
+            assert len(info["cross_strength"]["0.5"]["generic_cosine"]) == L1
+            assert len(half["generic_response"]["coherence"]) == L1
+            # D33: what the generic response is
+            diag = info["generic_diagnostics"]
+            assert set(diag["per_factor"]) == {"1", "0.5"}
+            for f, e in diag["per_factor"].items():
+                for k in diag["top_k"]:
+                    own, mass = e["energy_in_own_top_k"][str(k)], e["energy_in_residual_top_k"][str(k)]
+                    assert all(v is None for v in own[:layer]) and all(0 <= v <= 1 + 1e-9 for v in own[layer:])
+                    assert all(0 <= v <= 1 + 1e-9 for v in mass[layer:])
+                assert all(-1 - 1e-9 <= v <= 1 + 1e-9 for v in e["cos_with_residual_mean"][layer:])
+                lens = e["logit_lens_last"]
+                assert len(lens["promoted"]) == cfg.logit_lens_top and len(lens["demoted"]) == cfg.logit_lens_top
+                assert all(isinstance(tok, str) and v >= 0 for tok, v in lens["promoted"])
+                assert lens["mean_abs_logit_change"] > 0
+            assert "_first_token_logprob" not in info and "_first_token_logprob" not in half
+            # D33: the patch test at the primary layer only, for the learned vector
+            if layer == res["primary_layer"]:
+                patch = info["patch"]
+                assert patch["reference"] == "icl" and set(patch["constructions"]) == {"learned"}
+                rows = patch["constructions"]["learned"]["rows"]
+                assert [r["read_point"] for r in rows] == patch["read_points"] and all(layer < r["read_point"] <= L1 - 1 for r in rows)
+                for r in rows:
+                    for e in ("remove", "keep", "patch"):
+                        assert set(r[e]) >= {"effect", "retained", "random_effect_mean", "excess_vs_random", "effect_test",
+                                             "first_token_effect", "first_token_retained"}
+                        assert 0 <= r[e]["excess_vs_random"]["p_value"] <= 1
+                assert t["per_layer"][str(layer)]["patch"]["learned"][0]["remove"]["p"] == rows[0]["remove"]["excess_vs_random"]["p_value"]
+            else:
+                assert "patch" not in info
             assert info["isotropic"]["n"] == cfg.n_isotropic and info["isotropic"]["learned"]["alpha"] == cons["learned"]["alpha"]
             assert arrays[f"L{layer}_mean_delta_learned"].shape == (L1, meta["model"]["hidden_size"])
             assert (root / "figures" / f"{task}_trajectories_L{layer}.png").exists()
         assert arrays["mean_delta_icl"].shape == (L1, meta["model"]["hidden_size"])
+    assert meta["linalg_device"] == "cpu"
     # the two runs must be the two controls of one model with one seed
     with pytest.raises(ValueError, match="control"):
         main(["trajectories", "--config", str(cfg_path), "--fv-run", str(runs["learned"]), "--learned-run",
