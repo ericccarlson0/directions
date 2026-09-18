@@ -9,6 +9,7 @@ Research code for studying the propagation and transformation (from control into
 3. `STATUS.md` for what has and has not been implemented/run.
 4. `docs/DECISIONS.md` before changing an established methodological choice.
 5. `docs/INFRA.md` for the operational facts of the RunPod path, before touching the workflow or the worker.
+6. `docs/GENERIC_RESPONSE.md` for the closed line on the generic response (definition, findings, literature, the hypotheses left open); no further tests of it are run.
 
 ## Principles
 

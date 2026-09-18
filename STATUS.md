@@ -2458,7 +2458,9 @@ factor cost 15 passes per layer and nothing else.
   floors' quantiles; and the generic-response diagnostics are taken on
   population means (the logit lens with the mean random response), not
   per prompt. Two strengths were run; a grid would cost 15 passes per
-  layer per strength.
+  layer per strength. The generic-response line is closed
+  (docs/GENERIC_RESPONSE.md condenses it, with the open hypotheses and
+  their tests recorded and not run).
 - Data centers: EUR-NO-1 (the volume with the 0.6B–4B cache) currently
   offers nothing above 24 GB, and only US-CA-2, US-IL-1, US-MO-2, US-NC-2,
   EU-RO-1 and EUR-NO-1 can host a run at all (`docs/INFRA.md`;
