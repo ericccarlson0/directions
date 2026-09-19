@@ -121,6 +121,24 @@ def projection_fraction(A: np.ndarray, B: np.ndarray, start: int = 0) -> np.ndar
     return out
 
 
+def block_writing(A: np.ndarray, B: np.ndarray, start: int = 0, U: np.ndarray | None = None) -> np.ndarray:
+    """How much of the reference ``B`` each block writes into the trajectory ``A`` (D33 amended): at read
+    point ``m + 1`` (the block just run), ``((a_{m+1} - a_m) . b_{m+1}) / |b_{m+1}|^2`` per example, for
+    ``m >= start`` (L+1, n; nan at and below ``start``). With ``U`` (unit rows, (n, d) or (L+1, n, d)), that
+    direction at ``m + 1`` is projected out of the block's increment and of the reference first. The
+    reference moves with depth, so the increments do not telescope to the projection fraction."""
+    L1, n, _ = A.shape
+    out = np.full((L1, n), np.nan)
+    for m in range(start, L1 - 1):
+        u = _rows_at(U, m + 1)
+        inc = remove_direction(np.asarray(A[m + 1], dtype=np.float64) - np.asarray(A[m], dtype=np.float64), u)
+        b = remove_direction(np.asarray(B[m + 1], dtype=np.float64), u)
+        nb2 = np.einsum("nd,nd->n", b, b)
+        ok = nb2 > 0
+        out[m + 1, ok] = np.einsum("nd,nd->n", inc[ok], b[ok]) / nb2[ok]
+    return out
+
+
 def mean_cosines(mean_a: np.ndarray, mean_b: np.ndarray, start: int = 0) -> np.ndarray:
     """Cosine between two population-mean trajectories (L+1, d) at every read point (L+1,)."""
     out = np.full(mean_a.shape[0], np.nan)
@@ -227,6 +245,22 @@ class Geometry:
             out[m] = t.where(ok, (a * b).sum(1) / t.where(ok, nb2, t.ones_like(nb2)), t.full_like(nb2, float("nan")))
         return out.cpu().numpy()
 
+    def block_writing(self, A: Any, B: Any, start: int = 0, U: Any = None) -> np.ndarray:
+        t = self.torch
+        L1, n, _ = A.shape
+        out = t.full((L1, n), float("nan"), dtype=t.float64, device=self.device)
+        for m in range(start, L1 - 1):
+            u = self._rows_at(U, m + 1)
+            inc = A[m + 1].to(t.float64) - A[m].to(t.float64)
+            b = B[m + 1].to(t.float64)
+            if u is not None:
+                inc = inc - (inc * u).sum(1, keepdim=True) * u
+                b = b - (b * u).sum(1, keepdim=True) * u
+            nb2 = (b * b).sum(1)
+            ok = nb2 > 0
+            out[m + 1] = t.where(ok, (inc * b).sum(1) / t.where(ok, nb2, t.ones_like(nb2)), t.full_like(nb2, float("nan")))
+        return out.cpu().numpy()
+
     def coherence(self, deltas: list[Any], start: int) -> list[float | None]:
         t = self.torch
         L1 = deltas[0].shape[0]
@@ -307,6 +341,47 @@ def alpha_from_calibration(cal: dict[str, Any] | None, layer: int) -> dict[str, 
 # --------------------------------------------------------------------------- #
 # Curve summaries
 # --------------------------------------------------------------------------- #
+
+
+def _spearman(x: np.ndarray, y: np.ndarray) -> float | None:
+    ok = np.isfinite(x) & np.isfinite(y)
+    if ok.sum() < 3:
+        return None
+    rx, ry = np.argsort(np.argsort(x[ok])).astype(np.float64), np.argsort(np.argsort(y[ok])).astype(np.float64)
+    if rx.std() == 0 or ry.std() == 0:
+        return None
+    return float(np.corrcoef(rx, ry)[0, 1])
+
+
+def summarise_block_writing(W: np.ndarray, start: int, boot: Any, natural: np.ndarray | None = None) -> dict[str, Any]:
+    """Per-block writing of the shared component (D33 amended), from the per-example curve ``W`` (L+1, n) of
+    :func:`block_writing`: the median per block with its CI, the cumulative median, the block with the
+    largest median share and that share of the positive total, the entropy ratio of the positive shares
+    (1 = spread evenly over the downstream blocks, 0 = one block), and the rank correlation of the block
+    profile with the natural trajectory's own profile when given. Blocks are named by the read point after
+    them."""
+    curve = boot(W.astype(np.float64))
+    med = np.array([np.nan if v is None else v for v in curve["median"]], dtype=np.float64)
+    blocks = np.arange(start + 1, W.shape[0])
+    vals = med[start + 1:]
+    finite = np.isfinite(vals)
+    out: dict[str, Any] = {"start": start, "curve": curve,
+                           "cumulative_median": np.nancumsum(np.where(finite, vals, 0.0)).tolist(),
+                           "dominant_block": None, "dominant_share": None, "entropy_ratio": None,
+                           "rank_correlation_with_natural": None}
+    if finite.any():
+        pos = np.where(finite & (vals > 0), vals, 0.0)
+        total = pos.sum()
+        i = int(np.nanargmax(np.where(finite, vals, -np.inf)))
+        out["dominant_block"] = int(blocks[i])
+        if total > 0:
+            p = pos / total
+            p = p[p > 0]
+            out["dominant_share"] = float(pos[i] / total)
+            out["entropy_ratio"] = float(-(p * np.log(p)).sum() / np.log(len(vals))) if len(vals) > 1 else 1.0
+    if natural is not None:
+        out["rank_correlation_with_natural"] = _spearman(vals, np.asarray(natural, dtype=np.float64)[start + 1:])
+    return out
 
 
 def summarise_alignment(
@@ -856,6 +931,29 @@ class Trajectories:
             if "icl2" in deltas:
                 ceilings[f"icl~icl2{suffix}"] = boot(arrays[f"cos_{_variant_prefix(tag)}icl~icl2"].astype(np.float64))
             ceilings[f"icl~task{suffix}"] = boot(arrays[f"cos_{_variant_prefix(tag)}icl~task"].astype(np.float64))
+        # Per-block writing of the shared component (D33 amended): which blocks write the natural difference
+        # into each trajectory, for the constructions and for the natural trajectories themselves.
+        if "icl" in deltas:
+            writing: dict[str, Any] = {}
+            nat_med: dict[str, np.ndarray] = {}
+            for tag in ("raw", "generic_removed"):
+                if tag not in variants:
+                    continue
+                R = variants[tag]
+                for a in named:
+                    start = layer if a in CONSTRUCTIONS else 0
+                    W = geo.block_writing(deltas[a], deltas["icl"], start, R)
+                    arrays[f"written_{_variant_prefix(tag)}{a}_on_icl"] = W.astype(np.float32)
+                    s = summarise_block_writing(W, start, boot, nat_med.get(tag))
+                    if a == "icl":
+                        nat_med[tag] = np.array([np.nan if v is None else v for v in s["curve"]["median"]])
+                    writing.setdefault(a, {})[tag] = s
+                for a in named:  # the constructions' rank correlation against the natural profile of the same variant
+                    if a != "icl" and tag in nat_med:
+                        writing[a][tag]["rank_correlation_with_natural"] = _spearman(
+                            np.array([np.nan if v is None else v for v in writing[a][tag]["curve"]["median"]])[writing[a][tag]["start"] + 1:],
+                            nat_med[tag][writing[a][tag]["start"] + 1:])
+            info["block_writing"] = {"reference": "icl", "trajectories": writing}
         info.update({"pairs": pairs, "summaries": summaries, "ceilings": ceilings, "variants": list(variants)})
         for c in present:
             s = summaries.get(f"{c}->icl")
@@ -1100,6 +1198,10 @@ def _construction_rows(info: dict[str, Any], gap: float) -> dict[str, Any]:
                 if tag in s and "peak" in s[tag]:
                     a[tag] = {k: s[tag][k] for k in ("peak", "final", "floor_at_final", "label")}
             row["alignment"][other] = a
+        bw = ((info.get("block_writing") or {}).get("trajectories") or {}).get(c)
+        if bw:
+            row["block_writing"] = {tag: {k: v[k] for k in ("dominant_block", "dominant_share", "entropy_ratio",
+                                                            "rank_correlation_with_natural")} for tag, v in bw.items()}
         rows[c] = row
     return rows
 
@@ -1113,6 +1215,8 @@ def _task_summary(result: dict[str, Any]) -> dict[str, Any]:
                            "layer_roles": result.get("layer_roles", {}), "fewshot_gap_per_token": gap, "per_layer": {}}
     for layer, info in result["per_layer"].items():
         entry: dict[str, Any] = {"constructions": _construction_rows(info, gap),
+                                 "natural_block_writing": {tag: {k: v[k] for k in ("dominant_block", "dominant_share", "entropy_ratio")}
+                                                           for tag, v in (((info.get("block_writing") or {}).get("trajectories") or {}).get("icl") or {}).items()},
                                  "ceiling_final": {k: v["median"][-1] for k, v in info["ceilings"].items()},
                                  "coherence_final": (info.get("generic_response") or {}).get("coherence", [None])[-1],
                                  "other_strengths": {}}

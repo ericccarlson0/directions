@@ -312,9 +312,9 @@ class PatchConfig:
     """
 
     enabled: bool = True
-    constructions: list[str] = field(default_factory=lambda: ["learned"])
+    constructions: list[str] = field(default_factory=lambda: ["learned", "fv"])
     layers: str = "primary"
-    depth_fractions: list[float] = field(default_factory=lambda: [0.5, 0.75, 1.0])
+    depth_fractions: list[float] = field(default_factory=lambda: [0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0])
     n_controls: int = 3
     reference: str = "icl"
 

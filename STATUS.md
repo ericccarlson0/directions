@@ -2518,13 +2518,18 @@ uv run pytest                                                           # 181 te
 gh run list --workflow=run-gpu.yml --branch fable --limit 1 && gh run watch <RUN_ID>
 gh run download <RUN_ID> --dir results/remote/<name>
 uv run --with boto3 python scripts/runpod_log.py <RUN_ID> --follow      # the live worker log
-# iteration 10 (D33 amended: quarter strength, the neighbouring candidate layers, the patch test at every
-# compared layer), from the finished head-mean (iteration 6) and learned-vector (iteration 7b) runs on the volume;
-# not yet requested for any model (projected 6.5 / 9 / 21 / 9 min, about $1.40 of compute for the four):
-uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-35036855067/pilot6_qwen3_0.6b_seed20260907 --learned-run /runpod-volume/results/run-35181427862/learned_qwen3_0.6b_seed20260907 --run-id trajectories10_qwen3_0.6b_seed20260907
-uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-35037075704/pilot6_qwen3_1.7b_seed20260907 --learned-run /runpod-volume/results/run-35181498809/learned_qwen3_1.7b_seed20260907 --run-id trajectories10_qwen3_1.7b_seed20260907
-uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-35038665604/pilot6_qwen3_4b_seed20260907 --learned-run /runpod-volume/results/run-35184285964/learned_qwen3_4b_seed20260907 --run-id trajectories10_qwen3_4b_seed20260907
-uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-35041155731/pilot6_qwen3_8b_seed20260907 --learned-run /runpod-volume/results/run-35181465402/learned_qwen3_8b_seed20260907 --run-id trajectories10_qwen3_8b_seed20260907
+# iteration 10 (D33 amended: quarter strength, the neighbouring candidate layers, the patch test at every compared
+# layer on eighths of the depth for the learned and the head-mean vector, per-block writing), on a second seed:
+# first the learned-vector protocol (D31) at seed 20260916 on each model (the head-mean runs of that seed are
+# iteration 6's), then the comparison with --seed 20260916 on the two seed-20260916 runs:
+uv run directions pilot --config configs/learned_qwen3_0.6b.yaml --seed 20260916 --run-id learned_qwen3_0.6b_seed20260916
+uv run directions pilot --config configs/learned_qwen3_1.7b.yaml --seed 20260916 --run-id learned_qwen3_1.7b_seed20260916
+uv run directions pilot --config configs/learned_qwen3_4b.yaml --seed 20260916 --run-id learned_qwen3_4b_seed20260916
+uv run directions pilot --config configs/learned_qwen3_8b.yaml --seed 20260916 --run-id learned_qwen3_8b_seed20260916   # ci-8b, US-CA-2
+uv run directions trajectories --config configs/trajectories.yaml --seed 20260916 --fv-run /runpod-volume/results/run-35050574186/pilot6_qwen3_0.6b_seed20260916 --learned-run /runpod-volume/results/run-<learned 0.6B run>/learned_qwen3_0.6b_seed20260916 --run-id trajectories10_qwen3_0.6b_seed20260916
+uv run directions trajectories --config configs/trajectories.yaml --seed 20260916 --fv-run /runpod-volume/results/run-35050661831/pilot6_qwen3_1.7b_seed20260916 --learned-run /runpod-volume/results/run-<learned 1.7B run>/learned_qwen3_1.7b_seed20260916 --run-id trajectories10_qwen3_1.7b_seed20260916
+uv run directions trajectories --config configs/trajectories.yaml --seed 20260916 --fv-run /runpod-volume/results/run-35051925394/pilot6_qwen3_4b_seed20260916 --learned-run /runpod-volume/results/run-<learned 4B run>/learned_qwen3_4b_seed20260916 --run-id trajectories10_qwen3_4b_seed20260916
+uv run directions trajectories --config configs/trajectories.yaml --seed 20260916 --fv-run /runpod-volume/results/run-35050604985/pilot6_qwen3_8b_seed20260916 --learned-run /runpod-volume/results/run-<learned 8B run>/learned_qwen3_8b_seed20260916 --run-id trajectories10_qwen3_8b_seed20260916
 # the pilot protocols, for reference (head-mean control: pilot_*.yaml; learned vector: learned_*.yaml; add-k: arith_*.yaml):
 uv run directions pilot --config configs/learned_qwen3_0.6b.yaml --run-id learned_qwen3_0.6b_seed20260907
 uv run directions aggregate results/remote/<a>/... results/remote/<b>/... --out results/aggregate_<model>.json   # multi-seed summary
@@ -2535,14 +2540,18 @@ Suggested next steps (2026-09-18; the list of two days ago with the state of eac
 
 1. **Strength dependence** (partial): half strength is done on all four
    models (iteration 9); the quarter strength is implemented (D33 amended,
-   `strength_factors: [1.0, 0.5, 0.25]`) and not yet run. Double strength
-   is not planned (the calibration grids were still rising at their
-   ceiling; the canonical strength already overshoots on 1.7B and 8B).
-2. **Commitment at every candidate injection layer** (implemented, not
-   run): the comparison and the patch test at the nearest candidate layer
-   below and above the primary one (`neighbour_layers: 1`,
-   `patch.layers: all`). Both are the iteration-10 runs above, one per
-   model, to be requested together.
+   `strength_factors: [1.0, 0.5, 0.25]`) and runs in iteration 10. Double
+   strength is not planned (the calibration grids were still rising at
+   their ceiling; the canonical strength already overshoots on 1.7B and 8B).
+2. **Commitment at every candidate injection layer** (implemented, runs in
+   iteration 10): the comparison and the patch test at the nearest
+   candidate layer below and above the primary one (`neighbour_layers: 1`,
+   `patch.layers: all`), the patch grid at eighths of the depth, the
+   head-mean vector edited beside the learned one, and the per-block
+   writing of the shared component. Iteration 10 runs on seed 20260916
+   (learned-vector runs at that seed first), so it doubles as the
+   cross-seed comparison of the trajectory results and of the learned
+   vector's held-out numbers.
 3. **Useful dimensionality of the perturbation** (partial): the effect
    leaves the injected direction (D29) and by three-quarter depth one
    direction per prompt, the prompt's own natural difference, carries all

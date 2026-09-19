@@ -1336,9 +1336,49 @@ Decision, two config extensions of the D33 protocol, no change of method:
 * **`patch.layers: all`**: the patch test runs at every compared layer,
   not only the primary one, at the same depth fractions of each layer's
   own downstream depth, so the hand-over can be read per injection layer.
+* **The patch grid at eighths of the downstream depth**
+  (`depth_fractions: [0.125, …, 1.0]`, twice as fine as iteration 9's
+  quarters from 0.5, extended to the injection side). Three points could
+  not tell a ramp from a step, and on 4B the hand-over was complete at
+  the first one; the retained-effect curve against depth is the causal
+  counterpart of the conversion-mass profile, and its shape is the
+  delayed-versus-cascaded reading of PROJECT.md. Fractions that round to
+  the same read point are merged.
+* **The head-mean vector in the patch test** (`patch.constructions:
+  [learned, fv]`): whether the shared component carries the head mean's
+  effect as it carries the learned vector's, or whether the construction
+  that aligned earlier and partly let go keeps a route of its own. Same
+  edits, same random matches, its own canonical strength.
+* **Per-block writing of the shared component**, no passes: for every
+  trajectory (the three constructions from the injection layer, the
+  natural trajectories from the embedding) the share of the natural
+  difference that each block writes, ``((δ_{m+1} − δ_m) · δ^ICL_{m+1}) /
+  ‖δ^ICL_{m+1}‖²`` per example, raw and with the generic response
+  removed; summarised per block by the median with its CI, the block with
+  the largest share and its share of the positive total, the entropy ratio
+  of the positive shares (1 = spread over the downstream blocks, 0 = one
+  block) and the rank correlation of a construction's block profile with
+  the natural trajectory's own. The reference moves with depth, so the
+  shares do not telescope to the projection fraction. This is the causal
+  localisation to set beside the geometric conversion mass: whether the
+  steered run writes the shared component in the blocks where the
+  natural run writes it.
+* **A second seed.** Iteration 10 runs on seed 20260916 rather than on
+  the seed-20260907 runs again: the learned-vector protocol (D31) is run
+  at that seed on the four models, the head-mean runs of that seed exist
+  from iteration 6, and the comparison takes `--seed 20260916` for its
+  own draws. The quantities the two iterations share (the primary layer,
+  canonical and half strength, the patch rows at 0.5, 0.75 and 1.0) are
+  then a cross-seed comparison of the trajectory results and of the
+  learned vector's held-out numbers, which had one seed; the additions
+  (the quarter strength, the neighbouring layers, the finer grid, the
+  head mean's patch rows, the block writing) have one seed.
 
 Cost: from the iteration-9 profiles (per layer and factor 3–11 s of
-passes, per patch test 3–6 s), the runs go from 15–17 compared layers per
-model to 26–28 and from two factors to three: about 2.2–2.4 × the
-iteration-9 wall time (6.5, 9, 21 and 9 min projected for 0.6B, 1.7B, 4B
-and 8B), roughly $1.40 of compute for the four models against $0.60.
+passes, per patch test at three read points 3–6 s), the runs go from
+15–17 compared layers per model to 26–28, from two factors to three, and
+the patch test from 36 passes per task to about 190 per compared layer
+(eight read points, two constructions): about 3.5–4 × the iteration-9
+wall time, roughly $2.50 of compute for the four comparisons, plus the
+four learned-vector runs at the new seed (40, 50, 78 and 52 min in
+iteration 7b, about $7.20).

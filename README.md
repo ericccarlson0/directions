@@ -82,12 +82,15 @@ results/<run_id>/
                            summaries and labels, the ceilings; the same at the other strength factors, the
                            cross-strength cosines, the generic-response diagnostics and the patch test (D33);
                            the role of every compared layer (primary, the head-mean run's, a neighbouring
-                           candidate) when `neighbour_layers` adds the candidates around the primary one
+                           candidate) when `neighbour_layers` adds the candidates around the primary one;
+                           the per-block writing of the shared component per trajectory (D33 amended)
       trajectories_arrays.npz  per-example cosines of every pair at every read point (raw and both variants),
-                           projection fractions, floor medians, population-mean trajectories, the generic response
+                           projection fractions, per-block writing of the shared component, floor medians,
+                           population-mean trajectories, the generic response
   figures/                 per task and layer: cosine with the natural trajectory, the same without the answer
                            direction and without the generic response, the constructions against one another;
-                           alignment by strength, coherence and location of the generic response, the patch test
+                           alignment by strength, coherence and location of the generic response, the patch test,
+                           the per-block writing of the shared component
 ```
 
 ## Layout

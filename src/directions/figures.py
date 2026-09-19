@@ -448,7 +448,7 @@ def strength_figures(figdir: Path, result: dict, dpi: int = 110) -> None:
     for layer, info in result["per_layer"].items():
         if not info.get("other_strengths") and "patch" not in info and "generic_diagnostics" not in info:
             continue
-        fig, axes = plt.subplots(1, 3, figsize=(13, 3.4))
+        fig, axes = plt.subplots(1, 4, figsize=(17, 3.4))
         ax = axes[0]
         variants = [("1", info)] + [(f, sub) for f, sub in (info.get("other_strengths") or {}).items()]
         for c, color in colors.items():
@@ -498,7 +498,28 @@ def strength_figures(figdir: Path, result: dict, dpi: int = 110) -> None:
         ax.set_title("patch test", fontsize=9)
         if patch:
             ax.legend(fontsize=7, loc="best")
-        fig.suptitle(f"{task}: strength, generic response and patch test, injection at layer {layer}", fontsize=10)
+        # per-block writing of the shared component (D33 amended): the natural trajectory's own profile against
+        # each construction's, generic response removed where available
+        ax = axes[3]
+        writing = (info.get("block_writing") or {}).get("trajectories") or {}
+        for name, color in (("icl", SERIES[3]), *colors.items()):
+            entry = writing.get(name) or {}
+            s = entry.get("generic_removed") or entry.get("raw")
+            if not s:
+                continue
+            med = np.array([np.nan if v is None else v for v in s["curve"]["median"]])
+            lo = np.array([np.nan if v is None else v for v in s["curve"]["low"]])
+            hi = np.array([np.nan if v is None else v for v in s["curve"]["high"]])
+            ax.plot(x, med, color=color, marker=".", markersize=3, label="natural (ICL)" if name == "icl" else name)
+            ax.fill_between(x, lo, hi, color=color, alpha=0.12, linewidth=0)
+        ax.axhline(0, color=GRID, linewidth=0.8)
+        _mark_intervention(ax, int(layer))
+        ax.set_xlabel("read point after the block")
+        ax.set_ylabel("share of the natural difference written")
+        ax.set_title("per-block writing of the shared component", fontsize=9)
+        if writing:
+            ax.legend(fontsize=7, loc="best")
+        fig.suptitle(f"{task}: strength, generic response, patch test and block writing, injection at layer {layer}", fontsize=10)
         _save(fig, figdir / f"{task}_strength_L{layer}.png", dpi)
 
 

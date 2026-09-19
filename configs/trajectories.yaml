@@ -24,9 +24,10 @@ diagnostic_top_k: [1, 4, 16, 64]
 logit_lens_top: 10
 patch:                         # D33: the patch test at the canonical strength
   enabled: true
-  constructions: [learned]
+  constructions: [learned, fv] # D33 amended: the head-mean vector beside the learned one
   layers: all                  # D33 amended: at every compared layer (the neighbouring candidates included), not only the primary
-  depth_fractions: [0.5, 0.75, 1.0]   # 1.0 is the last read point: an edit there reaches the first target token only
+  depth_fractions: [0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]   # D33 amended: eighths of the downstream depth (iteration 9:
+                               # quarters from 0.5); 1.0 is the last read point, where an edit reaches the first target token only
   n_controls: 3
   reference: icl
 

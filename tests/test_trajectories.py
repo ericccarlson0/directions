@@ -16,7 +16,9 @@ from directions.tasks import build_task
 from directions.trajectories import (
     Geometry,
     alpha_from_calibration,
+    block_writing,
     coherence_curve,
+    summarise_block_writing,
     mean_cosines,
     pair_cosines,
     projection_fraction,
@@ -104,6 +106,21 @@ def test_torch_geometry_matches_the_numpy_reference():
         got = geo.pair_cosines(At, Bt, 2, Ut)
         assert np.isnan(got[:2]).all() and np.allclose(got[2:], ref[2:], atol=1e-9)
     assert np.allclose(geo.projection_fraction(At, Bt, 2)[2:], projection_fraction(A, B, 2)[2:], atol=1e-9)
+    # per-block writing (D33 amended): nan at and below the start, the reference's own profile is 1 minus the
+    # projection of the previous read point on the next, and the removals match the reference
+    for U, Ut in ((None, None), (U3, geo.tensor(U3, geo.torch.float64))):
+        ref_w = block_writing(A, B, 2, U)
+        got_w = geo.block_writing(At, Bt, 2, Ut)
+        assert np.isnan(got_w[:3]).all() and np.isnan(ref_w[:3]).all() and np.allclose(got_w[3:], ref_w[3:], atol=1e-9)
+    own = block_writing(B, B, 0)
+    Bd = B.astype(np.float64)
+    for m in range(1, L1):
+        expected = 1.0 - np.einsum("nd,nd->n", Bd[m - 1], Bd[m]) / np.einsum("nd,nd->n", Bd[m], Bd[m])
+        assert np.allclose(own[m], expected, atol=1e-9)
+    natural = np.concatenate([[np.nan], np.nanmedian(own[1:], axis=1)])
+    s = summarise_block_writing(own, 0, lambda X: geo.bootstrap_rows(X, 200, 0.05), natural=natural)
+    assert s["dominant_block"] in range(1, L1) and 0 < s["dominant_share"] <= 1 and 0 <= s["entropy_ratio"] <= 1
+    assert s["rank_correlation_with_natural"] == pytest.approx(1.0) and len(s["cumulative_median"]) == L1 - 1
     assert np.allclose(geo.unit_rows(geo.tensor(U3 * 3.0, geo.torch.float64)).cpu().numpy(), U3, atol=1e-12)
     deltas = [rng.normal(size=(L1, n, d)).astype(np.float32) for _ in range(5)]
     ref_c = coherence_curve(deltas, 1)
@@ -306,17 +323,38 @@ def test_smoke_trajectories(smoke_runs):
                 assert all(isinstance(tok, str) and v >= 0 for tok, v in lens["promoted"])
                 assert lens["mean_abs_logit_change"] > 0
             assert "_first_token_logprob" not in info and "_first_token_logprob" not in half
-            # D33 (amended): the patch test at every compared layer (patch.layers: all), for the learned vector
+            # D33 (amended): the patch test at every compared layer (patch.layers: all), for the learned and the
+            # head-mean vector, at eighths (here quarters) of the downstream depth, distinct read points only
             patch = info["patch"]
-            assert patch["reference"] == "icl" and set(patch["constructions"]) == {"learned"}
-            rows = patch["constructions"]["learned"]["rows"]
-            assert [r["read_point"] for r in rows] == patch["read_points"] and all(layer < r["read_point"] <= L1 - 1 for r in rows)
-            for r in rows:
-                for e in ("remove", "keep", "patch"):
-                    assert set(r[e]) >= {"effect", "retained", "random_effect_mean", "excess_vs_random", "effect_test",
-                                         "first_token_effect", "first_token_retained"}
-                    assert 0 <= r[e]["excess_vs_random"]["p_value"] <= 1
-            assert t["per_layer"][str(layer)]["patch"]["learned"][0]["remove"]["p"] == rows[0]["remove"]["excess_vs_random"]["p_value"]
+            assert patch["reference"] == "icl" and set(patch["constructions"]) == {"learned", "fv"}
+            assert len(patch["read_points"]) == len(set(patch["read_points"])) <= len(cfg.patch.depth_fractions)
+            for c in ("learned", "fv"):
+                rows = patch["constructions"][c]["rows"]
+                assert [r["read_point"] for r in rows] == patch["read_points"] and all(layer < r["read_point"] <= L1 - 1 for r in rows)
+                for r in rows:
+                    for e in ("remove", "keep", "patch"):
+                        assert set(r[e]) >= {"effect", "retained", "random_effect_mean", "excess_vs_random", "effect_test",
+                                             "first_token_effect", "first_token_retained"}
+                        assert 0 <= r[e]["excess_vs_random"]["p_value"] <= 1
+                assert t["per_layer"][str(layer)]["patch"][c][0]["remove"]["p"] == rows[0]["remove"]["excess_vs_random"]["p_value"]
+            # D33 (amended): per-block writing of the shared component, for every named trajectory on the natural one
+            bw = info["block_writing"]
+            assert bw["reference"] == "icl" and set(bw["trajectories"]) == {"icl", "icl2", "task", "pca", "fv", "learned"}
+            for name, entry in bw["trajectories"].items():
+                start = layer if name in ("pca", "fv", "learned") else 0
+                for tag in ("raw", "generic_removed"):
+                    s = entry[tag]
+                    assert s["start"] == start and len(s["curve"]["median"]) == L1 and len(s["cumulative_median"]) == L1 - start - 1
+                    assert all(v is None for v in s["curve"]["median"][:start + 1])
+                    assert s["dominant_block"] is None or start < s["dominant_block"] <= L1 - 1
+                    assert s["entropy_ratio"] is None or 0 <= s["entropy_ratio"] <= 1 + 1e-9
+                    if name != "icl":
+                        assert s["rank_correlation_with_natural"] is None or -1 <= s["rank_correlation_with_natural"] <= 1
+                    prefix = "" if tag == "raw" else "nogeneric_"
+                    W = arrays[f"L{layer}_written_{prefix}{name}_on_icl"]
+                    assert W.shape == (L1, res["n_examples"]) and np.isnan(W[:start + 1]).all() and np.isfinite(W[start + 1:]).all()
+            assert "block_writing" in t["per_layer"][str(layer)]["constructions"]["learned"]
+            assert set(t["per_layer"][str(layer)]["natural_block_writing"]) == {"raw", "generic_removed"}
             assert info["isotropic"]["n"] == cfg.n_isotropic and info["isotropic"]["learned"]["alpha"] == cons["learned"]["alpha"]
             assert arrays[f"L{layer}_mean_delta_learned"].shape == (L1, meta["model"]["hidden_size"])
             assert (root / "figures" / f"{task}_trajectories_L{layer}.png").exists()

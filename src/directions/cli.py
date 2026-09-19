@@ -122,6 +122,8 @@ def _cmd_trajectories(args: argparse.Namespace) -> int:
     cfg = load_trajectories_config(args.config)
     if args.output_dir:
         cfg.output_dir = args.output_dir
+    if args.seed is not None:
+        cfg.seed = int(args.seed)
     root = run_trajectories(cfg, args.fv_run, args.learned_run, run_id=args.run_id, config_path=str(args.config))
     print(root)
     return 0
@@ -156,6 +158,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--learned-run", required=True, help="finished run with extraction.control: learned_vector (same seed)")
     p.add_argument("--output-dir", default=None, help="override output_dir from the config")
     p.add_argument("--run-id", default=None, help="explicit run directory name")
+    p.add_argument("--seed", type=int, default=None, help="override the comparison's own seed from the config (its draws: "
+                                                          "second demonstration sample, derangements, isotropic directions, bootstraps)")
     args = parser.parse_args(argv)
     if args.command in ("validate", "pilot"):
         return _cmd_run(args, args.command)
