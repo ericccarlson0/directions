@@ -2916,6 +2916,30 @@ stops. So the causal dimensionality of the control's replacement is
 one at the depth where the hand-over happens, in the causal sense the
 geometric effective dimensionality could not deliver, and dimensional
 expansion in the causal sense appears only after the hand-over.
+**Sufficient before necessary, by a margin that grows with size** (the
+removal rows, read after the entry above was written). Removing the
+own rank-1 direction from the steered perturbation at the hand-over
+read point leaves a median of −0.23 of the effect on 0.6B (−0.93 to
+0.44 over the lexical tasks) and −0.09 on 1.7B (−0.72 to 0.57), a
+deficit: without that direction the rest of the perturbation is useless
+or harmful; 0.39 on 4B (−0.16 to 0.99); and 0.96 on 8B (0.51–1.00),
+where removing the top eight directions still leaves 0.85 (0.22–0.94).
+Random subspaces removed leave 1.00 everywhere. So on the small models
+the rank-1 direction is the unique carrier at the hand-over, both
+sufficient and necessary, while on 8B at the read point where it has
+become sufficient the complement of the pool's top eight directions is
+sufficient too: the effect is redundantly encoded there and the
+complement loses its power only over the following blocks (the
+per-prompt removal curves of iteration 10 fall 4–8 read points after
+the keep curves rise on 8B, at the same read point on 0.6B). At the last
+read point removal of the rank-1 direction leaves −0.11, 0.11, 0.36 and
+0.66 (medians; 0.6B, 1.7B, 4B, 8B) and of the top eight 0.42, 0.38,
+0.63 and 0.73. The distance between the sufficiency and the necessity
+read points is the quantity that separates "a low-dimensional
+replacement signal" from "a distributed re-encoding": zero on the small
+models, several blocks on 8B. The subspace removal at every patch-grid
+read point would locate it per task; a component attribution inside the
+hand-over band (which heads and MLPs write the direction) is not done.
 **Cost.** 5.1, 11.1, 21.7 and 7.1 min (0.6B, 1.7B, 4B, 8B), about $1.30
 of worker time for the four models; the subspace stage was 2–5 min of
 each.
