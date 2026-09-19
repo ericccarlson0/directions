@@ -320,6 +320,42 @@ class PatchConfig:
 
 
 @dataclass
+class SubspaceConfig:
+    """The causal dimensionality of the shared component (docs/DECISIONS.md D34): how many directions across
+    prompts carry the effect. At read points of the primary layer, a k-dimensional subspace is fitted to the
+    natural differences of prompts that are not evaluated (the pools named in ``pools``, uncentred principal
+    components), and on the held-out prompts the steered perturbation is kept only within that subspace,
+    or that subspace is removed, or the prompt's natural difference projected on it is patched into the
+    unsteered run; the effect retained is recorded per k against random k-dimensional subspaces per
+    example, against the top-k subspace of the unsteered residuals (the background) and against a subspace
+    fitted on the other tasks' natural differences (leave-one-task-out: a shared in-context subspace or the
+    task's own).
+
+    constructions    which constructions to test (primary layer, canonical strength)
+    k_grid           subspace ranks
+    depth_fractions  read points as fractions of the downstream depth
+    at_handover      also at the hand-over read point: the first patch-grid read point at which keeping the
+                     prompt's own direction retains ``handover_share`` of the effect (needs the patch test)
+    handover_share   that share, also the share defining k90 (the smallest k reaching it)
+    n_controls       random per-example k-dimensional subspaces matched to each edit
+    other_tasks      fit the leave-one-task-out subspace as well
+    background       fit the unsteered residuals' top-k subspace as well
+    pools            the runs' prompt pools the subspaces are fitted on (disjoint from the evaluation pool)
+    """
+
+    enabled: bool = True
+    constructions: list[str] = field(default_factory=lambda: ["learned"])
+    k_grid: list[int] = field(default_factory=lambda: [1, 2, 4, 8])
+    depth_fractions: list[float] = field(default_factory=lambda: [0.5, 1.0])
+    at_handover: bool = True
+    handover_share: float = 0.9
+    n_controls: int = 2
+    other_tasks: bool = True
+    background: bool = True
+    pools: list[str] = field(default_factory=lambda: ["extraction", "calibration"])
+
+
+@dataclass
 class TrajectoriesConfig:
     """The all-to-all trajectory comparison (`directions trajectories`; docs/DECISIONS.md D32).
 
@@ -355,6 +391,7 @@ class TrajectoriesConfig:
                     unsteered residual's largest coordinates, its cosine with the residual mean, its logit
                     lens (the tokens it promotes at the last read point), and its cosine across strengths
     patch           the patch test (PatchConfig)
+    subspace        the causal dimensionality of the shared component (SubspaceConfig, D34)
     """
 
     name: str = "trajectories"
@@ -372,6 +409,7 @@ class TrajectoriesConfig:
     diagnostic_top_k: list[int] = field(default_factory=lambda: [1, 4, 16, 64])
     logit_lens_top: int = 10
     patch: PatchConfig = field(default_factory=PatchConfig)
+    subspace: SubspaceConfig = field(default_factory=SubspaceConfig)
     n_boot: int = 2000
     ci_alpha: float = 0.05
     determinism_check: bool = True
@@ -407,6 +445,17 @@ def load_trajectories_config(path: str | Path) -> TrajectoriesConfig:
         raise ValueError("patch.layers must be 'primary' or 'all'")
     if any(not (0 < f <= 1) for f in p.depth_fractions) or p.n_controls < 1:
         raise ValueError("patch.depth_fractions must lie in (0, 1] and patch.n_controls be at least 1")
+    q = cfg.subspace
+    if any(c not in ("pca", "fv", "learned") for c in q.constructions):
+        raise ValueError("subspace.constructions must be among pca, fv, learned")
+    if not q.k_grid or any(int(k) != k or k < 1 for k in q.k_grid) or len(set(q.k_grid)) != len(q.k_grid):
+        raise ValueError("subspace.k_grid must be distinct positive integers")
+    if any(not (0 < f <= 1) for f in q.depth_fractions) or q.n_controls < 1 or not (0 < q.handover_share <= 1):
+        raise ValueError("subspace.depth_fractions must lie in (0, 1], n_controls be at least 1, handover_share in (0, 1]")
+    if q.at_handover and q.enabled and not p.enabled:
+        raise ValueError("subspace.at_handover needs the patch test (patch.enabled)")
+    if not q.pools or any(s not in ("extraction", "calibration") for s in q.pools):
+        raise ValueError("subspace.pools must be a non-empty subset of extraction, calibration")
     return cfg
 
 

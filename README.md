@@ -26,6 +26,8 @@ uv run directions pilot    --config configs/pilot_qwen3_0.6b.yaml --seed 1 --run
 uv run directions aggregate results/r1 results/r2 results/r3 --out results/aggregate.json # multi-seed summary
 uv run directions trajectories --config configs/trajectories.yaml --fv-run results/<head-mean run> \
     --learned-run results/<learned-vector run> --run-id t1   # downstream trajectories compared all-to-all (D32)
+uv run directions trajectories --config configs/trajectories_subspace.yaml --fv-run results/<head-mean run> \
+    --learned-run results/<learned-vector run> --run-id s1   # the causal dimensionality of the shared component only (D34)
 ```
 
 Every scientifically meaningful parameter lives in the YAML config. Each run
@@ -83,7 +85,9 @@ results/<run_id>/
                            cross-strength cosines, the generic-response diagnostics and the patch test (D33);
                            the role of every compared layer (primary, the head-mean run's, a neighbouring
                            candidate) when `neighbour_layers` adds the candidates around the primary one;
-                           the per-block writing of the shared component per trajectory (D33 amended)
+                           the per-block writing of the shared component per trajectory (D33 amended);
+                           the subspace test (D34): the effect retained within k-dimensional subspaces of the natural
+                           differences (own task, other tasks, background, random) at the primary layer
       trajectories_arrays.npz  per-example cosines of every pair at every read point (raw and both variants),
                            projection fractions, per-block writing of the shared component, floor medians,
                            population-mean trajectories, the generic response

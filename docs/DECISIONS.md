@@ -1382,3 +1382,83 @@ the patch test from 36 passes per task to about 190 per compared layer
 wall time, roughly $2.50 of compute for the four comparisons, plus the
 four learned-vector runs at the new seed (40, 50, 78 and 52 min in
 iteration 7b, about $7.20).
+
+## 2026-09-19 — Iteration 11: the causal dimensionality of the shared component
+
+### D34. How many directions across prompts carry the effect: a rank-k keep test against random, background and other-task subspaces
+
+Context: iterations 9 and 10 established that by a fixed read point of
+the stack the effect of any working construction is carried by one
+direction per prompt, the prompt's own natural difference, and that
+this component is re-written block by block rather than transported.
+What they do not say is how many directions that per-prompt family
+spans across prompts: whether the control is canonicalised onto a
+task-level signal of rank one or two (a function vector at the
+hand-over depth), onto the span of the answers, or onto something
+distributed and prompt-specific. The geometric effective dimensionality
+(D1, D17) cannot answer this, since it was shown to be a property of
+any perturbation of the norm (the generic response) rather than of the
+control.
+
+Decision: a fourth causal stage of `directions trajectories`, at the
+primary layer and the canonical strength, for the constructions in
+`subspace.constructions` (the learned vector by default).
+
+* **The subspaces.** For each task, the natural differences (demos
+  minus none, at the query token) of the run's extraction and
+  calibration pools, prompts that are never evaluated, are captured
+  once at every read point; at a read point m the *own* subspace of
+  rank k is the top-k uncentred principal components of those
+  differences (so the first component is the pool's mean natural
+  difference and the later ones the prompt-specific spread; the pool
+  size bounds the rank). Two further subspaces from the same captures:
+  the *other-tasks* subspace, the top-k components of the other tasks'
+  pool differences pooled together (leave-one-task-out, as D28 did for
+  the vectors), which tells a shared in-context subspace from the
+  task's own; and the *background* subspace, the top-k components of
+  the pool's unsteered residuals at m, which tells a task subspace from
+  the massive coordinates. The matched floor is `n_controls` random
+  k-dimensional subspaces per example (orthonormalised Gaussian
+  columns).
+* **The edits**, on the held-out prompts in the steered run at m, with
+  the D29 mechanics: *keep* leaves only the projection of the steered
+  perturbation onto the subspace, *remove* takes that projection out,
+  and *patch* adds the projection of the prompt's own natural difference
+  onto the subspace to the unsteered run. Each is run at every k of
+  `k_grid` (1, 2, 4, 8) for every subspace, and reported as the effect
+  retained (per token and first token) with the paired excess test
+  against the random subspaces of the same k. The per-prompt keep and
+  patch of the patch test at the same read point are the ceilings (k
+  unbounded, one direction per prompt).
+* **The read points**: the fractions in `subspace.depth_fractions` (0.5
+  and 1.0 of the downstream depth) and, with `at_handover`, the
+  hand-over read point read off the patch grid of the same run (the
+  first read point at which the per-prompt keep retains
+  `handover_share` of the effect), recorded with its source.
+* **The summary** per construction and read point: the retained effect
+  against k per subspace and edit; k90, the smallest k in the grid at
+  which keep (and patch) reaches the share, or none; the spectrum of
+  the own pool differences (explained fractions of the top components,
+  participation ratio); the overlap of the own subspace with the
+  other-task and background subspaces at each k (the fraction of the
+  own subspace's energy inside the other); and the cosine of the own
+  top component with the held-out prompts' mean natural difference.
+* **Reading.** keep reaching the per-prompt ceiling at k of 1 or 2 with
+  the own subspace: the computation the control becomes is a task-level
+  signal of that rank. The other-task subspace doing as well: the
+  signal is a shared in-context subspace, not the task's own. keep
+  still short of the ceiling at k = 8 while the random and background
+  subspaces stay at the floor: the shared component is distributed and
+  prompt-specific across prompts, and "one direction per prompt" was
+  the whole story. k90 rising from the hand-over read point to the last
+  one: dimensional expansion in the causal sense.
+
+The grid stops at 8 by decision: the pool of 128 prompts bounds what a
+higher rank could mean, and the question is whether the rank is small.
+Cost: two captured passes over the pool per task, then per read point
+`|k_grid|` × 3 edits × (3 subspaces + `n_controls` random) = 60 passes,
+180 per task at three read points, about the size of one construction's
+patch grid; run on `configs/trajectories_subspace.yaml`, which carries
+only what the test needs from the earlier stages (canonical strength,
+primary layer, the learned vector's patch grid for the hand-over read
+point, no diagnostics), on the seed-20260916 runs of iteration 10.

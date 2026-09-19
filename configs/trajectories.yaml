@@ -31,6 +31,18 @@ patch:                         # D33: the patch test at the canonical strength
   n_controls: 3
   reference: icl
 
+subspace:                      # D34: the causal dimensionality of the shared component, at the primary layer, canonical strength
+  enabled: true
+  constructions: [learned]
+  k_grid: [1, 2, 4, 8]         # subspace ranks (uncentred principal components of the pools' natural differences)
+  depth_fractions: [0.5, 1.0]  # read points, plus the hand-over read point from the patch grid (at_handover)
+  at_handover: true
+  handover_share: 0.9          # the share defining the hand-over read point and k90
+  n_controls: 2                # random per-example k-subspaces matched to each edit
+  other_tasks: true            # the leave-one-task-out subspace: a shared in-context subspace or the task's own?
+  background: true             # the unsteered residuals' top-k subspace: the massive coordinates as a control
+  pools: [extraction, calibration]   # the fitting pools (disjoint from the held-out prompts)
+
 n_boot: 2000
 ci_alpha: 0.05
 determinism_check: true        # one repeated steered pass must be bit-identical (recorded in metadata.json)

@@ -355,6 +355,35 @@ def test_smoke_trajectories(smoke_runs):
                     assert W.shape == (L1, res["n_examples"]) and np.isnan(W[:start + 1]).all() and np.isfinite(W[start + 1:]).all()
             assert "block_writing" in t["per_layer"][str(layer)]["constructions"]["learned"]
             assert set(t["per_layer"][str(layer)]["natural_block_writing"]) == {"raw", "generic_removed"}
+            # D34: the subspace test at the primary layer only, for the learned vector: own / other tasks / background /
+            # random subspaces at every k of the grid, at the depth fractions and the hand-over read point
+            if layer == res["primary_layer"]:
+                sub = info["subspace"]
+                assert sub["k_grid"] == cfg.subspace.k_grid and sub["pool_size"] == 12 and len(sub["other_tasks"]) == 2
+                entry = sub["constructions"]["learned"]
+                pts = entry["read_points"]
+                assert 2 <= len(pts) <= 3 and len({p["read_point"] for p in pts}) == len(pts)
+                assert all(layer < p["read_point"] <= L1 - 1 for p in pts) and {p["source"] for p in pts} <= {"fraction", "handover"}
+                if entry["handover_read_point"] is not None:
+                    assert any(p["source"] == "handover" and p["read_point"] == entry["handover_read_point"] for p in pts)
+                for p in pts:
+                    assert len(p["spectrum"]["explained"]) == max(cfg.subspace.k_grid) and 1 <= p["spectrum"]["participation_ratio"] <= 12
+                    assert 0 <= p["top_component_cos_with_mean_natural"] <= 1 + 1e-9
+                    for src in ("other_tasks", "background"):
+                        assert all(0 <= v <= 1 + 1e-6 for v in p["overlap"][src])
+                    for k in cfg.subspace.k_grid:
+                        row = p["rows"][str(k)]
+                        assert set(row) == {"own", "other_tasks", "background", "random"}
+                        for src in ("own", "other_tasks", "background"):
+                            for e in ("remove", "keep", "patch"):
+                                assert 0 <= row[src][e]["excess_vs_random"]["p_value"] <= 1
+                    assert set(p["k90"]) == {"own", "other_tasks", "background", "random"}
+                    assert p["per_prompt_keep"] is None or isinstance(p["per_prompt_keep"], float)
+                s = t["per_layer"][str(layer)]["subspace"]["learned"]
+                assert len(s) == len(pts) and len(s[0]["keep_retained"]["own"]) == len(cfg.subspace.k_grid)
+                assert (root / "figures" / f"{task}_subspace_learned_L{layer}.png").exists()
+            else:
+                assert "subspace" not in info
             assert info["isotropic"]["n"] == cfg.n_isotropic and info["isotropic"]["learned"]["alpha"] == cons["learned"]["alpha"]
             assert arrays[f"L{layer}_mean_delta_learned"].shape == (L1, meta["model"]["hidden_size"])
             assert (root / "figures" / f"{task}_trajectories_L{layer}.png").exists()

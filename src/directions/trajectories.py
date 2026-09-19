@@ -459,6 +459,7 @@ class TaskInputs:
     prompt_cfg: Any
     evaluation: list[Item]
     calibration: list[Item]
+    extraction: list[Item]
     learned_qual: dict[str, Any]
     learned_cal: dict[str, Any] | None
     fv_qual: dict[str, Any] | None
@@ -494,6 +495,7 @@ def _load_task(name: str, learned_root: Path, fv_root: Path, cfg: Config) -> Tas
     inputs = TaskInputs(
         name=name, learned_dir=ld, fv_dir=None, prompt_cfg=prompt_cfg,
         evaluation=_items(splits["evaluation"]), calibration=_items(splits["calibration"]),
+        extraction=_items(splits.get("extraction", [])),
         learned_qual=qual, learned_cal=_optional_json(ld / "calibration.json"), fv_qual=None, fv_cal=None,
         learned_arrays=dict(np.load(ld / "directions.npz")), fv_arrays=None,
     )
@@ -585,14 +587,25 @@ class Trajectories:
         self.metadata["linalg_device"] = str(self.backend.device)
         names = sorted(p.name for p in (self.learned_root / "core" / "tasks").iterdir() if p.is_dir())
         summary: dict[str, Any] = {"tasks": {}, "skipped": {}}
+        loaded: list[TaskInputs] = []
         for name in names:
             inputs = _load_task(name, self.learned_root, self.fv_root, self.run_cfg)
             if inputs is None:
                 summary["skipped"][name] = "no learned-vector selection in the learned run"
                 self.log.info("[%s] skipped: %s", name, summary["skipped"][name])
                 continue
-            with self.prof.section("task", name):
-                summary["tasks"][name] = self._task(inputs)
+            loaded.append(inputs)
+        # D34: the pools' natural differences and unsteered residuals of every task, captured once up front so
+        # that each task's subspace test can fit the leave-one-task-out subspace from the other tasks' pools
+        self.pool_natural: dict[str, Any] = {}
+        self.pool_base: dict[str, Any] = {}
+        if self.cfg.subspace.enabled:
+            for inputs in loaded:
+                with self.prof.section("pool", inputs.name):
+                    self._capture_pool(inputs)
+        for inputs in loaded:
+            with self.prof.section("task", inputs.name):
+                summary["tasks"][inputs.name] = self._task(inputs)
         write_json(self.root / "core" / "summary.json", summary)
         self.log.info("summary:\n%s", format_summary(summary))
 
@@ -749,10 +762,11 @@ class Trajectories:
         write_json(out_dir / "trajectories.json", result)
         np.savez_compressed(out_dir / "trajectories_arrays.npz", **arrays)
         if cfg.figures:
-            from .figures import strength_figures, trajectory_figures
+            from .figures import strength_figures, subspace_figures, trajectory_figures
 
             trajectory_figures(self.root / "figures", result)
             strength_figures(self.root / "figures", result)
+            subspace_figures(self.root / "figures", result)
         return _task_summary(result)
 
     # ------------------------------------------------------------------ #
@@ -789,6 +803,9 @@ class Trajectories:
         if cfg.patch.enabled and (primary or cfg.patch.layers == "all"):
             with self.prof.section("patch", name, layer):
                 info["patch"] = self._patch_test(inputs, layer, cons, zs, base, base_t, natural, deltas_by_factor[1.0], info)
+        if cfg.subspace.enabled and primary and name in self.pool_natural:
+            with self.prof.section("subspace", name, layer):
+                info["subspace"] = self._subspace_test(inputs, layer, cons, zs, base, base_t, natural, deltas_by_factor[1.0], info)
         for sub in (info, *info["other_strengths"].values()):
             sub.pop("_first_token_logprob", None)
         del deltas_by_factor
@@ -1167,6 +1184,179 @@ class Trajectories:
         return out
 
 
+    # ------------------------------------------------------------------ #
+
+    def _capture_pool(self, inputs: TaskInputs) -> None:
+        """D34: the natural differences (demos minus none) and the unsteered residuals of the task's fitting
+        pools at every read point, as float16 on the host: the subspaces are fitted on these, never on the
+        held-out prompts."""
+        cfg, pc, name = self.cfg, inputs.prompt_cfg, inputs.name
+        seen: set[tuple[str, str]] = set()
+        pool: list[Item] = []
+        for split in cfg.subspace.pools:
+            for x in getattr(inputs, split):
+                if (x.input, x.output) not in seen:
+                    seen.add((x.input, x.output))
+                    pool.append(x)
+        if len(pool) < 2:
+            inputs.notes.append(f"subspace test skipped: fitting pool of {len(pool)} prompts")
+            return
+        zs = [zero_shot_prompt(pc, x) for x in pool]
+        rng = rng_for(cfg.seed, "trajectories_subspace_fewshot", name)
+        fs = [few_shot_prompt(pc, pool, x, rng) for x in pool]
+        base = self.backend.run(zs, capture=True)
+        icl = self.backend.run(fs, capture=True)
+        assert base.residuals is not None and icl.residuals is not None
+        t = self.geo.torch
+        self.pool_natural[name] = t.as_tensor(icl.residuals - base.residuals).to(t.float16).cpu()
+        self.pool_base[name] = t.as_tensor(base.residuals).to(t.float16).cpu()
+        self.log.info("[%s] subspace fitting pool: %d prompts (%s); few-shot lp/tok %.3f, zero-shot %.3f", name, len(pool),
+                      "+".join(cfg.subspace.pools), float(np.mean(icl.logprob_per_token)), float(np.mean(base.logprob_per_token)))
+
+    def _subspace_test(self, inputs: TaskInputs, layer: int, cons: dict[str, dict[str, Any]], zs: list[Prompt],
+                       base: ForwardResult, base_t: Any, natural: dict[str, Any], deltas: dict[str, Any],
+                       info: dict[str, Any]) -> dict[str, Any]:
+        """The causal dimensionality of the shared component (D34): at read points of the primary layer, the
+        steered perturbation is kept only within (or stripped of) a k-dimensional subspace fitted on the pools'
+        natural differences, or the prompt's natural difference projected on it is patched into the unsteered
+        run, for k in the grid, against random per-example subspaces, the background's top-k subspace and the
+        subspace of the other tasks' natural differences."""
+        cfg, geo, t, name, seed = self.cfg, self.geo, self.geo.torch, inputs.name, self.cfg.seed
+        sc = cfg.subspace
+        L = base_t.shape[0] - 1
+        kmax = max(sc.k_grid)
+        ref = natural[cfg.patch.reference]
+        steered_first: dict[str, np.ndarray] = info.get("_first_token_logprob", {})
+        base_lp = base.logprob_per_token
+        assert base.first_token_logprob is not None
+        base_first = base.first_token_logprob
+        brng = rng_for(seed, "trajectories_subspace_bootstrap", name, layer)
+        others = [o for o in self.pool_natural if o != name]
+        out: dict[str, Any] = {"reference": cfg.patch.reference, "k_grid": list(sc.k_grid), "n_controls": sc.n_controls,
+                               "pool_size": int(self.pool_natural[name].shape[1]), "other_tasks": others, "constructions": {}}
+
+        def fit(X: Any) -> Any:  # top-kmax right singular vectors of the rows of X (n, d) -> (d, kmax), float64
+            _, _, Vh = t.linalg.svd(X.to(geo.device, t.float64), full_matrices=False)
+            return Vh[:kmax].T.contiguous()
+
+        def spectrum(X: Any) -> dict[str, Any]:
+            s = t.linalg.svdvals(X.to(geo.device, t.float64))
+            p = s ** 2 / (s ** 2).sum()
+            return {"explained": p[:kmax].cpu().tolist(), "participation_ratio": float(((s ** 2).sum() ** 2 / (s ** 4).sum()).cpu()),
+                    "rank": int(min(X.shape))}
+
+        for c in sc.constructions:
+            if c not in deltas:
+                continue
+            spec = info["constructions"][c]
+            inject = Intervention(layer, cons[c]["direction"], spec["alpha"])
+            full = spec["improvement_per_token"]
+            full_first = float(np.mean(steered_first[c] - base_first)) if c in steered_first else 0.0
+            points: list[tuple[int, str]] = []
+            for fr in sc.depth_fractions:
+                points.append((min(L, max(layer + 1, layer + int(round(fr * (L - layer))))), "fraction"))
+            handover = None
+            if sc.at_handover:
+                rows = (((info.get("patch") or {}).get("constructions") or {}).get(c) or {}).get("rows", [])
+                handover = next((r["read_point"] for r in rows if r["keep"]["retained"] is not None and r["keep"]["retained"] >= sc.handover_share), None)
+                if handover is not None:
+                    points.append((handover, "handover"))
+            seen: dict[int, str] = {}
+            for m, source in points:
+                seen[m] = "handover" if source == "handover" or seen.get(m) == "handover" else source
+            entries = []
+            for m in sorted(seen):
+                d_m = deltas[c][m].to(t.float64)
+                ref_m = ref[m].to(t.float64)
+                own_X = self.pool_natural[name][m]
+                U: dict[str, Any] = {"own": fit(own_X)}
+                spec_own = spectrum(own_X)
+                if sc.other_tasks and others:
+                    U["other_tasks"] = fit(t.cat([self.pool_natural[o][m] for o in others], 0))
+                if sc.background:
+                    U["background"] = fit(self.pool_base[name][m])
+                # random per-example k-subspaces: orthonormal columns per example, (n, d, kmax)
+                randoms = []
+                for j in range(sc.n_controls):
+                    R = rng_for(seed, "trajectories_subspace", name, layer, c, m, j).normal(size=(len(zs), self.backend.hidden_size, kmax))
+                    Q, _ = t.linalg.qr(t.as_tensor(R, dtype=t.float64, device=geo.device))
+                    randoms.append(Q)
+                mean_nat = geo.unit_rows(ref_m.mean(0, keepdim=True))[0]
+                entry: dict[str, Any] = {"read_point": m, "depth_fraction": (m - layer) / (L - layer) if L > layer else 1.0,
+                                         "source": seen[m], "spectrum": spec_own, "overlap": {}, "rows": {},
+                                         "top_component_cos_with_mean_natural": float(abs(U["own"][:, 0] @ mean_nat).cpu())}
+                for src in ("other_tasks", "background"):
+                    if src in U:
+                        entry["overlap"][src] = [float(((U[src].T @ U["own"][:, :k]) ** 2).sum().cpu() / k) for k in sc.k_grid]
+                patch_rows = (((info.get("patch") or {}).get("constructions") or {}).get(c) or {}).get("rows", [])
+                pr = next((r for r in patch_rows if r["read_point"] == m), None)
+                entry["per_prompt_keep"] = None if pr is None else pr["keep"]["retained"]
+                entry["per_prompt_patch"] = None if pr is None else pr["patch"]["retained"]
+                for k in sc.k_grid:
+                    row: dict[str, Any] = {}
+                    real: dict[str, dict[str, np.ndarray]] = {}
+                    ctl: dict[str, list[np.ndarray]] = {e: [] for e in PATCH_EDITS}
+                    ctl_first: dict[str, list[np.ndarray]] = {e: [] for e in PATCH_EDITS}
+
+                    def edits_for(proj_d: Any, proj_ref: Any) -> dict[str, np.ndarray]:
+                        return {"remove": (-proj_d).float().cpu().numpy(), "keep": (proj_d - d_m).float().cpu().numpy(),
+                                "patch": proj_ref.float().cpu().numpy()}
+
+                    def run_edits(edits: dict[str, np.ndarray]) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
+                        eff, eff_first = {}, {}
+                        for e, vec in edits.items():
+                            ivs = [Intervention(m, vec, 1.0)] if e == "patch" else [inject, Intervention(m, vec, 1.0)]
+                            r = self.backend.run(zs, interventions=ivs)
+                            eff[e] = r.logprob_per_token - base_lp
+                            eff_first[e] = r.first_token_logprob - base_first
+                        return eff, eff_first
+
+                    real_first: dict[str, dict[str, np.ndarray]] = {}
+                    for src, Uk in U.items():
+                        Ukk = Uk[:, :k]
+                        real[src], real_first[src] = run_edits(edits_for((d_m @ Ukk) @ Ukk.T, (ref_m @ Ukk) @ Ukk.T))
+                    for Q in randoms:
+                        Qk = Q[:, :, :k]  # (n, d, k)
+                        proj_d = t.einsum("ndk,nk->nd", Qk, t.einsum("ndk,nd->nk", Qk, d_m))
+                        proj_r = t.einsum("ndk,nk->nd", Qk, t.einsum("ndk,nd->nk", Qk, ref_m))
+                        eff, eff_first = run_edits(edits_for(proj_d, proj_r))
+                        for e in PATCH_EDITS:
+                            ctl[e].append(eff[e])
+                            ctl_first[e].append(eff_first[e])
+                    for src in U:
+                        row[src] = {}
+                        for e in PATCH_EDITS:
+                            r_e, c_e = real[src][e], np.stack(ctl[e])
+                            sign = -1.0 if e == "remove" else 1.0
+                            row[src][e] = {"effect": float(np.mean(r_e)), "retained": None if full == 0 else float(np.mean(r_e) / full),
+                                           "excess_vs_random": paired_excess_test(sign * r_e, sign * c_e, brng, n_boot=cfg.n_boot).__dict__,
+                                           "first_token_retained": None if full_first == 0 else float(np.mean(real_first[src][e]) / full_first)}
+                    row["random"] = {e: {"effect": float(np.mean(np.stack(ctl[e]))),
+                                         "retained": None if full == 0 else float(np.mean(np.stack(ctl[e])) / full),
+                                         "first_token_retained": None if full_first == 0 else float(np.mean(np.stack(ctl_first[e])) / full_first)}
+                                     for e in PATCH_EDITS}
+                    entry["rows"][str(k)] = row
+                    self.log.info("[%s] L%d subspace %s at m=%d k=%d: keep retains own %.2f / other tasks %s / background %s / random %.2f; "
+                                  "patch alone own %.2f / other tasks %s / random %.2f; remove leaves own %.2f (random %.2f)",
+                                  name, layer, c, m, k, row["own"]["keep"]["retained"] or float("nan"),
+                                  _fmt((row.get("other_tasks") or {}).get("keep", {}).get("retained")),
+                                  _fmt((row.get("background") or {}).get("keep", {}).get("retained")),
+                                  row["random"]["keep"]["retained"] or float("nan"),
+                                  row["own"]["patch"]["retained"] or float("nan"),
+                                  _fmt((row.get("other_tasks") or {}).get("patch", {}).get("retained")),
+                                  row["random"]["patch"]["retained"] or float("nan"),
+                                  row["own"]["remove"]["retained"] or float("nan"), row["random"]["remove"]["retained"] or float("nan"))
+                # k90: the smallest k at which the edit reaches the share (None if the grid does not reach it)
+                entry["k90"] = {}
+                for src in list(U) + ["random"]:
+                    entry["k90"][src] = {}
+                    for e in ("keep", "patch"):
+                        entry["k90"][src][e] = next((k for k in sc.k_grid if (entry["rows"][str(k)][src][e]["retained"] or -1) >= sc.handover_share), None)
+                entries.append(entry)
+            out["constructions"][c] = {"full_effect": full, "alpha": spec["alpha"], "handover_read_point": handover, "read_points": entries}
+        return out
+
+
 def _variant_note(s: dict[str, Any]) -> str:
     parts = []
     for tag, label in (("answer_removed", "no answer"), ("generic_removed", "no generic")):
@@ -1234,6 +1424,16 @@ def _task_summary(result: dict[str, Any]) -> dict[str, Any]:
                                           "p": r[e]["excess_vs_random"]["p_value"],
                                           "first_token_retained": r[e]["first_token_retained"]} for e in PATCH_EDITS}}
                                   for r in v["rows"]] for c, v in info["patch"]["constructions"].items()}
+        if "subspace" in info:
+            entry["subspace"] = {c: [{"read_point": p["read_point"], "depth_fraction": p["depth_fraction"], "source": p["source"],
+                                      "k90": p["k90"], "per_prompt_keep": p["per_prompt_keep"],
+                                      "explained": p["spectrum"]["explained"], "participation_ratio": p["spectrum"]["participation_ratio"],
+                                      "overlap": p["overlap"],
+                                      "keep_retained": {src: [p["rows"][str(k)][src]["keep"]["retained"] for k in info["subspace"]["k_grid"]]
+                                                        for src in p["rows"][str(info["subspace"]["k_grid"][0])]},
+                                      "patch_retained": {src: [p["rows"][str(k)][src]["patch"]["retained"] for k in info["subspace"]["k_grid"]]
+                                                         for src in p["rows"][str(info["subspace"]["k_grid"][0])]}}
+                                     for p in v["read_points"]] for c, v in info["subspace"]["constructions"].items()}
         out["per_layer"][layer] = entry
     return out
 
@@ -1278,6 +1478,12 @@ def format_summary(summary: dict[str, Any]) -> str:
                                      f"remove keeps {_fmt(r['remove']['retained'])} (rand {_fmt(r['remove']['random_retained'])}, p {r['remove']['p']:.3f}); "
                                      f"keep retains {_fmt(r['keep']['retained'])} (rand {_fmt(r['keep']['random_retained'])}, p {r['keep']['p']:.3f}); "
                                      f"natural patch {_fmt(r['patch']['retained'])} (rand {_fmt(r['patch']['random_retained'])}, p {r['patch']['p']:.3f}) |" + " |" * 12)
+            for c, pts in (info.get("subspace") or {}).items():
+                for p in pts:
+                    keep = "; ".join(f"{src} {'/'.join(_fmt(v) for v in vals)}" for src, vals in p["keep_retained"].items())
+                    lines.append(f"| {task} | {layer} | subspace {c} @{p['read_point']} ({p['source']}, per-prompt keep {_fmt(p['per_prompt_keep'])}) | "
+                                 f"keep by k: {keep}; k90 own {p['k90'].get('own', {}).get('keep')} other {p['k90'].get('other_tasks', {}).get('keep')}; "
+                                 f"explained {'/'.join(f'{v:.2f}' for v in p['explained'])} |" + " |" * 12)
     return "\n".join(lines)
 
 

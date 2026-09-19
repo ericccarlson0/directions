@@ -523,6 +523,45 @@ def strength_figures(figdir: Path, result: dict, dpi: int = 110) -> None:
         _save(fig, figdir / f"{task}_strength_L{layer}.png", dpi)
 
 
+def subspace_figures(figdir: Path, result: dict[str, Any], dpi: int = 110) -> None:
+    """Per task, layer and construction (D34): the effect retained when the steered perturbation is kept only
+    within a k-dimensional subspace (left) and when the natural difference projected on it is patched alone
+    (right), against k, for the task's own subspace, the other tasks' subspace, the background's and random
+    subspaces, one line style per read point; the per-prompt keep is the ceiling."""
+    task = result["task"]
+    for layer, info in result["per_layer"].items():
+        sub = info.get("subspace")
+        if not sub:
+            continue
+        ks = sub["k_grid"]
+        for c, entry in sub["constructions"].items():
+            fig, axes = plt.subplots(1, 2, figsize=(9, 3.4))
+            colors = {"own": SERIES[2], "other_tasks": SERIES[1], "background": SERIES[4], "random": SERIES[7]}
+            for ax, edit in zip(axes, ("keep", "patch")):
+                for j, p in enumerate(entry["read_points"]):
+                    ls = ["-", "--", ":", "-."][j % 4]
+                    for src, color in colors.items():
+                        vals = [p["rows"][str(k)].get(src, {}).get(edit, {}).get("retained") for k in ks]
+                        if all(v is None for v in vals):
+                            continue
+                        ax.plot(ks, [np.nan if v is None else v for v in vals], color=color, linestyle=ls, marker="o", markersize=3,
+                                label=f"{src} @{p['read_point']}" if j == 0 or src == "own" else None)
+                    ceiling = p["per_prompt_keep"] if edit == "keep" else p["per_prompt_patch"]
+                    if ceiling is not None:
+                        ax.axhline(ceiling, color=GRID, linestyle=ls, linewidth=0.8)
+                ax.set_xscale("log", base=2)
+                ax.set_xticks(ks)
+                ax.set_xticklabels([str(k) for k in ks])
+                ax.axhline(0, color=GRID, linewidth=0.8)
+                ax.set_xlabel("subspace rank k")
+                ax.set_ylabel("effect retained")
+                ax.set_title("keep only the subspace" if edit == "keep" else "natural difference on the subspace, patched alone", fontsize=9)
+                ax.legend(fontsize=6, loc="best")
+            fig.suptitle(f"{task}: causal dimensionality of the shared component, {c} at layer {layer} "
+                         f"(grey: per-prompt ceiling per read point)", fontsize=10)
+            _save(fig, figdir / f"{task}_subspace_{c}_L{layer}.png", dpi)
+
+
 def make_all_figures(root: Path, states: dict[str, "TaskState"], cfg: Config) -> None:
     for st in states.values():
         if st.head_effects is not None:
