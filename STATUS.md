@@ -2707,6 +2707,219 @@ seed of the learned vector is three quarters of it. The comparisons
 took 3–4.5 × iteration 9's, as projected, the patch grid (eight read
 points, two constructions, every compared layer) being half of each.
 
+### Iteration 11 (D34: the causal dimensionality of the shared component)
+
+The `trajectories` command with the subspace test (D34) on
+`configs/trajectories_subspace.yaml`, which carries only what the test
+needs from the earlier stages (the canonical strength, the primary
+layer, the learned vector's patch grid at eighths for the hand-over
+read point, no diagnostics), on the seed-20260916 runs of iteration
+10. Per task, at the primary layer, the natural differences of the
+extraction and calibration pools (128 prompts, never evaluated) are
+captured once; at the hand-over read point (the first patch-grid read
+point at which keeping the prompt's own direction retains 0.9 of the
+learned vector's effect), at half depth and at the last read point, the
+steered perturbation is kept only within (or stripped of) the top-k
+uncentred principal subspace of those differences, and the prompt's
+natural difference projected on that subspace is patched alone, for k
+in 1, 2, 4, 8, against random per-example k-subspaces, the top-k
+subspace of the pool's unsteered residuals (the background) and the
+top-k subspace of the other tasks' pool differences (leave-one-task-out).
+"Keep at k" below is the effect retained with only the k-dimensional
+own projection of the perturbation left in place; "patch at k" the
+effect of the projected natural difference alone in the unsteered run;
+the per-prompt keep and patch of the patch grid are the ceilings.
+
+```
+# workflow run 35464684771 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
+uv run directions trajectories --config configs/trajectories_subspace.yaml --seed 20260916 --fv-run /runpod-volume/results/run-35050574186/pilot6_qwen3_0.6b_seed20260916 --learned-run /runpod-volume/results/run-35414652608/learned_qwen3_0.6b_seed20260916 --run-id trajectories11_qwen3_0.6b_seed20260916
+```
+
+0.6B: 5.1 min (the subspace stage 2.2 of it), determinism check passed;
+8 tasks, the learned vector, hand-over read points 18–22 of 28.
+
+- **Rank one.** At the hand-over read point the own subspace of rank
+  one, the pool's mean natural difference (cosine 0.99–1.00 with the
+  held-out prompts' mean), carries the effect: keep at k = 1 retains
+  0.75–0.99 of it on the seven lexical tasks (antonym 0.75, the others
+  0.90–0.99) against a per-prompt ceiling of 0.91–0.98, and the mean
+  difference patched alone gives 0.89–0.97 (ceiling 0.90–1.18); random
+  rank-1 subspaces keep 0.00–0.13 and patch 0.00. Ranks 2, 4 and 8 add
+  0.00–0.06 (keep at k = 8: 0.81–0.99). k90 for keep is 1 on five tasks,
+  2 on present_participle, and never reached on antonym (0.81 at k = 8,
+  ceiling 0.91). The explained fraction of the pool differences' top
+  component is 0.78–0.92 and the participation ratio 1.2–1.7.
+- **The task's own, not a shared in-context subspace.** The other tasks'
+  subspace keeps 0.00–0.52 of the effect at k = 1 (median 0.29) and
+  0.00–0.48 at k = 8, and patched alone gives −0.08 to 0.44, though its
+  top component overlaps the task's own at 0.66–0.86 of the energy at
+  k = 1: the direction the tasks share is most of the mean difference by
+  norm and a small part of its effect. The background subspace keeps
+  −0.47 to 0.16 and patches 0.00–0.10.
+- **Before the hand-over** (half depth, five tasks with a distinct read
+  point) the rank-1 own subspace retains 0.14–0.46, equal to the
+  per-prompt ceiling there (0.15–0.49), so the shortfall is the depth,
+  not the rank. **At the last read point** the own rank-1 subspace
+  retains 0.66–0.87 and rank 8 0.71–0.93 (ceilings 0.99–1.20), the
+  patch alone 0.58–0.86; the other-task and background subspaces are
+  destructive there (keep −0.10 to −1.46 with wide intervals, patch
+  −0.58 to 0.31): what remains at the end is task-specific and slightly
+  higher in rank than at the hand-over.
+- Add-3 is the known no-op (the digits are predicted at later positions;
+  every edit at the query token retains 1.00 and patches 0.01).
+
+```
+# workflow run 35464683643 (push-triggered request), H100 80GB HBM3 (ADA_80_PRO), US-CA-2, Flash environment ci-8b
+uv run directions trajectories --config configs/trajectories_subspace.yaml --seed 20260916 --fv-run /runpod-volume/results/run-35050604985/pilot6_qwen3_8b_seed20260916 --learned-run /runpod-volume/results/run-35414623339/learned_qwen3_8b_seed20260916 --run-id trajectories11_qwen3_8b_seed20260916
+```
+
+8B: 7.1 min (the subspace stage 2.6), determinism check passed; 10
+tasks, hand-over read points 21–27 of 36.
+
+- **Rank one for the natural difference, rank one to eight for the
+  steered perturbation.** At the hand-over read point the pool's mean
+  natural difference patched alone gives 0.88–0.98 of the effect on the
+  eight lexical tasks (ceilings 0.93–1.17; arithmetic_words 0.58 against
+  its per-prompt ceiling of 0.60), k90 for the patch being 1 on seven
+  tasks and 2 on past_tense and present_participle. Keeping only the
+  rank-1 projection of the steered perturbation retains 0.70–1.05
+  (median 0.82) and rank 8 0.90–1.05 (median 0.95) against ceilings of
+  0.92–1.12: k90 for keep is 1 on two tasks, 2 on two, 4 on two and 8 on
+  three (last_antonym, past_tense, present_participle). The steered
+  perturbation carries its effect in a few more directions of the pool
+  spectrum than the natural difference needs; the spectrum itself is
+  less concentrated than 0.6B's (top component 0.59–0.92 of the
+  variance, median 0.71; participation ratio 1.2–2.8).
+- **The task's own.** The other tasks' subspace keeps 0.04–0.28 at
+  k = 1 (median 0.19) and patches −0.05 to 0.34; at k = 8, where nine
+  tasks' pools span several task means, it keeps 0.08–0.82 and patches
+  0.00–0.91, the high values on the two antonym tasks (0.61 and 0.81
+  kept, 0.91 patched) and number_to_words (0.66 patched), which share a
+  subspace with their relatives. The background subspace keeps −0.22 to
+  0.27 and patches at most 0.26 (random 0.00–0.06; arithmetic_words'
+  random keep is 0.47, its first-token effect being small).
+- **At the last read point** the picture loosens: the own rank-1
+  projection retains −0.09 to 0.97 (median 0.56) and rank 8 −1.34 to
+  0.80 with wide intervals on the two antonym tasks, the projected
+  natural difference gives 0.09–0.54 at k = 1 and 0.20–0.84 at k = 8
+  against ceilings of 0.92–1.17, and the other-task and background
+  subspaces are destructive (keep −0.3 to −3.0). What remains at the
+  end is not captured by the pool's top eight directions.
+- Add-3 is the no-op it always is at the query token.
+
+```
+# workflow run 35464728409 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
+uv run directions trajectories --config configs/trajectories_subspace.yaml --seed 20260916 --fv-run /runpod-volume/results/run-35050661831/pilot6_qwen3_1.7b_seed20260916 --learned-run /runpod-volume/results/run-35414702823/learned_qwen3_1.7b_seed20260916 --run-id trajectories11_qwen3_1.7b_seed20260916
+```
+
+1.7B: 11.1 min (the subspace stage 2.4), determinism check passed; 9
+tasks, hand-over read points 18–22 of 28 (last_antonym: the last read
+point, as in iteration 10).
+
+- **Rank one to two.** At the hand-over read point the mean natural
+  difference patched alone gives 0.86–0.95 of the effect on the seven
+  lexical tasks with a hand-over before the end (ceilings 0.90–1.18),
+  k90 for the patch 1 on five of them, 2 on present_participle and 4 on
+  plural; keeping the rank-1 projection of the steered perturbation
+  retains 0.62–1.00 (median 0.88) and rank 8 0.85–1.00 (median 0.96),
+  k90 for keep 1 on two tasks, 2 on two, and not reached at 8 on
+  antonym (0.85 against 0.98), plural (0.88 against 0.93) and
+  present_participle (0.86 against 0.94). The top component explains
+  0.68–0.93 of the pool variance (participation ratio 1.2–2.1) and has
+  cosine 0.99–1.00 with the held-out mean difference.
+- **The task's own**, with the relatives sharing: the other tasks'
+  subspace keeps −0.01 to 0.34 at k = 1 and −0.15 to 0.50 at k = 8, and
+  patches −0.12 to 0.35 at k = 1; at k = 8 antonym's 0.87 and (at half
+  depth) last_antonym's 0.84 come from each other's pool, the pair being
+  the two tasks whose answers coincide. The background keeps −0.41 to
+  0.39 and patches at most 0.24; random subspaces 0.00–0.14.
+- **last_antonym** keeps its own route: the natural difference on the
+  own rank-1 subspace gives 0.81 of the effect at half depth (ceiling
+  0.82) while every keep edit there retains 0.55–0.70, and at the last
+  read point, where the per-prompt keep first reaches 0.9, no subspace
+  of rank 8 carries anything (own keep 0.05 to −0.73, patch 0.13–0.26).
+- **At the last read point** the own rank-1 projection retains
+  0.55–0.87 and rank 8 0.62–0.94, the projected natural difference
+  0.47–0.72 at k = 1 and 0.55–0.83 at k = 8 against ceilings of
+  0.94–1.20; the other-task and background subspaces are destructive
+  (keep −0.1 to −2.4).
+
+```
+# workflow run 35465035832 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
+uv run directions trajectories --config configs/trajectories_subspace.yaml --seed 20260916 --fv-run /runpod-volume/results/run-35051925394/pilot6_qwen3_4b_seed20260916 --learned-run /runpod-volume/results/run-35420419658/learned_qwen3_4b_seed20260916 --run-id trajectories11_qwen3_4b_seed20260916
+```
+
+4B: 21.7 min (the subspace stage 5.1), determinism check passed; 10
+tasks, hand-over read points 22–27 of 36.
+
+- **Rank one for the natural difference, one to four for the steered
+  perturbation.** At the hand-over read point the mean natural
+  difference patched alone gives 0.82–1.12 of the effect on the eight
+  lexical tasks (ceilings 0.91–1.24; arithmetic_words 0.52 against its
+  ceiling of 0.54), k90 for the patch 1 on five tasks, 2 on past_tense
+  and present_participle, 8 on last_antonym. The rank-1 projection of
+  the steered perturbation retains 0.70–0.99 (median 0.86), rank 8
+  0.87–0.99 (median 0.94), ceilings 0.91–1.00; k90 for keep 1 on four
+  tasks, 2 on two, 4 on antonym and plural, not reached on last_antonym
+  (0.87 against 1.00). Top component 0.69–0.93 of the pool variance,
+  participation ratio 1.2–2.1, cosine 0.99–1.00 with the held-out mean.
+- **The task's own, the relatives shared.** The other tasks' subspace
+  keeps at most 0.33 at k = 1 on the lexical tasks and patches at most
+  0.39; at k = 8 it keeps 0.00–0.81 and patches up to 1.02 (antonym),
+  0.86 (number_to_words, from arithmetic_words' pool) and 0.74
+  (last_antonym): the subspace of nine other tasks contains a relative's
+  mean. On arithmetic_words every subspace keeps at least the 0.45 the
+  random ones keep (its first-token effect is small), and the other
+  tasks' reaches 0.95 at k = 8 through number_to_words. The background
+  keeps at most 0.12 at k = 1 on the lexical tasks (0.42 on
+  number_to_words at k = 8) and patches at most 0.27.
+- **At the last read point** the own rank-1 projection retains
+  0.02–0.85 and rank 8 −0.55 to 0.94, the projected natural difference
+  0.15–0.59 at k = 1 and 0.29–0.83 at k = 8 (ceilings 0.89–1.30); the
+  other-task and background subspaces are destructive.
+
+Iteration 11 on the four models, in one paragraph. **What replaces the
+control is a rank-one, task-specific signal at the hand-over depth.**
+On the 31 lexical task-model pairs with a hand-over before the last
+read point, the mean natural difference of prompts that were never
+evaluated, patched alone into the unsteered run at that read point,
+gives 0.82–1.12 of the learned vector's held-out effect (per-prompt
+ceilings 0.90–1.24; random rank-1 subspaces 0.00), and it is the top
+principal component of the pool's differences (0.59–0.95 of their
+variance, cosine 0.99–1.00 with the held-out mean). Keeping only the
+projection of the steered perturbation onto that one direction retains
+0.62–1.00 (medians 0.82–0.93 on the four models), and onto the top
+eight 0.81–1.05 (medians 0.94–0.97), against ceilings of 0.91–1.20:
+the steered perturbation spends a few more of the pool's directions
+than the natural difference needs (k90 for keep 1–2 on most tasks of
+0.6B and 1.7B, 1–8 on 4B and 8B, the higher ranks where the top
+component explains less of the variance), but nothing beyond the top
+eight, since the per-prompt ceiling is reached there. **The signal is
+the task's own.** The top-k subspace of the other tasks' pools keeps at
+most a third of the effect and patches at most 0.44 at rank one on
+every model, although its top component overlaps the task's own at
+0.6–0.9 of the energy: the direction the tasks share is most of the
+mean difference by norm and little of its effect, as D28 found for the
+vectors at the injection layer. At rank eight the other-task subspace
+carries the effect only where a relative sits in the pool (the two
+antonym tasks, number_to_words with arithmetic_words, 0.6–1.0), which
+is the relative's own mean, not a shared in-context subspace. The
+background's top-k subspace keeps and patches at most 0.1–0.4, mostly
+nothing. **Before the hand-over** the rank-1 signal carries what the
+per-prompt direction carries (the shortfall is the depth); **at the
+last read point** it carries 0.5–0.9 of the effect and the projected
+natural difference 0.5–0.8, with the other-task and background
+subspaces destructive: what remains at the end is higher in rank than
+the pool's top eight directions, and this, with add-3's no-op and
+last_antonym's own route on 1.7B, is where the rank-one description
+stops. So the causal dimensionality of the control's replacement is
+one at the depth where the hand-over happens, in the causal sense the
+geometric effective dimensionality could not deliver, and dimensional
+expansion in the causal sense appears only after the hand-over.
+**Cost.** 5.1, 11.1, 21.7 and 7.1 min (0.6B, 1.7B, 4B, 8B), about $1.30
+of worker time for the four models; the subspace stage was 2–5 min of
+each.
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
@@ -2765,6 +2978,16 @@ points, two constructions, every compared layer) being half of each.
   learned vector's selected layer is not reproducible across seeds
   (30 of 37 tasks differ) because the candidates are equivalent; a
   write-up should report per layer, not per selection.
+- Iteration 11 (D34) has run once per model on seed 20260916, with the
+  subspace rank capped at 8 by decision and the fitting pools at 128
+  prompts; the hand-over read point is read off the same run's patch
+  grid (the per-prompt keep on the held-out prompts, not the subspace
+  results), a mild selection on the evaluation pool that a fixed
+  fraction avoids. The other-task subspace pools every other task
+  equally, so at rank 8 it reflects whichever relative is in the pool;
+  a per-task-pair version would separate "shared" from "the relative's
+  own". The answer-content reading (a subspace fitted from the answer
+  unembedding directions) was not run.
 - Data centers: EUR-NO-1 (the volume with the 0.6B–4B cache) currently
   offers nothing above 24 GB, and only US-CA-2, US-IL-1, US-MO-2, US-NC-2,
   EU-RO-1 and EUR-NO-1 can host a run at all (`docs/INFRA.md`;
@@ -2815,7 +3038,7 @@ points, two constructions, every compared layer) being half of each.
 ## Next commands
 
 ```bash
-uv run pytest                                                           # 181 tests
+uv run pytest                                                           # 181 tests (the trajectories smoke run covers D32–D34)
 # GPU runs: edit .github/gpu-run.yaml (command + a new `request` label), commit, push; the run-gpu
 # workflow triggers on the push (README, "Run on GPUs"). One run per push; the ci environment runs
 # them one at a time (8B goes through the ci-8b environment in US-CA-2). Then:
@@ -2860,13 +3083,14 @@ Suggested next steps (2026-09-18; the list of two days ago with the state of eac
    The two candidate layers farthest from the selection are not covered
    on tasks whose selection sits at an end of the candidate range; a
    `layers` list would cover all four at 15 passes per layer and factor.
-3. **Useful dimensionality of the perturbation** (partial): the effect
-   leaves the injected direction (D29) and by three-quarter depth one
-   direction per prompt, the prompt's own natural difference, carries all
-   of it (D33). Not measured: the rank of that per-prompt family across
-   prompts, and whether a rank-k operator carries what one vector cannot
-   (add-k, iteration 7a). The next measurement is the spectrum of the
-   shared components across prompts at the hand-over depth.
+3. **Useful dimensionality of the perturbation** (done, iteration 11,
+   D34): at the hand-over depth the effect is carried by one direction
+   across prompts, the task's mean natural difference, the task's own
+   rather than a shared in-context subspace; the steered perturbation
+   needs at most the pool's top eight directions. Not measured: whether
+   a rank-k operator carries what one vector cannot (add-k, iteration
+   7a), and the rank of what remains at the last read point beyond
+   eight.
 4. **Mechanism** (partial): the answer-direction variant, the logit lens
    of the generic response and the first-token readouts exist; a logit
    lens of the common direction (D28) and of the learned vector at the
