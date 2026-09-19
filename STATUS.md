@@ -2415,6 +2415,298 @@ four runs took 2.8, 4.2, 8.8 and 4.1 min, about $0.60 in total, against
 $3.20 for iteration 8's; the geometry on the device makes a strength
 factor cost 15 passes per layer and nothing else.
 
+### Iteration 10 (D33 amended: quarter strength, the neighbouring candidate layers, the patch grid at eighths for both vectors, per-block writing; a second seed)
+
+The learned-vector protocol (D31, `learned_*.yaml`) run at seed 20260916
+on the four models, then the `trajectories` command with `--seed
+20260916` on those runs and on iteration 6's head-mean runs of the same
+seed, with `strength_factors: [1.0, 0.5, 0.25]`, `neighbour_layers: 1`
+(the nearest candidate layer below and above the learned run's selected
+layer, each construction at the strength its own run's calibration
+gives it there), the patch test at every compared layer on eighths of
+the downstream depth for the learned and the head-mean vector, and the
+per-block writing of the shared component. Nothing in the seed-20260907
+runs was re-run: the quantities the two iterations share (the primary
+layer, canonical and half strength, the patch rows at 0.5, 0.75 and
+1.0) are compared across seeds below, at the same injection layer
+wherever seed 2 covers seed 1's selected layer as its primary or as a
+neighbour. All alignment numbers are with the generic response removed;
+"x1", "x0.5", "x0.25" are the strength factors.
+
+**The learned vector replicates on effect, not on layer.** The "best"
+layer rule (D27) picks a different candidate on 6 of 8 tasks (0.6B),
+8 of 9 (1.7B), 8 of 10 (4B) and 8 of 10 (8B) between the two seeds, while
+the held-out effects agree within 0.02–0.36 nats per token (the
+aggregates: `directions aggregate` of the two learned runs per model)
+and the gap fractions within 0.03. The candidates' effects are close
+(every candidate recovers 0.8–1.0 of the gap at its natural norm), so
+the selection is a coin toss among them and the comparisons below are
+read at the same layer in both seeds where possible.
+
+```
+# workflow runs 35414623339 (learned, H100 80GB HBM3, ADA_80_PRO, US-CA-2, Flash environment ci-8b) and 35417242891 (comparison, same)
+uv run directions pilot --config configs/learned_qwen3_8b.yaml --seed 20260916 --run-id learned_qwen3_8b_seed20260916
+uv run directions trajectories --config configs/trajectories.yaml --seed 20260916 --fv-run /runpod-volume/results/run-35050604985/pilot6_qwen3_8b_seed20260916 --learned-run /runpod-volume/results/run-35414623339/learned_qwen3_8b_seed20260916 --run-id trajectories10_qwen3_8b_seed20260916
+```
+
+8B: learned run 51 min, comparison 17.6 min (4.1 in iteration 9: the
+patch grid is now 9.9 min of it), both determinism checks passed; 10
+tasks, 29 compared layers (2–4 per task).
+
+- **The hand-over sits at a fixed read point, not at a fixed distance
+  from the injection.** For each lexical task the first read point at
+  which keeping only the component along the prompt's natural
+  difference retains 0.9 of the learned vector's effect is the same
+  whether the vector was injected at layer 7, 11, 14 or 18: past_tense
+  27/25/25 (layers 11/14/18), plural 29/27/25 (7/11/14), singular,
+  uppercase, number_to_words, present_participle 27/25/25, antonym
+  22/25 (14/18), last_antonym 25/23/25/25 (7/11/14/18); that is 7–22
+  blocks after the injection and 0.39–0.76 of the downstream depth, but
+  read points 22–29 of 36 in every case. The natural difference patched
+  alone reaches 0.9 of the effect at read points 20–25 and removal falls
+  to 0.5 at 25–33, with the same invariance. Blocks around 20–27 of 36
+  canonicalise whatever enters them; what the injection layer changes is
+  only how many blocks the vector waits.
+- **The shared component carries the head mean's effect as well.** At
+  three quarters of the depth keeping only the component along the
+  natural difference retains 0.63–2.38 of the head mean's effect
+  (random per-example directions at most 0.07), removing it leaves
+  −0.83 to 0.33 (random 1.00), and the natural difference alone gives
+  1.13–4.71 of the head mean's effect (random vectors of its norm −0.44
+  to −0.03): more than the head mean itself, which recovers 0.21–0.88 of
+  the gap where the natural difference recovers all of it. Its hand-over
+  read points (keep ≥ 0.9 at 20–30) coincide with the learned vector's.
+- **Quarter strength is below the working range on 8B.** The learned
+  vector at x0.25 keeps 0.08–0.72 of the gap (median 0.35) and the head
+  mean at most 0.20; on the four task-layer pairs where x0.25 still
+  recovers half the gap the final alignment is 0.47–0.74, no better
+  than x1's 0.52–0.85 or x0.5's 0.76 (median). Half strength remains the
+  sweet spot: gap 0.51–1.00 (median 0.91), converging on 9 of 10 at the
+  primary layer where x1 partly diverges on 8 of 10 (final medians 0.76
+  against 0.63), as in iteration 9's seed.
+- **At a neighbouring layer the learned vector fitted there steers as
+  well** (0.89–1.03 of the gap at x1 on 19 neighbour pairs, at the
+  reliable grid point nearest ρ = 1) and aligns as much (final 0.29–0.83,
+  median 0.62, against 0.52–0.85 at the primaries), converging on 7 and
+  partly diverging on 12; the selected layer is not special.
+- **Block writing.** With the reference moving with depth, the last
+  block writes 0.47–1.13 of the natural difference into the learned
+  trajectory on all 29 layers (the next largest block 0.20–0.42 of
+  that) and 0.43–0.74 into the natural trajectory itself; the rank
+  correlation of the learned and the natural block profiles is 0.12–0.69
+  (median 0.47), the head mean's 0.15–0.75. Held at the hand-over read
+  point m* on the population means (offline, from the saved means), the
+  component present there was written by blocks m*, m*−1 and m*−2 (half
+  of it by m*−1), with the same top three blocks for the steered and the
+  natural run on every task and layer; held at the last read point, the
+  last block writes 0.6–0.8 of it. So the shared component is not a
+  fixed direction carried forward: every block re-writes it, and the
+  hand-over is where the steered run's re-writing has caught up with the
+  natural one. The moving reference makes the natural trajectory's own
+  profile trivially peak at block 1 (its difference is zero at the
+  embedding) and the entropy ratios uninformative (0.95–0.97).
+- **Coherence** at the end 0.48–0.90 at x1, 0.33–0.77 at x0.5, 0.28–0.72
+  at x0.25: it falls with the push here, unlike between x1 and x0.5 in
+  iteration 9.
+- **Cross-seed, at the same layer (7 tasks).** Seed 2 minus seed 1:
+  learned gap fraction at x1 −0.01 to +0.01, final alignment −0.05 to
+  +0.04, head-mean gap −0.06 to +0.02 and final −0.08 to +0.04, coherence
+  −0.06 to +0.12, generic norm ratio ±0.03, keep at 0.75 ±0.01, the
+  natural patch at 0.75 −0.01 to +0.03, at 0.5 ±0.02; only removal at
+  0.75 (−0.50 to +0.20) and the half-strength gap on arithmetic_words
+  (0.34 → 0.76) move. The trajectory results are a property of the
+  model, not of the fit. Taken at each seed's own selected layer instead
+  the spreads triple (final x1 −0.18 to +0.14), which is the layer
+  difference, not noise.
+
+```
+# workflow runs 35414652608 (learned, RTX 4090, ADA_24, EUR-NO-1) and 35417248145 (comparison, same)
+uv run directions pilot --config configs/learned_qwen3_0.6b.yaml --seed 20260916 --run-id learned_qwen3_0.6b_seed20260916
+uv run directions trajectories --config configs/trajectories.yaml --seed 20260916 --fv-run /runpod-volume/results/run-35050574186/pilot6_qwen3_0.6b_seed20260916 --learned-run /runpod-volume/results/run-35414652608/learned_qwen3_0.6b_seed20260916 --run-id trajectories10_qwen3_0.6b_seed20260916
+```
+
+0.6B: learned run 50 min, comparison 12.6 min (2.8 in iteration 9),
+determinism checks passed; 8 tasks, 24 compared layers.
+
+- **The same fixed read point.** Keep ≥ 0.9 of the learned vector's
+  effect at read points 20–23 of 28 for injections at layers 6, 8, 11
+  and 14 (plural 20/20/21, present_participle 20/23/21, uppercase
+  20/20/21, past_tense 20/22/21; antonym earlier, 18–20): 4–15 blocks
+  after the injection, 0.29–0.75 of the downstream depth, read points
+  18–23 in every case. The natural patch alone reaches 0.9 at 16–20.
+- **Head mean**: keep at 0.75 retains 1.02–5.48 of its effect (random
+  ≤ 0.23), the natural patch alone 1.38–9.93 (the head mean recovers
+  0.09–0.72 of the gap here), removal −2.92 to 0.39. Its hand-over is
+  earlier than the learned vector's on most pairs (keep ≥ 0.9 at 10–23).
+- **Quarter strength**: the learned vector keeps 0.00–0.29 of the gap at
+  the primary layers and 0.07–0.44 at the neighbours; nothing to align.
+  **Half strength loses more on this seed's fits**: 0.17–0.91 of the gap
+  at the primary layers (median 0.39; seed 1: 0.45–0.91), while at the
+  deeper neighbour (layer 14) it keeps 0.83–0.93. At x1 the learned
+  vector converges on 8 of 8 primaries and 15 of 16 neighbours (final
+  0.52–0.89, median 0.69).
+- **Block writing**: the last block writes 0.35–0.76 of the natural
+  difference into the learned trajectory (dominant on 24 of 24) and
+  0.22–0.48 into the natural one; for the head mean it is not the
+  dominant block (last-block share −0.10 to 0.36, median 0.03). Rank
+  correlation with the natural profile 0.02–0.81 (learned), 0.37–0.85
+  (head mean).
+- **Cross-seed, same layer (8 tasks)**: learned gap at x1 ±0.02, final
+  −0.15 to +0.01, keep at 0.75 −0.01 to +0.03, natural patch ±0.02,
+  coherence ±0.06; the half-strength gap −0.74 to +0.40 (uppercase 0.75
+  → 0.19, singular 0.91 → 0.17): at half the canonical norm a different
+  fit of the same layer has a different strength curve on this model.
+
+```
+# workflow runs 35414702823 (learned, RTX 4090, ADA_24, EUR-NO-1) and 35419811910 (comparison, same)
+uv run directions pilot --config configs/learned_qwen3_1.7b.yaml --seed 20260916 --run-id learned_qwen3_1.7b_seed20260916
+uv run directions trajectories --config configs/trajectories.yaml --seed 20260916 --fv-run /runpod-volume/results/run-35050661831/pilot6_qwen3_1.7b_seed20260916 --learned-run /runpod-volume/results/run-35414702823/learned_qwen3_1.7b_seed20260916 --run-id trajectories10_qwen3_1.7b_seed20260916
+```
+
+1.7B: learned run 52 min, comparison 16.0 min (4.2 in iteration 9),
+determinism checks passed; 9 tasks, 25 compared layers.
+
+- **The fixed read point again**: keep ≥ 0.9 of the learned vector's
+  effect at read points 17–22 of 28 for injections at layers 6–14
+  (uppercase 20/20/22 for layers 6/8/11, plural 20/22/21 for 8/11/14,
+  present_participle 20/22/21, past_tense 20/19/21, antonym 17/18/17/18
+  for 6/8/11/14), 4–14 blocks after the injection; the head mean's at
+  16–22, mostly a read point or two earlier. The exception is
+  last_antonym, where keeping the shared component alone reaches 0.9 of
+  the learned vector's effect only at the last read point from every
+  injection layer (removal still costs half of it by read points 16–19,
+  and the natural patch alone reaches 0.9 at 17–22): on this task the
+  learned vector keeps a route of its own beside the shared one.
+- **Head mean** (the one model on which it steers as well as the learned
+  vector, gap 0.61–0.94): keep at 0.75 retains 0.74–1.38 of its effect
+  (random ≤ 0.10), the natural patch alone 1.04–1.71, removal −0.15 to
+  0.46; converging on 7 of 8 primaries at x1.
+- **Quarter strength**: the learned vector keeps 0.04–0.68 of the gap
+  (median 0.27), the head mean 0.12–0.35; half strength keeps 0.43–1.00
+  (median 0.89) and converges on 7 of 8 primaries where x1 partly
+  diverges on 6 of 9 (final medians 0.75 against 0.52), as in seed 1.
+- **Block writing**: the last block writes 0.11–1.13 of the natural
+  difference into the learned trajectory (median 0.48; dominant on most
+  layers, not all) and 0.26–0.62 into the natural one; the head mean's
+  last-block share is 0.08–0.31 and its profile follows the natural one
+  most closely of the three models (rank correlation 0.50–0.89, median
+  0.71; the learned vector's 0.32–0.81).
+- **Cross-seed, same layer**: only 4 of 9 tasks, since seed 2's layers
+  (its selection and the neighbours) miss seed 1's selection on the
+  other five. On those four: learned gap at x1 −0.02 to +0.03, final +0.01
+  to +0.07, head-mean final −0.06 to +0.13, keep at 0.75 −0.07 to +0.01,
+  the natural patch −0.04 to +0.01; the half-strength gap −0.33 to +0.04
+  and removal at 0.75 −0.04 to +0.48. Two labels flip from
+  aligns_then_partly_diverges to converges at x1 (antonym, number_to_words),
+  a change in the significance of a decline of 0.05–0.10, not in the curve.
+
+```
+# workflow runs 35420419658 (learned, RTX 4090, ADA_24, EUR-NO-1) and 35421215047 (comparison, same)
+uv run directions pilot --config configs/learned_qwen3_4b.yaml --seed 20260916 --run-id learned_qwen3_4b_seed20260916
+uv run directions trajectories --config configs/trajectories.yaml --seed 20260916 --fv-run /runpod-volume/results/run-35051925394/pilot6_qwen3_4b_seed20260916 --learned-run /runpod-volume/results/run-35420419658/learned_qwen3_4b_seed20260916 --run-id trajectories10_qwen3_4b_seed20260916
+```
+
+4B: learned run 79 min, comparison 27.9 min (8.8 in iteration 9),
+determinism checks passed; 10 tasks, 29 compared layers.
+
+- **The fixed read point**: keep ≥ 0.9 of the learned vector's effect
+  at read points 22–27 of 36 for injections at layers 7, 11, 14 and 18
+  (past_tense 25/27/25/25, plural 25/23/25/25, singular 25/23/25,
+  uppercase 23/25/25, present_participle 27/25/25, number_to_words
+  25/25, last_antonym 25/23/25), 4–18 blocks after the injection and
+  0.22–0.64 of the downstream depth; the natural patch alone reaches 0.9
+  at 20–27, removal falls to 0.5 at 22–29. The same read points as on 8B
+  (both 36 blocks): the canonicalising blocks sit at 0.6–0.8 of the
+  stack on every model (0.6B and 1.7B: 17–23 of 28).
+- **The learned vector converges on every pair at x1** (10 of 10
+  primaries, 19 of 19 neighbours; final 0.64–0.84, median 0.77, the
+  highest of the four models) and at x0.5 (final 0.56–0.89, gap
+  0.15–1.00, median 0.90); x0.25 keeps 0.03–0.69 of the gap (median
+  0.17). The head mean is weak on this model (0.10–0.61 of the gap at
+  x1, at most 0.29 at x0.5), and where it steers its effect is carried
+  by the shared component like the others (keep at 0.75 0.73–1.74, the
+  natural patch alone 1.47–5.72, removal −0.18 to 0.44).
+- **Block writing**: the last block writes 0.65–1.02 of the natural
+  difference into the learned trajectory (dominant on 29 of 29) and
+  0.40–0.62 into the natural one; the head mean's last-block share is
+  −0.03 to 0.20 (median 0.02) and its profile the least like the
+  natural one (rank correlation −0.03 to 0.60; the learned vector's
+  0.09–0.82).
+- **Cross-seed, same layer (7 tasks)**: learned gap at x1 −0.08 to
+  +0.02, final ±0.05, at x0.5 gap −0.04 to +0.06 and final −0.05 to
+  +0.06, keep at 0.75 −0.02 to +0.09, the natural patch −0.02 to +0.09,
+  coherence ±0.08, generic norm ratio −0.01 to +0.04. The head mean is
+  the one construction that moves consistently, −0.02 to −0.13 of the
+  gap and −0.00 to −0.14 of the final alignment, because seed 2's head
+  mean is a different run (iteration 6's second seed: its own heads and
+  strength), not a re-read of the same vector.
+
+Iteration 10 on the four models, in one paragraph. **The hand-over is
+a property of the depth, not of the vector or its injection layer.** On
+every lexical task and model the read point at which the component of
+the perturbation along the prompt's own natural difference carries at
+least 0.9 of the learned vector's effect is the same for every candidate
+injection layer, 17–23 of 28 blocks on 0.6B and 1.7B and 22–29 of 36 on
+4B and 8B (0.6–0.8 of the stack), whether that is 4 or 22 blocks after
+the injection; the natural difference patched alone reaches 0.9 of the
+effect a read point or two earlier and removal costs half of the effect
+a read point or two later, with the same invariance. A learned vector
+fitted at a neighbouring candidate layer, at the strength that layer's
+calibration gives it, steers as well as the selected one (0.72–1.04 of
+the gap on 70 neighbour pairs) and aligns as much, so the "best" layer
+rule (D27) selects among equivalents, which is why the two seeds pick
+different layers on 30 of 37 tasks while the held-out effects agree
+within 0.36 nats. **The shared component carries the head mean's effect
+as it carries the learned vector's**: keeping only that component
+retains 0.47–5.48 of the head mean's effect and the natural difference
+alone gives 1.04–9.93 of it (the head mean recovers 0.07–0.94 of the
+gap where the natural difference recovers all of it; random matches at
+most 0.23 and −1.42 to −0.01), with a hand-over at the same read points
+or a little earlier; on 1.7B's last_antonym alone the learned vector
+keeps a route of its own beside the shared one (keep ≥ 0.9 only at the
+last read point from every layer). **Quarter strength is below the
+working range**: the learned vector keeps 0.00–0.88 of the gap at x0.25
+(medians 0.14–0.35 at the primaries) and the head mean −0.01 to 0.45,
+and where x0.25 still steers its alignment (0.24–0.87) is no better than
+x0.5's; half strength remains the point at which the alignment is
+highest (final medians 0.64–0.78 against 0.52–0.77 at x1) with most of
+the effect (medians 0.39–0.91 of the gap), except that on 0.6B this
+seed's fits lose more at x0.5 than seed 1's did. **Per-block writing is
+a moving target.** With the reference taken at each read point, the
+last block writes the largest share of the natural difference into the
+learned trajectory on every layer of 0.6B, 4B and 8B and most of
+1.7B's (0.11–1.13 of it), the natural
+trajectory itself gets 0.22–0.74 of its final difference from its last
+block, and the block profiles of the learned and the natural trajectory
+rank-correlate at 0.02–0.82 (medians 0.47–0.65); held at the hand-over
+read point on the population means (8B, offline) the component present
+there was written by the two or three blocks just before it, identically
+for the steered and the natural run. The natural difference is
+re-written by every block rather than carried, and the hand-over is the
+read point from which the steered run's re-writing coincides with the
+natural one; the moving reference makes the entropy ratios
+uninformative (0.95–0.97 for the natural trajectory) and this measure
+is exploratory. **Cross-seed.** At the same injection layer the
+comparison's numbers replicate to within a few hundredths on 7, 8, 4
+and 7 tasks (0.6B, 1.7B, 4B, 8B): the learned vector's gap fraction at
+x1 within ±0.08, its final alignment within −0.15 to +0.07, keep and the
+natural patch at 0.75 within ±0.09, coherence within ±0.12; the
+quantities that move are removal at 0.75 (−0.50 to +0.60, the noisiest
+edit), the half-strength gap on 0.6B (−0.74 to +0.40) and the head mean
+on 4B (a different head-mean run), and the labels flip on 4 of 26 pairs
+where a decline of 0.05–0.10 crosses significance. Taken at each seed's
+own selected layer the spreads are two to three times larger, which is
+the layer difference. The trajectory results are a property of the
+model; the learned vector's selected layer is not.
+
+**Cost.** The eight runs: learned-vector runs of 50, 52, 79 and 51
+min and comparisons of 12.6, 16.0, 27.9 and 17.6 min (0.6B, 1.7B, 4B,
+8B), about $9.80 of worker time in total ($5.46 of it the 8B pair on
+the H100), against the $2.50 of a comparison-only iteration; the second
+seed of the learned vector is three quarters of it. The comparisons
+took 3–4.5 × iteration 9's, as projected, the patch grid (eight read
+points, two constructions, every compared layer) being half of each.
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
@@ -2457,10 +2749,22 @@ factor cost 15 passes per layer and nothing else.
   four isotropic controls per construction and strength are few for the
   floors' quantiles; and the generic-response diagnostics are taken on
   population means (the logit lens with the mean random response), not
-  per prompt. Two strengths were run; a grid would cost 15 passes per
-  layer per strength. The generic-response line is closed
+  per prompt. The generic-response line is closed
   (docs/GENERIC_RESPONSE.md condenses it, with the open hypotheses and
   their tests recorded and not run).
+- Iteration 10 (D33 amended) has run once per model on seed 20260916,
+  with the learned-vector protocol at that seed; its shared quantities
+  are replicated against iteration 9's seed at the same injection layer,
+  but the additions (the quarter strength, the neighbouring layers, the
+  patch grid at eighths, the head mean's patch rows, the per-block
+  writing) have one seed. The per-block writing uses a reference that
+  moves with depth, so its shares do not telescope and its entropy
+  ratios say little; a fixed-reference version (the natural difference
+  at the hand-over read point, per example) would be the measure to
+  preregister if the block localisation is to be a core quantity. The
+  learned vector's selected layer is not reproducible across seeds
+  (30 of 37 tasks differ) because the candidates are equivalent; a
+  write-up should report per layer, not per selection.
 - Data centers: EUR-NO-1 (the volume with the 0.6B–4B cache) currently
   offers nothing above 24 GB, and only US-CA-2, US-IL-1, US-MO-2, US-NC-2,
   EU-RO-1 and EUR-NO-1 can host a run at all (`docs/INFRA.md`;
@@ -2519,17 +2823,17 @@ gh run list --workflow=run-gpu.yml --branch fable --limit 1 && gh run watch <RUN
 gh run download <RUN_ID> --dir results/remote/<name>
 uv run --with boto3 python scripts/runpod_log.py <RUN_ID> --follow      # the live worker log
 # iteration 10 (D33 amended: quarter strength, the neighbouring candidate layers, the patch test at every compared
-# layer on eighths of the depth for the learned and the head-mean vector, per-block writing), on a second seed:
-# first the learned-vector protocol (D31) at seed 20260916 on each model (the head-mean runs of that seed are
-# iteration 6's), then the comparison with --seed 20260916 on the two seed-20260916 runs:
+# layer on eighths of the depth for the learned and the head-mean vector, per-block writing), on a second seed,
+# as run (workflow runs in the iteration-10 entry): first the learned-vector protocol (D31) at seed 20260916 on
+# each model (the head-mean runs of that seed are iteration 6's), then the comparison with --seed 20260916:
 uv run directions pilot --config configs/learned_qwen3_0.6b.yaml --seed 20260916 --run-id learned_qwen3_0.6b_seed20260916
 uv run directions pilot --config configs/learned_qwen3_1.7b.yaml --seed 20260916 --run-id learned_qwen3_1.7b_seed20260916
 uv run directions pilot --config configs/learned_qwen3_4b.yaml --seed 20260916 --run-id learned_qwen3_4b_seed20260916
 uv run directions pilot --config configs/learned_qwen3_8b.yaml --seed 20260916 --run-id learned_qwen3_8b_seed20260916   # ci-8b, US-CA-2
-uv run directions trajectories --config configs/trajectories.yaml --seed 20260916 --fv-run /runpod-volume/results/run-35050574186/pilot6_qwen3_0.6b_seed20260916 --learned-run /runpod-volume/results/run-<learned 0.6B run>/learned_qwen3_0.6b_seed20260916 --run-id trajectories10_qwen3_0.6b_seed20260916
-uv run directions trajectories --config configs/trajectories.yaml --seed 20260916 --fv-run /runpod-volume/results/run-35050661831/pilot6_qwen3_1.7b_seed20260916 --learned-run /runpod-volume/results/run-<learned 1.7B run>/learned_qwen3_1.7b_seed20260916 --run-id trajectories10_qwen3_1.7b_seed20260916
-uv run directions trajectories --config configs/trajectories.yaml --seed 20260916 --fv-run /runpod-volume/results/run-35051925394/pilot6_qwen3_4b_seed20260916 --learned-run /runpod-volume/results/run-<learned 4B run>/learned_qwen3_4b_seed20260916 --run-id trajectories10_qwen3_4b_seed20260916
-uv run directions trajectories --config configs/trajectories.yaml --seed 20260916 --fv-run /runpod-volume/results/run-35050604985/pilot6_qwen3_8b_seed20260916 --learned-run /runpod-volume/results/run-<learned 8B run>/learned_qwen3_8b_seed20260916 --run-id trajectories10_qwen3_8b_seed20260916
+uv run directions trajectories --config configs/trajectories.yaml --seed 20260916 --fv-run /runpod-volume/results/run-35050574186/pilot6_qwen3_0.6b_seed20260916 --learned-run /runpod-volume/results/run-35414652608/learned_qwen3_0.6b_seed20260916 --run-id trajectories10_qwen3_0.6b_seed20260916
+uv run directions trajectories --config configs/trajectories.yaml --seed 20260916 --fv-run /runpod-volume/results/run-35050661831/pilot6_qwen3_1.7b_seed20260916 --learned-run /runpod-volume/results/run-35414702823/learned_qwen3_1.7b_seed20260916 --run-id trajectories10_qwen3_1.7b_seed20260916
+uv run directions trajectories --config configs/trajectories.yaml --seed 20260916 --fv-run /runpod-volume/results/run-35051925394/pilot6_qwen3_4b_seed20260916 --learned-run /runpod-volume/results/run-35420419658/learned_qwen3_4b_seed20260916 --run-id trajectories10_qwen3_4b_seed20260916
+uv run directions trajectories --config configs/trajectories.yaml --seed 20260916 --fv-run /runpod-volume/results/run-35050604985/pilot6_qwen3_8b_seed20260916 --learned-run /runpod-volume/results/run-35414623339/learned_qwen3_8b_seed20260916 --run-id trajectories10_qwen3_8b_seed20260916
 # the pilot protocols, for reference (head-mean control: pilot_*.yaml; learned vector: learned_*.yaml; add-k: arith_*.yaml):
 uv run directions pilot --config configs/learned_qwen3_0.6b.yaml --run-id learned_qwen3_0.6b_seed20260907
 uv run directions aggregate results/remote/<a>/... results/remote/<b>/... --out results/aggregate_<model>.json   # multi-seed summary
@@ -2538,20 +2842,18 @@ uv run directions compare results/<run_a> results/<run_b>                # diff 
 
 Suggested next steps (2026-09-18; the list of two days ago with the state of each):
 
-1. **Strength dependence** (partial): half strength is done on all four
-   models (iteration 9); the quarter strength is implemented (D33 amended,
-   `strength_factors: [1.0, 0.5, 0.25]`) and runs in iteration 10. Double
-   strength is not planned (the calibration grids were still rising at
-   their ceiling; the canonical strength already overshoots on 1.7B and 8B).
-2. **Commitment at every candidate injection layer** (implemented, runs in
-   iteration 10): the comparison and the patch test at the nearest
-   candidate layer below and above the primary one (`neighbour_layers: 1`,
-   `patch.layers: all`), the patch grid at eighths of the depth, the
-   head-mean vector edited beside the learned one, and the per-block
-   writing of the shared component. Iteration 10 runs on seed 20260916
-   (learned-vector runs at that seed first), so it doubles as the
-   cross-seed comparison of the trajectory results and of the learned
-   vector's held-out numbers.
+1. **Strength dependence** (done for the trajectory comparison): canonical,
+   half and quarter strength on all four models (iterations 9 and 10);
+   quarter strength is below the working range, half strength the point
+   of highest alignment. Double strength is not planned (the calibration
+   grids were still rising at their ceiling; the canonical strength
+   already overshoots on 1.7B and 8B).
+2. **Commitment at every candidate injection layer** (done for the
+   primary and its neighbouring candidates, iteration 10): the hand-over
+   sits at a fixed read point of the stack for every injection layer.
+   The two candidate layers farthest from the selection are not covered
+   on tasks whose selection sits at an end of the candidate range; a
+   `layers` list would cover all four at 15 passes per layer and factor.
 3. **Useful dimensionality of the perturbation** (partial): the effect
    leaves the injected direction (D29) and by three-quarter depth one
    direction per prompt, the prompt's own natural difference, carries all
@@ -2570,9 +2872,9 @@ Suggested next steps (2026-09-18; the list of two days ago with the state of eac
    embeddings, a (1 + w) norm, soft-capped logits). A new family means new
    configs and a cold model cache on the volume.
 6. **Hardening** (partial): the determinism check, the device geometry
-   and the workflow are in place; iterations 7a, 7b, 8 and 9 have one
-   seed each, so a second seed of the learned-vector run and of the
-   trajectory comparison is the next hardening step, before any write-up
-   states their numbers with error bars.
+   and the workflow are in place; the learned-vector run and the
+   trajectory comparison now have two seeds (iterations 7b and 10) and
+   replicate at the same injection layer; iteration 7a (add-k) has one
+   seed, and two seeds give a range, not an interval.
 
 The generic-response line is closed (docs/GENERIC_RESPONSE.md).
