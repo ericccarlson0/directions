@@ -3081,6 +3081,30 @@ and `arithmetic_words` fail the head-support gate at few-shot 0.995 /
   queued on antonym and past_tense. Until it reports, the Gemma 4
   hand-over numbers past read point 32 are not used.
 
+```
+# workflow run 35533914927 (push-triggered request), H100 80GB HBM3 (ADA_80_PRO), US-CA-2, Flash environment ci-8b
+uv run directions pilot --config configs/learned_gemma4_12b.yaml --run-id learned_gemma4_12b_seed20260907
+```
+
+**Gemma 4 12B learned vector** (D31 protocol): 94 min, determinism
+check passed, 10 of 10 qualify (add_3 and arithmetic_words included,
+which the head mean could not steer). The fits drive the extraction
+loss to 0.00 on nine tasks (last_antonym 9.3 → 1.9; Qwen3's fits
+stopped at 0.1–0.5), with seed stability 0.01–0.22 (the perfect fit
+leaves the direction under-determined at the fit radius). Layers 24
+(antonym, past_tense), 19 (present_participle, singular, uppercase),
+14 (add_3, arithmetic_words, number_to_words, plural) and 10
+(last_antonym), always ρ = 1 (the fit radius, 1.0 × the stream).
+Held-out +2.6 to +8.3 nats per token, 0.78–1.12 of the few-shot gap,
+accuracy 0.71–0.99; over the permuted-target null +1.4 to +7.2, over
+the other tasks' vectors +4.1 to +21.3 (all p < 0.001). The collateral
+damage is extreme: KL on neutral prose 6–27 nats for nine tasks
+(last_antonym 2.7), 5–25 nats above the random controls'. The
+commitment summaries (removal leaves 50 % from 0.21–0.96 of the
+downstream depth, the direction alone carries 50 % until 0.03–0.38)
+share the deep-stack anomaly of the head-mean run and are not read
+until the probe reports.
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
