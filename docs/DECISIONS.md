@@ -1559,6 +1559,51 @@ Decision:
   applied to the selected heads' sum) was not adopted: the norm acts
   on the whole attention output, so a partial sum through it is no
   more the model's write than the raw sum is.
+* **Readable read points, and a norm-matched null for the edits**
+  (found on the Gemma 4 pilot; D29 amended). The commitment curves of
+  Gemma 4 reversed the effect from read point 33 to 46 of 48 under
+  both edits, and the random-direction controls, whose removal should
+  change nothing, lost most of the effect too. A probe
+  (`scripts/probe_edit_sensitivity.py`) showed the mechanics exact (an
+  all-zero edit reproduces the steered run bit for bit) and the model
+  hypersensitive: a random edit of norm 10 on a residual of norm ~100
+  at the query token costs 6–9 nats on the *unsteered* model from read
+  point 30–33 on, norm 1 costs 0.6 nats at 40–44 and 5 nats at the last
+  read point (residual norm 9), where Qwen3 shows no measurable change
+  for the D29 edits of norm 1–8. The cause is architectural: the
+  residual at the query token is dominated by one massive coordinate
+  (91 % of its energy in the middle of the stack; the head-mean vector
+  of antonym has its largest coordinate there, and the steering shifts
+  it by 20–120) and is read through norm weights with entries in the
+  hundreds (the input norm of layer 24 peaks at 244, the final norm at
+  604), so edits of a percent of the residual norm move what the
+  deep blocks read by units. Any residual edit of the size the D29,
+  D33 and D34 tests use is therefore uninterpretable there: it does
+  not say what carries the effect, only that the state was pushed off
+  its manifold. Two consequences, applied from here on:
+  - the D29 summary reads the hand-over depths over the *readable*
+    read points only, those at which the random edits keep their
+    premise (random removal retains the effect within
+    `readability_tolerance` = 0.1 of 1 and random keeping alone
+    within it of 0), and lists the unreadable ones; on Qwen3 and OLMo
+    3 every read point is readable, so nothing changes there;
+  - the random null is matched in *size* as well as in shape: beside
+    the same edit along random directions (whose size is the
+    perturbation's own component along them, ‖δ‖/√d), each real edit
+    is repeated with its own per-prompt magnitude (δ·v) along the
+    random directions (`random_matched_*`; `matched_controls`), and a
+    read point is readable only if that null is inert too. The
+    shape-matched null alone passed the last read point of Gemma 4
+    (its edit there has norm 0.02–0.09) where a real edit of norm 1
+    costs 5 nats.
+  The trajectories' patch and subspace tests carry shape-matched
+  isotropic controls only; on Gemma 4 their read points past 30 (0.63
+  of the stack) are read against the probe's sensitivity map, not
+  taken at face value. The probe's readable window on Gemma 4 ends
+  where Qwen3's hand-over sits (0.6–0.8 of the stack), so on this
+  family the hand-over can be seen to begin (removal of the head-mean
+  direction leaves 0.8 of antonym's effect by read point 29–30) but
+  not to complete.
 
 Reading: the core quantities to compare across families are the
 hand-over read point as a fraction of the stack (0.6–0.8 on Qwen3 for

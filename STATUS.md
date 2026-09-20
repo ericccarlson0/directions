@@ -3020,13 +3020,17 @@ passed, 8 of 10 qualify (`arithmetic_words` fails the few-shot gate at
   above the isotropic null at z 5.7–12; cumulative log G +1.1 to +1.4,
   Qwen3 negative), with dimensional expansion on four tasks (d_eff
   16–22 → 36–49).
-- **Depth of commitment.** The cleanest curves of any model: removing
-  the direction right after the injection leaves ≤ 0.1 of the effect,
-  the retained share passes 50 % at 0.11–0.32 of the downstream depth
-  (present_participle 0.62), 90 % at 0.26–0.94, and is 1.00 at the
-  last read point for all eight tasks; the direction alone carries
-  50 % until 0.35–0.89 of the downstream depth (Qwen3: 0.1–0.65) and
-  0.01–0.41 at the end. Against the random edits the direction stops
+- **Depth of commitment.** The cleanest curves of any model, and every
+  read point readable (the random controls at 1.00 / 0.00 throughout):
+  removing the direction right after the injection leaves ≤ 0.1 of the
+  effect, the retained share passes 50 % at 0.11–0.32 of the
+  downstream depth (present_participle 0.62; 0.34–0.53 of the stack,
+  plural and present_participle 0.81–0.84), 90 % at 0.26–0.94
+  (0.56–0.72 of the stack for six tasks, 0.88–0.97 for plural and
+  present_participle), and is 1.00 at the last read point for all
+  eight tasks; the direction alone carries 50 % until 0.35–0.89 of
+  the downstream depth (0.47–0.94 of the stack; Qwen3: 0.1–0.65 of
+  the downstream depth) and 0.01–0.41 at the end. Against the random edits the direction stops
   being needed *before* the last read point on every task (needed
   until read points 27–32 of 32; the D29 commitment layer is defined
   here, where on Qwen3 it was undefined for 27 of 31 pairs). The task
@@ -3076,10 +3080,51 @@ and `arithmetic_words` fail the head-support gate at few-shot 0.995 /
   point 47 is sane again (removal 0.97, random 1.00) and 48 partly
   (0.29). Nothing in the stored numbers explains it (the edits are the
   D29 ones; the random edit's norm is |δ·u| ≈ 1.6 on a residual of
-  norm ~90; Qwen3's random controls sit at 1.00 / 0.00 throughout);
-  an edit-sensitivity probe (`scripts/probe_edit_sensitivity.py`) is
-  queued on antonym and past_tense. Until it reports, the Gemma 4
-  hand-over numbers past read point 32 are not used.
+  norm ~90; Qwen3's random controls sit at 1.00 / 0.00 throughout).
+
+```
+# workflow run 35534564334, H100 80GB HBM3 (ADA_80_PRO), US-CA-2, Flash environment ci-8b (2.5 min)
+uv run python scripts/probe_edit_sensitivity.py --run /runpod-volume/results/run-35529659262/pilot6_gemma4_12b_seed20260907 --tasks antonym past_tense --read-points 16 20 26 30 33 36 40 44 47 48 --out-dir results/probe_gemma4_12b_edit_sensitivity
+```
+
+- **The probe** (antonym at layer 24, past_tense at layer 14; 96
+  prompts, four random directions, norms 0.01 / 0.1 / 1 / 10) settles
+  it. The mechanics are exact: an all-zero edit at every read point
+  reproduces the steered run to the bit. The model is hypersensitive
+  in its deep half: on the *unsteered* run a random edit of norm 10
+  costs 0.1–0.3 nats per prompt at read points 16–26, 0.7–0.9 at 30,
+  1.7–6 at 33, 4.5–7 at 36–47 and 24–28 at 48; norm 1 costs nothing
+  up to 33, 0.6–0.7 at 40–44 and 5.2–5.4 at 48 (the residual there has
+  norm 9); norm 0.1 is at the bf16 floor everywhere (±0.05 nats per
+  prompt). The steered run is more sensitive still (norm 1: −2.2 to
+  −2.6 at 40–44). The residual at the query token is one massive
+  coordinate (index 1750: 146–178 of a norm of 170–188 through the
+  middle of the stack, 70–110 of 90–130 deeper; 91 % → 59 % of the
+  energy), the steering perturbation sits on the same coordinate
+  (its largest by far at every read point; shifted by 20–120), and
+  antonym's head-mean vector has its largest coordinate there
+  (−0.246). So the D29 edits along v move the massive coordinate and,
+  through v's other coordinates, the ones the deep blocks read with
+  norm-weight gains in the hundreds; both edits push the state off its
+  manifold regardless of what carries the effect. Recorded in D35
+  (amended): the hand-over summary now skips read points at which the
+  random edits fail their premise, and a norm-matched random null is
+  run beside the shape-matched one from here on.
+- **Gemma 4 re-read with the readability rule** (tolerance 0.1 on the
+  random controls of the stored curves): the head-mean run has 12–18
+  of its 24 downstream read points unreadable for the layer-24 tasks
+  (from read point 30–33 to 46; 47 and 48 pass the shape-matched
+  rule but not the probe), 28 of 34 for past_tense (from read point
+  15). What can be read: the direction alone carries half of the
+  effect until read points 26–32 (0.54–0.67 of the stack; Qwen3-8B:
+  0.6–0.7), removal of the head-mean direction leaves 0.8 of antonym's
+  effect by read points 29–30 (0.6 of the stack) and 0.5 of plural's
+  by 24 (0.5), and nothing past 0.63 of the stack is readable, which
+  is where Qwen3's 90 % crossings sit. The learned-vector run reads
+  the same way: alone-50 until 0.40–0.67 of the stack, 6–22
+  unreadable read points per task. On Gemma 4 the hand-over can be
+  seen to begin at the depth it begins on Qwen3, and cannot be seen to
+  complete.
 
 ```
 # workflow run 35533914927 (push-triggered request), H100 80GB HBM3 (ADA_80_PRO), US-CA-2, Flash environment ci-8b

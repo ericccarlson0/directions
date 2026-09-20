@@ -13,7 +13,10 @@ held-out effect that survives is measured:
 uses at that depth). The matched null applies the same edit to the same steered run along random unit
 directions: removing a random component changes nothing, keeping only a random component keeps nothing, so
 the paired excess of the real edit over the random edits says whether the direction matters at ``m`` beyond
-the noise of editing. The edits are exact because the forward pass is deterministic: the steered residual at
+the noise of editing. A second null (D35) applies an edit of the real edit's *size* along the random
+directions (``random_matched_*``): where the model is sensitive to an edit of that size whatever its direction
+the real edit says nothing about what carries the effect, and the read point is left out of the hand-over
+summary (``readable_read_points``). The edits are exact because the forward pass is deterministic: the steered residual at
 ``m`` in the edited run equals the captured one up to ``m``, so an additive per-example intervention lands the
 residual on the intended vector.
 
@@ -42,12 +45,17 @@ from .stats import paired_bootstrap_test, paired_excess_test
 VARIANTS = ("remove", "keep")
 
 
-def edit_vectors(delta_m: np.ndarray, u: np.ndarray, variant: str) -> np.ndarray:
-    """The per-example additive vectors that turn ``delta_m`` into its edited form: ``(n, d)`` float32."""
+def edit_vectors(delta_m: np.ndarray, u: np.ndarray, variant: str, magnitude: np.ndarray | None = None) -> np.ndarray:
+    """The per-example additive vectors that turn ``delta_m`` into its edited form: ``(n, d)`` float32.
+
+    With ``magnitude`` (``(n,)``, signed) the component along ``u`` is not the perturbation's own but the given
+    one: the norm-matched random control (D35), the same edit size along a random direction.
+    """
     u = np.asarray(u, dtype=np.float64)
     u = u / np.linalg.norm(u)
     d = np.asarray(delta_m, dtype=np.float64)
-    along = (d @ u)[:, None] * u[None, :]
+    coef = (d @ u) if magnitude is None else np.asarray(magnitude, dtype=np.float64)
+    along = coef[:, None] * u[None, :]
     if variant == "remove":
         return (-along).astype(np.float32)
     if variant == "keep":
@@ -89,8 +97,8 @@ def depth_of_commitment(
     read_points = list(range(layer + 1, n_read))
     inject = Intervention(layer, v, alpha)
 
-    def run_edit(m: int, u: np.ndarray, variant: str) -> np.ndarray:
-        vec = edit_vectors(delta[m], u, variant)
+    def run_edit(m: int, u: np.ndarray, variant: str, magnitude: np.ndarray | None = None) -> np.ndarray:
+        vec = edit_vectors(delta[m], u, variant, magnitude)
         r = backend.run(prompts, interventions=[inject, Intervention(m, vec, 1.0)])
         return r.logprob_per_token - base.logprob_per_token
 
@@ -107,10 +115,16 @@ def depth_of_commitment(
         # the random-direction edits do not depend on which real direction they are matched against: once per m
         ctl_by_variant = {variant: np.stack([run_edit(m, c, variant) for c in controls]) for variant in VARIANTS}
         for dname, dvec in directions.items():
+            u = dvec[m] if dname == "task_pc1" else dvec
+            u = np.asarray(u, dtype=np.float64)
+            u = u / np.linalg.norm(u)
+            magnitude = delta[m] @ u  # (n,) the real edit's size per prompt: the component along the direction
             for variant in VARIANTS:
-                u = dvec[m] if dname == "task_pc1" else dvec
                 real = run_edit(m, u, variant)
                 ctl = ctl_by_variant[variant]
+                # the norm-matched control (D35): the same edit size along the random directions. A model that
+                # is sensitive to an edit of that size, whatever its direction, cannot be read at this m
+                matched = np.stack([run_edit(m, c, variant, magnitude) for c in controls]) if cfg.matched_controls else None
                 t = paired_bootstrap_test(real + base.logprob_per_token, base.logprob_per_token, boot_rng, n_boot=cfg.n_boot)
                 row: dict[str, Any] = {
                     "read_point": m, "effect": float(np.mean(real)), "retained": None if full == 0 else float(np.mean(real) / full),
@@ -118,9 +132,13 @@ def depth_of_commitment(
                     "cost_vs_full": float(np.mean(full_diff - real)),  # effect lost to the edit
                     "cost_test": paired_bootstrap_test(steered.logprob_per_token, real + base.logprob_per_token, boot_rng,
                                                        n_boot=cfg.n_boot).__dict__,
+                    "edit_norm_median": float(np.median(np.abs(magnitude))),
                 }
                 row["random_effect_mean"] = float(np.mean(ctl))
                 row["random_retained_mean"] = None if full == 0 else float(np.mean(ctl) / full)
+                if matched is not None:
+                    row["random_matched_effect_mean"] = float(np.mean(matched))
+                    row["random_matched_retained_mean"] = None if full == 0 else float(np.mean(matched) / full)
                 # remove: the real edit costs *more* than a random one when the direction is still needed;
                 # keep: the real edit retains *more* than a random one when the direction still carries the effect
                 if variant == "remove":
@@ -130,7 +148,7 @@ def depth_of_commitment(
                 rows_by[f"{variant}:{dname}"].append(row)
     out["curves"] = rows_by
     out["handover_shares"] = [float(s) for s in cfg.handover_shares]
-    out["summary"] = summarise(out, cfg.alpha, out["handover_shares"])
+    out["summary"] = summarise(out, cfg.alpha, out["handover_shares"], cfg.readability_tolerance)
     return out
 
 
@@ -155,9 +173,31 @@ def carried_alone_until(rows: list[dict[str, Any]], share: float) -> int | None:
     return last
 
 
-def summarise(out: dict[str, Any], alpha: float, handover_shares: list[float] = (0.5, 0.9)) -> dict[str, Any]:
+def readable_read_points(rem: list[dict[str, Any]], keep: list[dict[str, Any]], tolerance: float) -> set[int]:
+    """The read points at which the random edits keep their premise (D35): removing a random component
+    retains the effect within ``tolerance`` of 1 and keeping only a random component retains within
+    ``tolerance`` of 0. Elsewhere the model is too sensitive to an edit of that size for the real edit to say
+    what carries the effect (Gemma 4's deep half), and the hand-over summary skips the read point. Rows
+    without the random columns count as readable."""
+    keep_by = {r["read_point"]: r for r in keep}
+    out = set()
+    for r in rem:
+        k = keep_by.get(r["read_point"]) or {}
+        ok = True
+        for key in ("random_retained_mean", "random_matched_retained_mean"):  # shape-matched, and norm-matched (D35)
+            rr, kr = r.get(key), k.get(key)
+            ok = ok and (rr is None or abs(rr - 1.0) <= tolerance) and (kr is None or abs(kr) <= tolerance)
+        if ok:
+            out.add(r["read_point"])
+    return out
+
+
+def summarise(out: dict[str, Any], alpha: float, handover_shares: list[float] = (0.5, 0.9),
+              readability_tolerance: float = 0.1) -> dict[str, Any]:
     """Where the effect is handed over (effect sizes, the core summary), then where the direction stops being
-    needed against the random edits (significance, secondary) and what it carries at the end."""
+    needed against the random edits (significance, secondary) and what it carries at the end. The hand-over
+    depths are read over the readable read points only (``readable_read_points``); the unreadable ones are
+    listed."""
     layer, n_read = out["intervention_layer"], out["n_read_points"]
     downstream = max(1, (n_read - 1) - layer)
 
@@ -168,10 +208,19 @@ def summarise(out: dict[str, Any], alpha: float, handover_shares: list[float] = 
     for dname in out["directions"]:
         rem = out["curves"].get(f"remove:{dname}", [])
         keep = out["curves"].get(f"keep:{dname}", [])
-        handover: dict[str, Any] = {}
+        readable = readable_read_points(rem, keep, readability_tolerance)
+        rem_r = [r for r in rem if r["read_point"] in readable]
+        keep_r = [r for r in keep if r["read_point"] in readable]
+        handover: dict[str, Any] = {
+            "unreadable_read_points": sorted({r["read_point"] for r in rem} - readable),
+            "n_readable": len(readable), "readability_tolerance": readability_tolerance,
+            "last_readable_read_point": max(readable) if readable else None,
+            "retained_after_removal_last_readable": rem_r[-1]["retained"] if rem_r else None,
+            "carried_by_direction_last_readable": keep_r[-1]["retained"] if keep_r else None,
+        }
         for share in handover_shares:
             pct = f"{round(100 * share):d}"
-            m_rem, m_keep = handed_over_from(rem, share), carried_alone_until(keep, share)
+            m_rem, m_keep = handed_over_from(rem_r, share), carried_alone_until(keep_r, share)
             handover[f"handed_over_{pct}"] = m_rem
             handover[f"handed_over_{pct}_fraction"] = frac(m_rem)
             handover[f"carried_alone_until_{pct}"] = m_keep

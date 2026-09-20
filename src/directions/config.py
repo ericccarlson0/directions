@@ -233,6 +233,12 @@ class CommitmentConfig:
 
     enabled: bool = True
     n_prompts: int = 96
+    # D35: a read point is readable when the random edits keep their premise (random removal retains the effect
+    # within this tolerance of 1, random keeping alone within it of 0); the hand-over depths skip the others
+    readability_tolerance: float = 0.1
+    # D35: also run the norm-matched random edits (the real edit's size per prompt along the random directions),
+    # which catch a model that is sensitive to the edit's size whatever its direction (Gemma 4's deep half)
+    matched_controls: bool = True
     n_controls: int = 8
     alpha: float = 0.05
     n_boot: int = 1000

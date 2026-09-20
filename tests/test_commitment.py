@@ -21,6 +21,20 @@ def prompts():
     return [zero_shot_prompt(PromptConfig(), it) for it in task.items[:6]]
 
 
+def test_edit_vectors_with_a_given_magnitude_are_the_norm_matched_control():
+    rng = np.random.default_rng(0)
+    delta = rng.standard_normal((5, 8))
+    u = rng.standard_normal(8)
+    mag = rng.standard_normal(5)
+    rem = edit_vectors(delta, u, "remove", mag)
+    keep = edit_vectors(delta, u, "keep", mag)
+    un = u / np.linalg.norm(u)
+    assert np.allclose(rem, -mag[:, None] * un[None, :], atol=1e-6)
+    assert np.allclose(keep + delta, mag[:, None] * un[None, :], atol=1e-6)
+    # without a magnitude the component is the perturbation's own
+    assert np.allclose(edit_vectors(delta, u, "remove"), -(delta @ un)[:, None] * un[None, :], atol=1e-6)
+
+
 def test_edit_vectors_split_the_perturbation():
     rng = np.random.default_rng(0)
     delta = rng.standard_normal((5, 8))
@@ -74,7 +88,9 @@ def test_depth_of_commitment_sweeps_every_later_read_point(backend, prompts):
     for rows in res["curves"].values():
         assert [r["read_point"] for r in rows] == res["read_points"]
         for r in rows:
-            assert set(r) >= {"effect", "retained", "ci_low", "ci_high", "cost_vs_full", "cost_test", "random_effect_mean", "excess_vs_random"}
+            assert set(r) >= {"effect", "retained", "ci_low", "ci_high", "cost_vs_full", "cost_test", "random_effect_mean", "excess_vs_random",
+                              "random_matched_effect_mean", "random_matched_retained_mean", "edit_norm_median"}  # D35: the norm-matched null
+            assert r["edit_norm_median"] >= 0.0
             assert r["retained"] == pytest.approx(r["effect"] / res["full_effect"])
     # remove + keep at the same read point along the same direction: the two edited effects need not sum, but
     # removing everything but a random component leaves ~nothing, and removing a random component ~everything
@@ -131,3 +147,26 @@ def test_summarise_reads_the_needed_and_carried_read_points():
         r["excess_vs_random"]["p_value"] = 0.9
     s = summarise(out, 0.05)["injected"]
     assert s["needed_until"] is None and s["commitment_layer"] == 3 and s["commitment_fraction"] == pytest.approx(1 / 4)
+
+
+def test_summarise_skips_read_points_where_the_random_edits_fail_their_premise():
+    """D35: a read point where removing a random component costs the effect (or keeping one retains it) is
+    unreadable; the hand-over depths are read over the readable ones and the unreadable ones are listed."""
+    def row(m, retained, rand):
+        return {"read_point": m, "retained": retained, "random_retained_mean": rand,
+                "excess_vs_random": {"excess_mean": 0.5, "p_value": 0.5}}
+    out = {"intervention_layer": 2, "n_read_points": 8, "directions": ["injected"], "curves": {
+        "remove:injected": [row(3, 0.2, 1.0), row(4, 0.95, 0.98), row(5, -2.0, 0.3), row(6, -1.5, 0.95), row(7, 0.97, 1.02)],
+        "keep:injected": [row(3, 0.9, 0.0), row(4, 0.6, 0.01), row(5, -1.0, 0.02), row(6, -2.0, 0.4), row(7, 0.05, -0.01)],
+    }}
+    s = summarise(out, 0.05)["injected"]
+    assert s["unreadable_read_points"] == [5, 6] and s["n_readable"] == 3 and s["last_readable_read_point"] == 7
+    # over the readable rows (3, 4, 7): removal leaves >= 50 % from 4 on and >= 90 % from 4 on
+    assert s["handed_over_50"] == 4 and s["handed_over_90"] == 4
+    assert s["carried_alone_until_50"] == 4 and s["carried_alone_until_90"] == 3
+    assert s["retained_after_removal_last_readable"] == 0.97 and s["carried_by_direction_last_readable"] == 0.05
+    # the raw extremes still cover every read point
+    assert s["retained_after_removal_min"] == -2.0 and s["retained_after_removal_final"] == 0.97
+    # a wider tolerance makes everything readable again
+    s = summarise(out, 0.05, readability_tolerance=1.0)["injected"]
+    assert s["unreadable_read_points"] == [] and s["handed_over_50"] == 7
