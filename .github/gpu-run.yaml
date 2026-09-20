@@ -1,11 +1,11 @@
 # Request a GPU run: change this file, commit, push. The run-gpu workflow triggers on every push that changes
 # this file and runs `command` at the repository root on a RunPod worker. To re-request an identical command,
 # there needs to be a new `request` label. A manual workflow_dispatch ignores this file.
-request: learned_gemma4_12b_seed20260907 # note that a new label re-requests the same command
-command: uv run directions pilot --config configs/learned_gemma4_12b.yaml --run-id learned_gemma4_12b_seed20260907
+request: probe_gemma4_12b_edit_sensitivity # note that a new label re-requests the same command
+command: uv run python scripts/probe_edit_sensitivity.py --run /runpod-volume/results/run-35529659262/pilot6_gemma4_12b_seed20260907 --tasks antonym past_tense --read-points 16 20 26 30 33 36 40 44 47 48 --out-dir results/probe_gemma4_12b_edit_sensitivity
 gpu_tier: ADA_80_PRO         # memory class ("tier")
 gpu_type: ""              # exact device name to pin instead of the tier, e.g. "NVIDIA RTX A4500"
 datacenter: US-CA-2       # data center of the `directions` network volume
 flash_env: ci-8b          # Flash environment; one run at a time per environment
-timeout_minutes: 340
+timeout_minutes: 60
 max_output_mb: 8

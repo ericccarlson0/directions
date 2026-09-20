@@ -13,8 +13,10 @@ finished pilot run and at chosen read points:
 * the D29 random-removal edit for reference;
 * the norm of the residual and of the perturbation at ``m`` and how concentrated they are on a few coordinates.
 
-usage: uv run python scripts/probe_edit_sensitivity.py --run <pilot run dir> --task antonym \
-           [--read-points 26 30 34 38 42 46 47 48] [--eps 0.01 0.1 1 10] [--n-dirs 4] [--n-prompts 96] [--out probe.json]
+usage: uv run python scripts/probe_edit_sensitivity.py --run <pilot run dir> --tasks antonym past_tense \
+           [--read-points 26 30 34 38 42 46 47 48] [--eps 0.01 0.1 1 10] [--n-dirs 4] [--n-prompts 96] [--out-dir results/probe]
+
+Read points at or below a task's injection layer are skipped. One JSON per task under ``--out-dir``.
 """
 
 from __future__ import annotations
@@ -50,17 +52,25 @@ def concentration(x: np.ndarray, k: int = 5) -> dict[str, float]:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--run", required=True)
-    ap.add_argument("--task", required=True)
+    ap.add_argument("--tasks", nargs="+", required=True)
     ap.add_argument("--read-points", type=int, nargs="*", default=None)
     ap.add_argument("--eps", type=float, nargs="*", default=[0.01, 0.1, 1.0, 10.0])
     ap.add_argument("--n-dirs", type=int, default=4)
     ap.add_argument("--n-prompts", type=int, default=96)
-    ap.add_argument("--out", default=None)
+    ap.add_argument("--out-dir", default=None)
     args = ap.parse_args()
 
     run = Path(args.run)
     cfg = load_config(run / "config.resolved.yaml")
-    task_dir = run / "core" / "tasks" / args.task
+    t0 = time.time()
+    backend = ModelBackend(cfg.model, run_seed=cfg.seed)
+    print(f"model {backend.metadata()['name']} ({backend.n_layers} layers, d={backend.hidden_size}); load {time.time() - t0:.0f}s", flush=True)
+    for task in args.tasks:
+        probe_task(backend, cfg, run, task, args)
+
+
+def probe_task(backend: ModelBackend, cfg, run: Path, task: str, args) -> None:
+    task_dir = run / "core" / "tasks" / task
     splits = json.load(open(task_dir / "splits.json"))
     qual = json.load(open(task_dir / "qualification.json"))
     sel = qual["selection"]
@@ -74,15 +84,12 @@ def main() -> None:
         v = np.asarray(dirs["pooled"], dtype=np.float64)[list(dirs["layers"]).index(layer)]
     v = v / np.linalg.norm(v)
 
-    t0 = time.time()
-    backend = ModelBackend(cfg.model, run_seed=cfg.seed)
     prompt_cfg = replace(cfg.prompt, target_scoring=splits.get("target_scoring") or cfg.prompt.target_scoring)
     prompts = [zero_shot_prompt(prompt_cfg, Item(i, o)) for i, o in splits["evaluation"]][: args.n_prompts]
     n, d, L = len(prompts), backend.hidden_size, backend.n_layers
     read_points = args.read_points or sorted({layer + 1, layer + 2, layer + 4, layer + 8, (layer + L) // 2, L - 2, L - 1, L})
     read_points = [m for m in read_points if layer < m <= L]
-    print(f"model {backend.metadata()['name']} ({L} layers, d={d}), task {args.task}, layer {layer}, alpha {alpha:.2f}, "
-          f"{n} prompts, read points {read_points}; load {time.time() - t0:.0f}s", flush=True)
+    print(f"task {task}, layer {layer}, alpha {alpha:.2f}, {n} prompts, read points {read_points}", flush=True)
 
     inject = Intervention(layer, v, alpha)
     base = backend.run(prompts, capture=True)
@@ -92,11 +99,11 @@ def main() -> None:
     full = float(np.mean(full_diff))
     print(f"full effect {full:+.3f} nats/token (sd over prompts {np.std(full_diff):.2f}); repeat bit-identical: "
           f"{bool(np.array_equal(again.logprob_per_token, steered.logprob_per_token))}", flush=True)
-    rng = rng_for(cfg.seed, "probe_edit_sensitivity", args.task)
+    rng = rng_for(cfg.seed, "probe_edit_sensitivity", task)
     U = rng.standard_normal((args.n_dirs, d))
     U /= np.linalg.norm(U, axis=1, keepdims=True)
 
-    out = {"run": str(run), "task": args.task, "layer": layer, "alpha": alpha, "n_prompts": n, "full_effect": full,
+    out = {"run": str(run), "task": task, "layer": layer, "alpha": alpha, "n_prompts": n, "full_effect": full,
            "full_sd": float(np.std(full_diff)), "eps": args.eps, "n_dirs": args.n_dirs, "read_points": []}
     for m in read_points:
         t1 = time.time()
@@ -145,11 +152,12 @@ def main() -> None:
                           f"base {r['base']['mean_change']:+.2f}±{r['base']['sd_over_prompts']:.2f}" for r in re)
               + f"; D29 rand-remove retained {row['d29_random_remove']['retained_mean']:+.2f} (edit norm {row['d29_random_remove']['edit_norm_median']:.2f})"
               f"; {time.time() - t1:.0f}s", flush=True)
-    if args.out:
-        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-        with open(args.out, "w") as f:
+    if args.out_dir:
+        path = Path(args.out_dir) / f"{task}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w") as f:
             json.dump(out, f, indent=1)
-        print("wrote", args.out)
+        print("wrote", path, flush=True)
 
 
 if __name__ == "__main__":
