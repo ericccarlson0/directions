@@ -1534,6 +1534,31 @@ Decision:
   32 to 128 for wall time only; the batching invariance is tested).
   Going up a tier would have meant a cold cache in US-CA-2 at four
   times the hourly price for a batch the analysis does not need.
+* **The head-mean vector on post-norm blocks** (found on the pilots).
+  Both families normalise the attention output before adding it to
+  the residual (OLMo 3: `residual + norm(attn)`; Gemma 4 the same
+  inside pre-norms), where Qwen3 and Llama add it as it is. The
+  function vector of D21 is the sum of the mean head outputs through
+  the output projection, so on these blocks it is the *pre-norm*
+  attention output: the model's own write of it has a fixed norm
+  (‖w‖ of the norm's weight, 4.6 at OLMo 3's layer 13 against the
+  vector's natural norm of 18–29) and, on Gemma 4, a per-coordinate
+  re-weighting (the weight's cosine with the uniform vector is 0.83;
+  0.98 on OLMo 3, so there the direction is kept). The vector's
+  *direction* is kept as the paper defines it (the head outputs are
+  the patched and averaged quantity); the consequence is in the
+  natural unit: ρ = 1 is 1.4–3.2 × the stream norm on OLMo 3 (0.2–0.4
+  on Qwen3 and Gemma 4) and about four times the model's own write.
+  The reference rule still selects it (the reliable ranges start at
+  ρ = 0.05), so the OLMo 3 head-mean numbers at ρ = 1 are a strong
+  intervention with large collateral damage; the comparison across
+  families rests on the learned vector (whose unit is the stream norm
+  everywhere) and on the trajectories' strength factors. The backend
+  records the fact per run (`attention_output_normed`, checked on the
+  toy families). A write-faithful composition (the layer's post-norm
+  applied to the selected heads' sum) was not adopted: the norm acts
+  on the whole attention output, so a partial sum through it is no
+  more the model's write than the raw sum is.
 
 Reading: the core quantities to compare across families are the
 hand-over read point as a fraction of the stack (0.6–0.8 on Qwen3 for

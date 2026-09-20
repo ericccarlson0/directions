@@ -2983,6 +2983,104 @@ arithmetic_words 0.609; all ten pass the gate (`uppercase` drops
 `phenomenon` at five tokens, as OLMo 3 does). The full pilot was
 requested on the 80 GB tier.
 
+```
+# workflow run 35529394971 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1, batch 32
+uv run directions pilot --config configs/pilot_olmo3_7b.yaml --run-id pilot6_olmo3_7b_seed20260907
+```
+
+**OLMo 3 7B pilot** (iteration-6 protocol, head-mean control): 162 min
+(batch 32; 13.9 GB allocated, 18.9 GB reserved), determinism check
+passed, 8 of 10 qualify (`arithmetic_words` fails the few-shot gate at
+0.000, `arithmetic` the head-support gate at few-shot 1.000).
+
+- **Head count: 16.** Pooled joint effect 0.05 / 0.14 / 0.32 / 0.48 /
+  0.57 / 0.62 / 0.63 for k = 1 … 64; the doubling 16 → 32 gains 8.0 %,
+  so the rule stops at 16 (Qwen3: 8 / 16 / 32 / 32). The universal heads
+  sit at layers 10–21 of 32 (0.3–0.65 of the stack; Qwen3-8B's at
+  0.55–0.7).
+- **Selection.** Layer 13 (0.4 of the stack) for antonym, past_tense,
+  singular and number_to_words, 16 for plural and present_participle,
+  10 for uppercase, 6 for last_antonym; the per-layer best effects are
+  within 0.2 nats of one another for every task but last_antonym
+  (the layer does not matter, as on Qwen3-1.7B). Always ρ = 1, reliable
+  from ρ = 0.05 to 2.0 on every task. The vector's natural norm is
+  1.4–3.2 × the median residual norm at the selected layer (Qwen3:
+  0.2–0.4): OLMo 3 adds the attention output through a norm, so the
+  head-mean vector is the pre-norm output and its unit overshoots the
+  model's own write about fourfold (D35, amended).
+- **Held-out effect** +3.7 to +8.7 nats per token (Qwen3-8B: +2.2 to
+  +5.4; the zero-shot baselines are lower here, −4 to −10 nats), every
+  gate passed at p ≤ 0.0005, own vector over the other tasks' +3.2 to
+  +9.2, over the demonstration-variation directions +0.4 to +4.5.
+  Damage: KL on neutral prose 0.5–0.9 nats for antonym, last_antonym
+  and number_to_words but 3.8–6.8 nats for the other five, above the
+  random controls' by 3.1–5.9 nats (p < 0.001), the price of the
+  overshooting unit.
+- **Profiles** are labelled cascade + amplification on every task (log G
+  above the isotropic null at z 5.7–12; cumulative log G +1.1 to +1.4,
+  Qwen3 negative), with dimensional expansion on four tasks (d_eff
+  16–22 → 36–49).
+- **Depth of commitment.** The cleanest curves of any model: removing
+  the direction right after the injection leaves ≤ 0.1 of the effect,
+  the retained share passes 50 % at 0.11–0.32 of the downstream depth
+  (present_participle 0.62), 90 % at 0.26–0.94, and is 1.00 at the
+  last read point for all eight tasks; the direction alone carries
+  50 % until 0.35–0.89 of the downstream depth (Qwen3: 0.1–0.65) and
+  0.01–0.41 at the end. Against the random edits the direction stops
+  being needed *before* the last read point on every task (needed
+  until read points 27–32 of 32; the D29 commitment layer is defined
+  here, where on Qwen3 it was undefined for 27 of 31 pairs). The task
+  PC1 at each depth is dispensable (removal costs ≤ 13 %, keeping it
+  alone retains ≤ 0.83, number_to_words and singular the high ones).
+
+```
+# workflow run 35529659262 (push-triggered request), H100 80GB HBM3 (ADA_80_PRO), US-CA-2, Flash environment ci-8b
+uv run directions pilot --config configs/pilot_gemma4_12b.yaml --run-id pilot6_gemma4_12b_seed20260907
+```
+
+**Gemma 4 12B pilot**: 76 min (batch 128; 23 GB allocated, 49 GB
+reserved), determinism check passed, 8 of 10 qualify (`arithmetic`
+and `arithmetic_words` fail the head-support gate at few-shot 0.995 /
+0.609).
+
+- **Head count: 16.** Pooled joint effect 0.06 / 0.14 / 0.30 / 0.48 /
+  0.58 / 0.61 / 0.62; the doubling 16 → 32 gains 4.5 %. The universal
+  heads sit at layers 27–40 of 48 (0.56–0.83 of the stack), with one
+  head at layer 32 carrying a third of the top-16 effect.
+- **Selection.** Layer 24 (the half-depth candidate) for six tasks, 19
+  for plural, 14 for past_tense; the per-layer best effects rise with
+  depth (antonym +1.2 / +1.6 / +2.7 / +3.3 at layers 10 / 14 / 19 / 24),
+  so the layer matters here as on Qwen3-4B/8B. ρ = 1 for seven tasks,
+  1.5 for present_participle; natural norm 0.21–0.42 × the stream.
+- **Held-out effect** +0.24 to +3.0 nats per token (antonym 3.0,
+  present_participle 1.6, last_antonym 1.6, the rest 0.2–0.8; the
+  zero-shot baselines are −2.5 to −9.7), every gate at p ≤ 0.0005; own
+  vector over the other tasks' +0.6 to +2.4. Damage is large: KL at
+  the query token 1.7 nats (antonym), argmax changed on 93 % of prompts,
+  neutral-prose KL 2.1–6.1 nats for six tasks (0.3–0.4 for past_tense
+  and plural), above the random controls' for four (p ≤ 0.001).
+- **Profiles**: cascade + attenuation on every task (cumulative log G
+  −2.1 to −3.3, d_eff 53–83 → 3–10); the block outputs are multiplied
+  by a per-layer scalar in this architecture (0.6–0.9 through the
+  middle of the stack, 0.05 at the last block), so the residual norm
+  *falls* from 191 at layer 24 to about 8 after the last block and the
+  absolute log G carries that scaling; the relative quantities do not.
+- **Depth of commitment: the curves are not interpretable in the deep
+  half of the stack.** Right after the injection the picture is the
+  usual one (removal leaves ≤ 0.1, keeping alone 0.95–1.5 of the
+  effect; removal leaves 0.8 by read point 29–30 for antonym), but from
+  read point 33 to 46 both edits reverse the effect (antonym: removal
+  −1 to −3 × the full effect, keeping alone −1.5 to −2.7) and the
+  random-direction controls, whose removal should change nothing,
+  retain 0.1–0.9 of it (past_tense and uppercase: negative). Read
+  point 47 is sane again (removal 0.97, random 1.00) and 48 partly
+  (0.29). Nothing in the stored numbers explains it (the edits are the
+  D29 ones; the random edit's norm is |δ·u| ≈ 1.6 on a residual of
+  norm ~90; Qwen3's random controls sit at 1.00 / 0.00 throughout);
+  an edit-sensitivity probe (`scripts/probe_edit_sensitivity.py`) is
+  queued on antonym and past_tense. Until it reports, the Gemma 4
+  hand-over numbers past read point 32 are not used.
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907

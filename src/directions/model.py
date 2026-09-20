@@ -196,6 +196,11 @@ class ModelBackend:
         # Gemma applies a tanh soft-cap to the final logits; the scores must use it too (the lens likewise)
         cap = getattr(self.text_config, "final_logit_softcapping", None)
         self.logit_softcap = float(cap) if cap else None
+        # Blocks that normalise the attention output before adding it to the residual (OLMo 3, Gemma: the ones
+        # with a post-feedforward norm; on Llama-style blocks `post_attention_layernorm` is the pre-MLP norm of
+        # the residual instead). There the head-mean vector (the sum of head outputs through the output
+        # projection) is the pre-norm attention output, not the model's own write of it (docs/DECISIONS.md D35).
+        self.attention_output_normed = all(getattr(b, "post_feedforward_layernorm", None) is not None for b in self.blocks)
         self._session: _HookSession | None = None
         self._register_hooks()
 
@@ -337,6 +342,7 @@ class ModelBackend:
             "head_dim": self.head_dim,
             "head_dims": None if len(set(self.head_dims)) == 1 else list(self.head_dims),
             "logit_softcap": self.logit_softcap,
+            "attention_output_normed": self.attention_output_normed,
             "model_type": getattr(self.text_config, "model_type", None),
             "vocab_size": int(self.text_config.vocab_size),
             "n_parameters": n_params,

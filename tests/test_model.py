@@ -112,6 +112,24 @@ def test_intervention_is_exact_at_layer_and_zero_before(backend, prompts):
     assert not np.allclose(last.logprob_sum, base.logprob_sum)
 
 
+def test_attention_output_norm_flag_matches_the_block(backend, prompts):
+    """`attention_output_normed` (D35) says whether the block's post-attention norm is applied to the attention
+    output (OLMo 3, Gemma) or to the residual before the MLP (Qwen/Llama): checked by hooking the norm's input."""
+    block = backend.blocks[1]
+    got = {}
+    h1 = block.self_attn.o_proj.register_forward_hook(lambda m, a, o: got.__setitem__("attn", o.detach().clone()))
+    h2 = block.post_attention_layernorm.register_forward_hook(lambda m, a, o: got.__setitem__("norm_in", a[0].detach().clone()))
+    try:
+        with torch.no_grad():
+            backend.model(input_ids=torch.tensor([backend.tokenizer.encode(prompts[0].prompt)]))
+    finally:
+        h1.remove(), h2.remove()
+    normed = torch.allclose(got["attn"], got["norm_in"])
+    assert backend.attention_output_normed == normed
+    assert normed == (backend.cfg.toy.family in ("olmo3", "gemma4"))
+    assert backend.metadata()["attention_output_normed"] == normed
+
+
 def test_hooks_are_inert_outside_run(backend, prompts):
     ids = torch.tensor([backend.tokenizer.encode(prompts[0].prompt)])
     with torch.no_grad():
