@@ -3150,6 +3150,84 @@ downstream depth, the direction alone carries 50 % until 0.03–0.38)
 share the deep-stack anomaly of the head-mean run and are not read
 until the probe reports.
 
+```
+# workflow run 35539176981 (push-triggered request), H100 80GB HBM3 (ADA_80_PRO), US-CA-2, Flash environment ci-8b
+uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-35529659262/pilot6_gemma4_12b_seed20260907 --learned-run /runpod-volume/results/run-35533914927/learned_gemma4_12b_seed20260907 --run-id trajectories_gemma4_12b_seed20260907
+```
+
+**Gemma 4 12B trajectory comparison** (D32–D34 in one run: strengths
+×1 / ×0.5 / ×0.25, the neighbouring candidate layers, the patch test
+at eighths for the learned and the head-mean vector, per-block
+writing, the subspace test): 48.5 min (factors 22.6, isotropic 15.1,
+patch 17.5, subspace 5.5), determinism check passed, ten tasks (the
+head mean absent for add_3 and arithmetic_words, which it could not
+steer). Read with the probe's sensitivity map: a *removal* edit past
+read point 30 and any edit at read point 48 are not interpreted; the
+random-direction controls of the patch test show the same zone
+(random removal retains 0.94 → 0.59 from read point 33 to 45, 1.00
+elsewhere). Positive *keep* and *patch* results are read throughout:
+they move the state along the natural direction, where the
+sensitivity can only lower them, and their random controls stay at
+0 to −0.3.
+
+- **The hand-over sits at a fixed read point of the stack, as on
+  Qwen3.** The per-prompt keep of the learned vector's perturbation
+  along the prompt's own natural difference retains ≤ 0.16 of the
+  effect up to read point 30 and 0.93–1.00 from read point 33–38 on
+  (the hand-over read point of the run: 33 for the layer-19 and -24
+  injections, 35 for layer 14, 38 for layer 10; 0.69–0.79 of the
+  stack; Qwen3: 0.6–0.8), and the natural difference patched into the
+  unsteered run alone gives 0.94–1.00 of the effect from the same read
+  point. The alignment of the perturbation with the natural difference
+  rises from ≤ 0.1 to 0.35–0.67 there. The hand-over read point does
+  not move with the injection layer (10, 14, 19 or 24 give 33–38),
+  the second family on which the read point is a property of the
+  stack rather than of the injection. On the multi-token tasks
+  (add_3, arithmetic_words, number_to_words) the per-token rows are
+  uninformative (an edit at the query token leaves the later target
+  tokens' attention to the steered query token untouched, so keep and
+  remove both retain 1.00); their first-token rows read as the
+  single-token tasks do.
+- **Rank one, the task's own** (the subspace test at the hand-over
+  read point, learned vector, seven single-token tasks): keeping only
+  the projection onto the task's top natural-difference component
+  retains 0.76–1.00 of the effect (median 0.91; k = 2 … 8 add ≤ 0.07),
+  patching that one component into the unsteered run gives 0.82–1.08,
+  against −0.03–0.33 for the other tasks' top component, −0.27–0.06
+  for the background's and −0.05–0.02 for a random direction; the
+  per-prompt ceiling is 0.95–1.21. The pool's top component explains
+  0.59–0.81 of the natural-difference energy (participation ratio
+  1.5–2.8) and has cosine 0.99–1.00 with the held-out mean natural
+  difference. last_antonym (layer 10, hand-over 38) is the exception
+  at 0.22 / 0.33 (its pool spectrum is flat: top component 0.34,
+  participation ratio 8), and arithmetic_words's rows sit on a
+  random floor of 0.43 (unreadable). Qwen3 at its hand-over: keep own
+  k = 1 0.9–1.0.
+- **Sufficiency before necessity cannot be read here**: the removal
+  rows at and past the hand-over are in the unreadable zone (their
+  random controls at 0.59–0.94), so whether removing the rank-one
+  component leaves the effect, as it does on Qwen3-4B/8B, is not
+  measured on Gemma 4.
+- **The head-mean vector is weak on Gemma 4** (held-out +0.2 to +0.8
+  nats for six of eight tasks against the learned vector's +2.5 to
+  +8.3), so its patch rows are ratios of small numbers and are not
+  read; its trajectory aligns with the natural one only partially
+  (final cosine −0.4 to +0.3 against floors of ±0.3).
+- **The learned vector's trajectory** aligns with the natural one and
+  then falls away (label aligns_then_ for 18 of 24 layer-task pairs,
+  final cosine 0.07–0.63; antonym at layer 19 converges at 0.63–0.67);
+  the fall is at the last blocks, where the block scalars (0.05 at the
+  last block) and the read point 48 geometry dominate. The half
+  strength tracks the canonical one (cosine 0.6–0.95 between their
+  trajectories), the quarter strength less (−0.2 to 0.8).
+- **Per-block writing is not interpretable on this architecture**: the
+  moving-reference measure sees a block that multiplies its output by
+  a scalar of 0.005 (block 11) or 0.05 (block 47) as re-writing the
+  whole component; the natural trajectory's top blocks are 1 and 12
+  for every task for that reason. A version in the rescaled frame
+  (δ_{m+1} against s_m δ_m) is needed before the block localisation is
+  read on Gemma 4.
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
