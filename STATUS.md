@@ -2969,6 +2969,20 @@ and the multi-head attention activations of 128 eight-shot prompts);
 the GPT-2-style tokenizer (`phenomenon`). The batch was set to 32 for
 this family (D35) and the full pilot requested.
 
+**Gemma 4 12B smoke run** (workflow run 35529434599, `validate
+--stop-after fewshot`, H100 in US-CA-2, 114 s after a 69 s load on a
+cold cache; batch 128, 36 GB reserved): the checkpoint loads as
+`Gemma4UnifiedForConditionalGeneration` (12.0 B parameters including
+the unused vision and audio towers) with 48 layers, 16 heads of 256 on
+the 40 local layers and of 512 on the 8 global ones (every sixth
+layer), soft-cap 30, BOS prefix, vocabulary 262144. Few-shot accuracy
+(zero-shot 0.000 on every task): antonym 0.865, plural 1.000,
+past_tense 0.948, arithmetic 0.995, present_participle 1.000, singular
+1.000, uppercase 0.896, number_to_words 1.000, last_antonym 0.802,
+arithmetic_words 0.609; all ten pass the gate (`uppercase` drops
+`phenomenon` at five tokens, as OLMo 3 does). The full pilot was
+requested on the 80 GB tier.
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
