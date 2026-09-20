@@ -40,6 +40,7 @@ class CharTokenizer:
         self._itos = ["<pad>", "<unk>"] + chars
         self._stoi = {c: i for i, c in enumerate(self._itos)}
         self.name = "char"
+        self.prompt_prefix_ids: list[int] = []
 
     @property
     def vocab_size(self) -> int:
@@ -61,6 +62,8 @@ class HFTokenizer:
             self._tok.pad_token = self._tok.eos_token
         self.pad_token_id = int(self._tok.pad_token_id)
         self.name = type(self._tok).__name__
+        # the ids a prompt is prefixed with (a BOS on Gemma and Llama, nothing on Qwen and OLMo); recorded
+        self.prompt_prefix_ids = [int(i) for i in self._tok.encode("", add_special_tokens=True)]
 
     @property
     def vocab_size(self) -> int:
@@ -177,12 +180,22 @@ class ModelBackend:
         self.model.eval()
         for p in self.model.parameters():
             p.requires_grad_(False)
+        # The text decoder's configuration: the top-level config of a multimodal wrapper (Gemma 4) holds it
+        # under text_config; on a plain causal LM it is the config itself.
+        self.text_config = self._text_config(self.model)
         self.blocks = self._find_blocks(self.model)
+        self.final_norm = self._find_final_norm(self.model)
         self.n_layers = len(self.blocks)
-        self.hidden_size = int(self.model.config.hidden_size)
-        self.n_heads = int(self.model.config.num_attention_heads)
-        self.head_dim = int(getattr(self.model.config, "head_dim", self.hidden_size // self.n_heads))
+        self.hidden_size = int(self.text_config.hidden_size)
+        self.n_heads = int(self.text_config.num_attention_heads)
         self.attn_out = [self._find_attn_out(b) for b in self.blocks]
+        # Per-layer head width: uniform on Qwen/Llama/OLMo; Gemma 4's global-attention layers use a wider head
+        # than its local ones, so head outputs are padded to the widest and sliced per layer where they are used.
+        self.head_dims = [self._layer_head_dim(b, proj) for b, proj in zip(self.blocks, self.attn_out)]
+        self.head_dim = max(self.head_dims)
+        # Gemma applies a tanh soft-cap to the final logits; the scores must use it too (the lens likewise)
+        cap = getattr(self.text_config, "final_logit_softcapping", None)
+        self.logit_softcap = float(cap) if cap else None
         self._session: _HookSession | None = None
         self._register_hooks()
 
@@ -196,38 +209,98 @@ class ModelBackend:
         return model, HFTokenizer(name)
 
     def _build_toy(self, cfg: ModelConfig, run_seed: int):
-        from transformers import Qwen3Config, Qwen3ForCausalLM
-
+        """A random tiny model of one of the supported architectures (tests): Qwen3 (pre-norm RMSNorm, GQA),
+        OLMo 3 (norms after the sublayers, sliding-window and full attention layers) or Gemma 4 through its
+        multimodal wrapper (pre- and post-norms, local and global layers with different head widths, a
+        soft-capped final logit, scaled tied embeddings)."""
         tok = CharTokenizer()
         t = cfg.toy
-        conf = Qwen3Config(
-            vocab_size=tok.vocab_size,
-            hidden_size=t.hidden_size,
-            intermediate_size=t.intermediate_size,
-            num_hidden_layers=t.num_layers,
-            num_attention_heads=t.num_heads,
-            num_key_value_heads=t.num_kv_heads,
-            head_dim=t.hidden_size // t.num_heads,
-            max_position_embeddings=4096,
-            tie_word_embeddings=True,
-            pad_token_id=tok.pad_token_id,
-        )
         torch.manual_seed(derive_seed(run_seed, "toy_model_init"))
-        model = Qwen3ForCausalLM(conf).to(self.dtype).to(self.device)
-        return model, tok
+        layer_types = ["sliding_attention" if (i + 1) % 4 else "full_attention" for i in range(t.num_layers)]
+        if t.family == "qwen3":
+            from transformers import Qwen3Config, Qwen3ForCausalLM
+
+            conf = Qwen3Config(
+                vocab_size=tok.vocab_size, hidden_size=t.hidden_size, intermediate_size=t.intermediate_size,
+                num_hidden_layers=t.num_layers, num_attention_heads=t.num_heads, num_key_value_heads=t.num_kv_heads,
+                head_dim=t.hidden_size // t.num_heads, max_position_embeddings=4096, tie_word_embeddings=True,
+                pad_token_id=tok.pad_token_id,
+            )
+            model = Qwen3ForCausalLM(conf)
+        elif t.family == "olmo3":
+            from transformers import Olmo3Config, Olmo3ForCausalLM
+
+            conf = Olmo3Config(
+                vocab_size=tok.vocab_size, hidden_size=t.hidden_size, intermediate_size=t.intermediate_size,
+                num_hidden_layers=t.num_layers, num_attention_heads=t.num_heads, num_key_value_heads=t.num_kv_heads,
+                max_position_embeddings=4096, sliding_window=4096, layer_types=layer_types, tie_word_embeddings=True,
+                pad_token_id=tok.pad_token_id, eos_token_id=tok.pad_token_id,
+            )
+            model = Olmo3ForCausalLM(conf)
+        elif t.family == "gemma4":
+            from transformers.models.gemma4_unified.configuration_gemma4_unified import Gemma4UnifiedConfig
+            from transformers.models.gemma4_unified.modeling_gemma4_unified import Gemma4UnifiedForConditionalGeneration
+
+            head_dim = t.hidden_size // t.num_heads
+            # three placeholder ids past the text vocabulary, never produced by the tokenizer
+            text = dict(
+                vocab_size=tok.vocab_size + 3, vocab_size_per_layer_input=tok.vocab_size + 3, hidden_size=t.hidden_size,
+                intermediate_size=t.intermediate_size, num_hidden_layers=t.num_layers, num_attention_heads=t.num_heads,
+                num_key_value_heads=t.num_kv_heads, head_dim=head_dim, global_head_dim=2 * head_dim,
+                num_global_key_value_heads=1, attention_k_eq_v=True, layer_types=layer_types, sliding_window=4096,
+                max_position_embeddings=4096, final_logit_softcapping=30.0, hidden_size_per_layer_input=0,
+                enable_moe_block=False, tie_word_embeddings=True, rms_norm_eps=1e-6, hidden_activation="gelu_pytorch_tanh",
+                pad_token_id=tok.pad_token_id, bos_token_id=tok.pad_token_id, eos_token_id=tok.pad_token_id,
+            )
+            conf = Gemma4UnifiedConfig(text_config=text, vision_config=None, audio_config=None,
+                                       image_token_id=tok.vocab_size, video_token_id=tok.vocab_size + 1,
+                                       audio_token_id=tok.vocab_size + 2)
+            model = Gemma4UnifiedForConditionalGeneration(conf)
+        else:
+            raise ValueError(f"unknown toy family {t.family!r}")
+        return model.to(self.dtype).to(self.device), tok
 
     @staticmethod
-    def _find_blocks(model: torch.nn.Module) -> torch.nn.ModuleList:
-        for path in ("model.layers", "transformer.h", "model.decoder.layers"):
-            obj: Any = model
-            try:
-                for attr in path.split("."):
-                    obj = getattr(obj, attr)
-            except AttributeError:
-                continue
+    def _text_config(model: torch.nn.Module) -> Any:
+        cfg = model.config
+        get = getattr(cfg, "get_text_config", None)
+        return get() if callable(get) else cfg
+
+    @staticmethod
+    def _walk(model: torch.nn.Module, path: str) -> Any:
+        obj: Any = model
+        for attr in path.split("."):
+            obj = getattr(obj, attr, None)
+            if obj is None:
+                return None
+        return obj
+
+    @classmethod
+    def _find_blocks(cls, model: torch.nn.Module) -> torch.nn.ModuleList:
+        for path in ("model.layers", "model.language_model.layers", "transformer.h", "model.decoder.layers"):
+            obj = cls._walk(model, path)
             if isinstance(obj, torch.nn.ModuleList):
                 return obj
         raise ValueError("could not locate the transformer block list on this model")
+
+    @classmethod
+    def _find_final_norm(cls, model: torch.nn.Module) -> torch.nn.Module | None:
+        """The normalisation applied to the last block's output before the unembedding (RMSNorm with a
+        per-dimension scale on every supported model), or None when the model has none."""
+        for path in ("model.norm", "model.language_model.norm", "transformer.ln_f"):
+            obj = cls._walk(model, path)
+            if isinstance(obj, torch.nn.Module):
+                return obj
+        return None
+
+    def _layer_head_dim(self, block: torch.nn.Module, proj: torch.nn.Linear) -> int:
+        attn = getattr(block, "self_attn", None)
+        hd = getattr(attn, "head_dim", None)
+        if hd is None:
+            hd = proj.in_features // self.n_heads
+        if int(hd) * self.n_heads != proj.in_features:
+            raise ValueError(f"attention output projection width {proj.in_features} is not n_heads x head_dim ({self.n_heads} x {hd})")
+        return int(hd)
 
     @staticmethod
     def _find_attn_out(block: torch.nn.Module) -> torch.nn.Linear:
@@ -247,9 +320,10 @@ class ModelBackend:
         proj = self.attn_out[layer]
         if proj.bias is not None:
             raise ValueError("attention output projection with a bias is not supported")
-        W = proj.weight.detach().to(torch.float64).cpu().numpy()  # (d, n_heads * head_dim)
-        s = slice(head * self.head_dim, (head + 1) * self.head_dim)
-        return W[:, s] @ np.asarray(z, dtype=np.float64)
+        hd = self.head_dims[layer]
+        W = proj.weight.detach().to(torch.float64).cpu().numpy()  # (d, n_heads * head_dim of this layer)
+        s = slice(head * hd, (head + 1) * hd)
+        return W[:, s] @ np.asarray(z, dtype=np.float64)[:hd]
 
     def metadata(self) -> dict[str, Any]:
         n_params = int(sum(p.numel() for p in self.model.parameters()))
@@ -261,12 +335,16 @@ class ModelBackend:
             "hidden_size": self.hidden_size,
             "n_heads": self.n_heads,
             "head_dim": self.head_dim,
-            "vocab_size": int(self.model.config.vocab_size),
+            "head_dims": None if len(set(self.head_dims)) == 1 else list(self.head_dims),
+            "logit_softcap": self.logit_softcap,
+            "model_type": getattr(self.text_config, "model_type", None),
+            "vocab_size": int(self.text_config.vocab_size),
             "n_parameters": n_params,
             "dtype": str(self.dtype),
             "device": str(self.device),
             "tokenizer": self.tokenizer.name,
             "pad_token_id": self.tokenizer.pad_token_id,
+            "prompt_prefix_ids": list(self.tokenizer.prompt_prefix_ids),
         }
         rev = getattr(self.model.config, "_commit_hash", None)
         if rev:
@@ -358,24 +436,35 @@ class ModelBackend:
         """
         ids = torch.as_tensor(np.asarray(token_ids, dtype=np.int64), device=self.device)
         rows = self.model.lm_head.weight.detach()[ids].to(torch.float64)  # (N, d)
-        norm = getattr(getattr(self.model, "model", None), "norm", None)
-        gain = getattr(norm, "weight", None)
+        gain = getattr(self.final_norm, "weight", None)
         if gain is not None and gain.shape == rows.shape[1:]:
             rows = rows * gain.detach().to(torch.float64)[None, :]
         return rows.cpu().numpy()
 
+    def _lm_logits(self, hidden: torch.Tensor) -> torch.Tensor:
+        """The model's final logits from normalised last-block states: the unembedding, then the tanh soft-cap
+        where the architecture has one (Gemma), exactly as the model's own forward applies it."""
+        logits = self.model.lm_head(hidden)
+        if self.logit_softcap:
+            logits = torch.tanh(logits / self.logit_softcap) * self.logit_softcap
+        return logits
+
     def logits_from_residual(self, h: Any) -> Any:
         """The next-token logits the model would produce from final-block residuals ``h`` (n, d): the final
-        norm and the unembedding, evaluated in float32 (the logit lens of a residual-stream vector; D33).
-        ``h`` is a tensor on the model's device or an array; returns a float32 tensor (n, V) on the device."""
+        norm, the unembedding and the soft-cap where there is one, evaluated in float32 (the logit lens of a
+        residual-stream vector; D33). ``h`` is a tensor on the model's device or an array; returns a float32
+        tensor (n, V) on the device."""
         x = torch.as_tensor(np.asarray(h) if not isinstance(h, torch.Tensor) else h, device=self.device).to(torch.float32)
-        norm = getattr(getattr(self.model, "model", None), "norm", None)
+        norm = self.final_norm
         if norm is not None and getattr(norm, "weight", None) is not None:
             eps = float(getattr(norm, "variance_epsilon", getattr(norm, "eps", 1e-6)))
             x = x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + eps) * norm.weight.detach().to(torch.float32)
         W = self.model.lm_head.weight.detach().to(torch.float32)
         with torch.inference_mode():
-            return torch.nn.functional.linear(x, W)
+            logits = torch.nn.functional.linear(x, W)
+            if self.logit_softcap:
+                logits = torch.tanh(logits / self.logit_softcap) * self.logit_softcap
+            return logits
 
     def _encode_prompt(self, p: Prompt) -> tuple[list[int], list[int]]:
         prompt_ids = self.tokenizer.encode(p.prompt, add_special_tokens=True)
@@ -533,7 +622,7 @@ class ModelBackend:
         # positions whose logits predict target token j: query_pos + j
         pos = (query_pos_dev[:, None] + torch.arange(Tt, device=self.device)[None, :]).clamp(max=T - 1)
         gathered = torch.gather(hidden, 1, pos[:, :, None].expand(-1, -1, hidden.shape[-1]))
-        logits = self.model.lm_head(gathered).float()  # (B, Tt, V)
+        logits = self._lm_logits(gathered).float()  # (B, Tt, V)
         logprobs = torch.log_softmax(logits, dim=-1)
         tgt_dev = batch["target_ids"]
         valid = torch.arange(Tt, device=self.device)[None, :] < n_tgt_dev[:, None]
@@ -588,6 +677,7 @@ class ModelBackend:
             capture_heads=capture_heads,
             n_heads=self.n_heads,
             head_dim=self.head_dim,
+            head_dims=self.head_dims,
         )
         sc = self._forward_scores(batch, session, capture_logprobs, reference)
         residuals = session.stacked() if capture else None
@@ -639,8 +729,12 @@ class _HookSession:
         capture_heads: bool = False,
         n_heads: int = 0,
         head_dim: int = 0,
+        head_dims: Sequence[int] | None = None,
     ) -> None:
         self.n_layers = n_layers
+        # the head width per layer (all equal to head_dim unless the architecture varies it); captured head
+        # outputs are padded to head_dim, patch values sliced to the layer's width
+        self.head_dims = list(head_dims) if head_dims is not None else [head_dim] * n_layers
         self.query_pos = query_pos
         self.batch_idx = torch.arange(query_pos.shape[0], device=device)
         self.capture = capture
@@ -666,23 +760,26 @@ class _HookSession:
         """Patch/capture per-head outputs (the input of the attention output projection) at the query token."""
         patches = self.patches_by_layer.get(layer, ())
         B = self.batch_idx.shape[0]
+        hd = self.head_dims[layer]
         if patches:
             x = x.clone()
-            cur = x[self.batch_idx, self.query_pos].view(B, self.n_heads, self.head_dim).clone()
+            cur = x[self.batch_idx, self.query_pos].view(B, self.n_heads, hd).clone()
             for hp in patches:
                 heads = torch.as_tensor(np.broadcast_to(np.asarray(hp.heads, dtype=np.int64), (B,)).copy(), device=self.device)
-                vals = np.asarray(hp.values, dtype=np.float32)
-                vals = np.broadcast_to(vals, (B, self.head_dim)).copy()
+                vals = np.asarray(hp.values, dtype=np.float32)[..., :hd]  # values padded to the widest head are sliced
+                vals = np.broadcast_to(vals, (B, hd)).copy()
                 cur[self.batch_idx, heads] = torch.as_tensor(vals, device=self.device).to(cur.dtype)
-            x[self.batch_idx, self.query_pos] = cur.view(B, self.n_heads * self.head_dim)
+            x[self.batch_idx, self.query_pos] = cur.view(B, self.n_heads * hd)
         if self.capture_heads:
-            self.captured_heads[layer] = (
-                x[self.batch_idx, self.query_pos].detach().float().cpu().view(B, self.n_heads, self.head_dim)
-            )
+            got = x[self.batch_idx, self.query_pos].detach().float().cpu().view(B, self.n_heads, hd)
+            if hd < self.head_dim:
+                got = torch.nn.functional.pad(got, (0, self.head_dim - hd))
+            self.captured_heads[layer] = got
         return x
 
     def stacked_heads(self) -> np.ndarray:
-        """Per-head outputs at the query token, ``(L, B, n_heads, head_dim)`` float32."""
+        """Per-head outputs at the query token, ``(L, B, n_heads, head_dim)`` float32, zero-padded to the widest
+        head where layers differ in head width."""
         missing = [l for l in range(self.n_layers) if l not in self.captured_heads]
         if missing:
             raise RuntimeError(f"head outputs not captured at layers {missing}")

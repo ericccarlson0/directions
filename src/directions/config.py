@@ -17,6 +17,7 @@ import yaml
 
 @dataclass
 class ToyModelConfig:
+    family: str = "qwen3"  # "qwen3" | "olmo3" | "gemma4": the architecture the random tiny model is built with (tests)
     hidden_size: int = 32
     num_layers: int = 4
     num_heads: int = 4

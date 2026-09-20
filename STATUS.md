@@ -3062,7 +3062,7 @@ each.
 ## Next commands
 
 ```bash
-uv run pytest                                                           # 181 tests (the trajectories smoke run covers D32–D34)
+uv run pytest                                                           # 206 tests (the trajectories smoke run covers D32–D34; the backend tests run on the three toy families, D35)
 # GPU runs: edit .github/gpu-run.yaml (command + a new `request` label), commit, push; the run-gpu
 # workflow triggers on the push (README, "Run on GPUs"). One run per push; the ci environment runs
 # them one at a time (8B goes through the ci-8b environment in US-CA-2). Then:
@@ -3087,6 +3087,13 @@ uv run directions trajectories --config configs/trajectories_subspace.yaml --see
 uv run directions trajectories --config configs/trajectories_subspace.yaml --seed 20260916 --fv-run /runpod-volume/results/run-35050661831/pilot6_qwen3_1.7b_seed20260916 --learned-run /runpod-volume/results/run-35414702823/learned_qwen3_1.7b_seed20260916 --run-id trajectories11_qwen3_1.7b_seed20260916
 uv run directions trajectories --config configs/trajectories_subspace.yaml --seed 20260916 --fv-run /runpod-volume/results/run-35051925394/pilot6_qwen3_4b_seed20260916 --learned-run /runpod-volume/results/run-35420419658/learned_qwen3_4b_seed20260916 --run-id trajectories11_qwen3_4b_seed20260916
 uv run directions trajectories --config configs/trajectories_subspace.yaml --seed 20260916 --fv-run /runpod-volume/results/run-35050604985/pilot6_qwen3_8b_seed20260916 --learned-run /runpod-volume/results/run-35414623339/learned_qwen3_8b_seed20260916 --run-id trajectories11_qwen3_8b_seed20260916
+# D35 (two further families): a smoke run per model first (load, targets, few-shot gates; OLMo 3 on ci/ADA_24/EUR-NO-1,
+# Gemma 4 on ci-8b/ADA_80_PRO/US-CA-2), then the pilot, the learned vector and the trajectory comparison:
+uv run directions validate --config configs/pilot_olmo3_7b.yaml --stop-after fewshot --run-id smoke_olmo3_7b
+uv run directions validate --config configs/pilot_gemma4_12b.yaml --stop-after fewshot --run-id smoke_gemma4_12b
+uv run directions pilot --config configs/pilot_olmo3_7b.yaml --run-id pilot6_olmo3_7b_seed20260907
+uv run directions pilot --config configs/learned_olmo3_7b.yaml --run-id learned_olmo3_7b_seed20260907
+uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-<pilot>/pilot6_olmo3_7b_seed20260907 --learned-run /runpod-volume/results/run-<learned>/learned_olmo3_7b_seed20260907 --run-id trajectories_olmo3_7b_seed20260907
 # the pilot protocols, for reference (head-mean control: pilot_*.yaml; learned vector: learned_*.yaml; add-k: arith_*.yaml):
 uv run directions pilot --config configs/learned_qwen3_0.6b.yaml --run-id learned_qwen3_0.6b_seed20260907
 uv run directions aggregate results/remote/<a>/... results/remote/<b>/... --out results/aggregate_<model>.json   # multi-seed summary
@@ -3120,11 +3127,14 @@ Suggested next steps (2026-09-18; the list of two days ago with the state of eac
    lens of the common direction (D28) and of the learned vector at the
    last read point, and a head attribution downstream of the injection,
    do not. The unembedding code is in the backend.
-5. **Another model family** (not started): every config is Qwen3; the
-   backend assumes Llama-style module names and a scaled RMSNorm final
-   norm, so Llama 3 should load unchanged and Gemma needs checks (scaled
-   embeddings, a (1 + w) norm, soft-capped logits). A new family means new
-   configs and a cold model cache on the volume.
+5. **Another model family** (in progress, D35): OLMo 3 7B and Gemma 4
+   12B under the unchanged protocol (`pilot_olmo3_7b.yaml`,
+   `pilot_gemma4_12b.yaml` and the `learned_*` counterparts); the
+   backend reads the architecture (text config, block list, final norm,
+   per-layer head widths, the final-logit soft-cap) and the test suite
+   runs on tiny random models of all three families. GPU smoke runs
+   (`--stop-after fewshot`) precede the full runs; see the D35 entry
+   below once run.
 6. **Hardening** (partial): the determinism check, the device geometry
    and the workflow are in place; the learned-vector run and the
    trajectory comparison now have two seeds (iterations 7b and 10) and

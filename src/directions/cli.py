@@ -38,7 +38,7 @@ def _cmd_run(args: argparse.Namespace, command: str) -> int:
         cfg.output_dir = args.output_dir
     if args.seed is not None:
         cfg.seed = int(args.seed)
-    root = run_pipeline(cfg, command, config_path=str(args.config), run_id=args.run_id)
+    root = run_pipeline(cfg, command, config_path=str(args.config), run_id=args.run_id, stop_after=args.stop_after)
     print(root)
     return 0
 
@@ -141,6 +141,9 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--output-dir", default=None, help="override output_dir from the config")
         p.add_argument("--run-id", default=None, help="explicit run directory name (default: timestamp + config hash)")
         p.add_argument("--seed", type=int, default=None, help="override the run seed from the config (recorded in the resolved config)")
+        p.add_argument("--stop-after", default=None, choices=["fewshot", "extraction"],
+                       help="stop every task after this stage (a smoke run of a new model: the load, the tokenisation of the "
+                            "targets and the few-shot gates, or also the extraction); the run is marked incomplete")
     p = sub.add_parser("check", help="parse and print the resolved config")
     p.add_argument("--config", required=True)
     p = sub.add_parser("compare", help="diff the JSON outputs of two runs (reproducibility check)")

@@ -14,6 +14,8 @@ Run in order:
 2. `Qwen/Qwen3-1.7B-Base`
 3. `Qwen/Qwen3-4B-Base`
 4. `Qwen/Qwen3-8B-Base`
+5. `allenai/Olmo-3-1025-7B` (a second family under the same protocol, docs/DECISIONS.md D35)
+6. `google/gemma-4-12B` (a third family; the text decoder of the multimodal checkpoint, D35)
 
 Use:
 

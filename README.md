@@ -20,6 +20,8 @@ uv run directions check    --config configs/pilot_qwen3_0.6b.yaml   # print the 
 uv run directions validate --config configs/pilot_qwen3_0.6b.yaml   # task/control validation only
 uv run directions pilot    --config configs/pilot_qwen3_0.6b.yaml   # full pilot (+ layerwise, exploratory, figures)
 uv run directions pilot    --config configs/pilot_qwen3_1.7b.yaml   # same protocol, second model
+uv run directions pilot    --config configs/pilot_olmo3_7b.yaml     # same protocol, another family (OLMo 3; Gemma 4: pilot_gemma4_12b.yaml)
+uv run directions validate --config configs/pilot_olmo3_7b.yaml --stop-after fewshot   # smoke run of a new model: load, targets, few-shot gates
 uv run directions compare  results/<run_a> results/<run_b>          # reproducibility diff of two runs
 uv run directions pilot    --config configs/smoke_toy.yaml          # tiny random model, CPU, no downloads
 uv run directions pilot    --config configs/pilot_qwen3_0.6b.yaml --seed 1 --run-id r1   # seed override

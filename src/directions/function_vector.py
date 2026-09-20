@@ -152,7 +152,7 @@ def build_function_vector(
         seed_directions=seed_dirs,
         seed_norms=[float(np.linalg.norm(v)) for v in per_seed],
         stability=stability(seed_dirs) if len(seed_dirs) > 1 else 1.0,
-        cos_pooled_vs_seeds=[float(abs(direction @ d)) for d in seed_dirs],
+        cos_pooled_vs_seeds=[min(float(abs(direction @ d)), 1.0) for d in seed_dirs],
     )
 
 

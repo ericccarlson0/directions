@@ -1462,3 +1462,77 @@ patch grid; run on `configs/trajectories_subspace.yaml`, which carries
 only what the test needs from the earlier stages (canonical strength,
 primary layer, the learned vector's patch grid for the hand-over read
 point, no diagnostics), on the seed-20260916 runs of iteration 10.
+
+## 2026-09-20 — Two further model families
+
+### D35. OLMo 3 7B and Gemma 4 12B under the unchanged protocol; the backend generalised to what they need
+
+Context: every result so far is on one family (Qwen3, four sizes), so
+the hand-over depth, the rank-one replacement and the sufficiency-
+before-necessity gap could be properties of that family's training or
+architecture. The families chosen maximise the distance from Qwen3 on
+the axes that could matter: OLMo 3 (`allenai/Olmo-3-1025-7B`, a base
+model with open data, norms after the sublayers, multi-head attention,
+sliding-window attention on three layers in four, an untied unembedding,
+a GPT-2-style tokenizer with no BOS) and Gemma 4 (`google/gemma-4-12B`,
+the text decoder of a multimodal checkpoint, pre- and post-norms,
+scaled embeddings, local and global attention layers whose heads have
+different widths, a soft-capped final logit, a tied unembedding, a
+SentencePiece tokenizer that prefixes a BOS). Llama 3 would have been
+the smallest change and is left as a later, cheap addition.
+
+Decision:
+
+* **The protocol is unchanged.** `configs/pilot_olmo3_7b.yaml`,
+  `configs/pilot_gemma4_12b.yaml` and their `learned_*` counterparts are
+  the 8B configs with `model.name` replaced (enforced by
+  `tests/test_configs.py`): the same tasks, pools, gates, controls,
+  candidate depth fractions (layers 6, 10, 13, 16 of OLMo 3's 32 and
+  10, 14, 19, 24 of Gemma 4's 48), strengths, seed 20260907 and batch
+  size. The trajectory comparison runs on `configs/trajectories.yaml`
+  as on Qwen3. No per-family tuning: a task that fails its few-shot
+  gate on a family is a rejection of the task on that family, not a
+  reason to change the gate.
+* **The backend reads the architecture instead of assuming it.** The
+  decoder configuration is the model's text config (the wrapper's
+  `text_config` on a multimodal checkpoint); the block list is found
+  under `model.layers` or `model.language_model.layers`; the final
+  norm likewise. The head width is read per layer from the block's
+  attention module and checked against its output projection (Gemma
+  4's global layers use twice the local width), captured head outputs
+  are padded to the widest and every per-layer use slices to the
+  layer's own width. The scores apply the architecture's final-logit
+  soft-cap where it has one (the tanh cap of Gemma), so the
+  log-probabilities, margins and lens are the model's own; the
+  unembedding directions are the pre-cap ones (the cap is monotone).
+  The prompt prefix the tokenizer adds (a BOS or nothing) is recorded
+  in the run's metadata. Everything else (the residual hooks at the
+  block inputs and after the last block, the head hooks on the input
+  of the output projection, the intervention mechanics) is unchanged,
+  and the Qwen3 numerical path is untouched (the soft-cap is a no-op
+  where the config has none; the padding is a no-op with one width).
+* **Validation before spending.** Tiny random models of all three
+  families (`ToyModelConfig.family`) run the whole backend test suite:
+  the log-probabilities against the native forward, the interventions
+  exact at the layer and zero before it, the head decomposition of the
+  attention output to 1e-6, the gradients against finite differences,
+  batching invariance. On the GPU, a smoke run of each model stops
+  after the few-shot stage (`--stop-after fewshot`: the download, the
+  device, the tokenisation of every target, the few-shot and zero-shot
+  accuracies of the ten tasks, the metadata) before the full protocol
+  is requested; only a model whose smoke run is clean and whose tasks
+  pass the gates as Qwen3's did is run in full.
+* **Order and compute.** OLMo 3 7B first (14.6 GB of bf16 weights, the
+  24 GB tier in EUR-NO-1, about three dollars for the three runs), then
+  Gemma 4 12B (about 24 GB of weights, the 80 GB tier in US-CA-2 as for
+  8B, about ten dollars); the three runs per model are the pilot
+  (head-mean control), the learned vector and the trajectory
+  comparison.
+
+Reading: the core quantities to compare across families are the
+hand-over read point as a fraction of the stack (0.6–0.8 on Qwen3 for
+every injection layer), the rank of the replacement (one, the task's
+own mean natural difference) and the sufficiency-before-necessity gap
+(growing with size on Qwen3). Agreement on both families makes them
+properties of in-context task execution in this class of models;
+disagreement on one of them locates what the Qwen3 result depended on.

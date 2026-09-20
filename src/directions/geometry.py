@@ -59,7 +59,7 @@ def cosine(a: np.ndarray, b: np.ndarray) -> float:
     na, nb = np.linalg.norm(a), np.linalg.norm(b)
     if na == 0 or nb == 0:
         return 0.0
-    return float(a @ b / (na * nb))
+    return float(np.clip(a @ b / (na * nb), -1.0, 1.0))  # rounding can push identical vectors past 1
 
 
 def rowwise_abs_cosine(rows: np.ndarray, v: np.ndarray) -> np.ndarray:
@@ -112,7 +112,7 @@ def pairwise_abs_cosines(directions: np.ndarray) -> np.ndarray:
     """Upper-triangular pairwise ``|cos|`` between rows of ``directions`` (k, d)."""
     D = normalize(np.asarray(directions, dtype=np.float64))
     k = D.shape[0]
-    return np.array([abs(float(D[i] @ D[j])) for i in range(k) for j in range(i + 1, k)])
+    return np.array([min(abs(float(D[i] @ D[j])), 1.0) for i in range(k) for j in range(i + 1, k)])
 
 
 def stability(directions: np.ndarray) -> float:

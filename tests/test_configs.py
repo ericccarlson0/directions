@@ -22,6 +22,8 @@ QWEN_CONFIGS = {
     "pilot_qwen3_1.7b.yaml": "Qwen/Qwen3-1.7B-Base",
     "pilot_qwen3_4b.yaml": "Qwen/Qwen3-4B-Base",
     "pilot_qwen3_8b.yaml": "Qwen/Qwen3-8B-Base",
+    "pilot_olmo3_7b.yaml": "allenai/Olmo-3-1025-7B",  # D35: two further families, the same protocol
+    "pilot_gemma4_12b.yaml": "google/gemma-4-12B",
 }
 
 
@@ -105,6 +107,8 @@ LEARNED_CONFIGS = {
     "learned_qwen3_1.7b.yaml": "Qwen/Qwen3-1.7B-Base",
     "learned_qwen3_4b.yaml": "Qwen/Qwen3-4B-Base",
     "learned_qwen3_8b.yaml": "Qwen/Qwen3-8B-Base",
+    "learned_olmo3_7b.yaml": "allenai/Olmo-3-1025-7B",
+    "learned_gemma4_12b.yaml": "google/gemma-4-12B",
 }
 
 

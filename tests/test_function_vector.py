@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from directions.cli import main
-from directions.config import ModelConfig, PromptConfig, load_config
+from directions.config import ModelConfig, PromptConfig, ToyModelConfig, load_config
 from directions.function_vector import build_function_vector, compose, head_effects, mean_head_outputs, select_heads
 from directions.model import HeadPatch, ModelBackend
 from directions.pipeline import run_pipeline
@@ -16,11 +16,15 @@ from directions.seeds import rng_for
 from directions.tasks import build_task
 
 CONFIGS = Path(__file__).resolve().parents[1] / "configs"
+FAMILIES = ["qwen3", "olmo3", "gemma4"]
 
 
-@pytest.fixture(scope="module")
-def backend():
-    return ModelBackend(ModelConfig(backend="toy", dtype="float32", device="cpu", batch_size=16), run_seed=1)
+@pytest.fixture(scope="module", params=FAMILIES)
+def backend(request):
+    """A tiny random model of each supported architecture: the head hooks must decompose the attention output
+    exactly on all of them (Gemma 4's global layers use a wider head than its local ones)."""
+    cfg = ModelConfig(backend="toy", dtype="float32", device="cpu", batch_size=16, toy=ToyModelConfig(family=request.param))
+    return ModelBackend(cfg, run_seed=1)
 
 
 @pytest.fixture(scope="module")

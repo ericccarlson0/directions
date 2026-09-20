@@ -129,14 +129,17 @@ class TaskState:
 
 
 class Pipeline:
-    def __init__(self, cfg: Config, command: str, config_path: str | None = None, run_id: str | None = None) -> None:
+    def __init__(self, cfg: Config, command: str, config_path: str | None = None, run_id: str | None = None,
+                 stop_after: str | None = None) -> None:
         self.cfg = cfg
         self.command = command
         self.root = make_run_dir(cfg, command, run_id)
         self.log = setup_logging(self.root / "log.txt")
         self.rejections = RejectionLog(self.root / "rejections.jsonl")
         self.prof = Profiler()
-        self.stop_after = "steering" if command == "validate" else "figures"
+        # An explicit early stop (a smoke run of a new model) overrides the command's stage; such a run has no
+        # measurements and is never an input to a comparison.
+        self.stop_after = stop_after or ("steering" if command == "validate" else "figures")
         write_resolved_config(self.root / "config.resolved.yaml", cfg)
         self.metadata: dict[str, Any] = {
             "run_id": self.root.name,
@@ -147,6 +150,7 @@ class Pipeline:
             "git": git_info(Path(__file__).resolve().parents[2]),
             "environment": environment_metadata(),
             "seed": cfg.seed,
+            "stop_after": self.stop_after,
             "config": config_to_dict(cfg),
             "started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
@@ -1178,5 +1182,6 @@ class Pipeline:
         return summary
 
 
-def run_pipeline(cfg: Config, command: str, config_path: str | None = None, run_id: str | None = None) -> Path:
-    return Pipeline(cfg, command, config_path=config_path, run_id=run_id).run()
+def run_pipeline(cfg: Config, command: str, config_path: str | None = None, run_id: str | None = None,
+                 stop_after: str | None = None) -> Path:
+    return Pipeline(cfg, command, config_path=config_path, run_id=run_id, stop_after=stop_after).run()

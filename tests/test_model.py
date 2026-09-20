@@ -2,16 +2,20 @@ import numpy as np
 import pytest
 import torch
 
-from directions.config import ModelConfig, PromptConfig
+from directions.config import ModelConfig, PromptConfig, ToyModelConfig
 from directions.model import Intervention, ModelBackend
 from directions.prompts import few_shot_prompt
 from directions.seeds import rng_for
 from directions.tasks import build_task
 
+FAMILIES = ["qwen3", "olmo3", "gemma4"]
 
-@pytest.fixture(scope="module")
-def backend():
-    return ModelBackend(ModelConfig(backend="toy", dtype="float32", device="cpu", batch_size=4), run_seed=1)
+
+@pytest.fixture(scope="module", params=FAMILIES)
+def backend(request):
+    """A tiny random model of each supported architecture (the backend must be exact on all of them)."""
+    cfg = ModelConfig(backend="toy", dtype="float32", device="cpu", batch_size=4, toy=ToyModelConfig(family=request.param))
+    return ModelBackend(cfg, run_seed=1)
 
 
 @pytest.fixture(scope="module")

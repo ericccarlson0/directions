@@ -116,6 +116,22 @@ def test_validate_command_stops_after_steering(tmp_path):
     assert not (root / "core" / "cross_task.json").exists()
 
 
+def test_stop_after_fewshot_is_a_smoke_run(tmp_path):
+    """`--stop-after fewshot` (D35): the model loads, every target tokenises, the few-shot gates are recorded, and
+    nothing is extracted or measured; the early stop is recorded in the metadata."""
+    rc = main(["validate", "--config", str(CONFIGS / "smoke_toy.yaml"), "--output-dir", str(tmp_path), "--run-id", "s",
+               "--stop-after", "fewshot"])
+    assert rc == 0
+    root = tmp_path / "s"
+    meta = json.loads((root / "metadata.json").read_text())
+    assert meta["stop_after"] == "fewshot" and meta["model"]["prompt_prefix_ids"] == [] and meta["model"]["logit_softcap"] is None
+    q = json.loads((root / "core" / "tasks" / "antonym" / "qualification.json").read_text())
+    assert "fewshot" in q["gates"] and "fewshot" in q and "zeroshot_baseline" in q and q["example_prompt"]["target"]
+    assert not (root / "core" / "tasks" / "antonym" / "extraction.json").exists()
+    assert not (root / "core" / "tasks" / "antonym" / "evaluation.json").exists()
+    assert json.loads((root / "core" / "summary.json").read_text())["n_qualified"] == 0
+
+
 def test_enforced_gates_reject_random_model(tmp_path):
     cfg = load_config(CONFIGS / "smoke_toy.yaml")
     cfg.output_dir = str(tmp_path)
