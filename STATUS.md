@@ -2944,6 +2944,31 @@ hand-over band (which heads and MLPs write the direction) is not done.
 of worker time for the four models; the subspace stage was 2–5 min of
 each.
 
+### D35: two further model families (OLMo 3 7B, Gemma 4 12B)
+
+Code: the backend reads the architecture (text config, block list,
+final norm, per-layer head widths, the final-logit soft-cap, the
+tokenizer's prompt prefix); tiny random models of the three families
+run the backend tests; `--stop-after {fewshot,extraction}` on
+`validate`/`pilot` for a smoke run; configs `pilot_olmo3_7b.yaml`,
+`learned_olmo3_7b.yaml`, `pilot_gemma4_12b.yaml`, `learned_gemma4_12b.yaml`
+(the 8B configs with the model name replaced; OLMo 3 at batch 32).
+
+**OLMo 3 7B smoke run** (workflow run 35529137780, `validate
+--stop-after fewshot`, RTX 4090, 69 s after a 45 s load; batch 128):
+the model loads as `Olmo3ForCausalLM` with 32 layers, 32 heads of 128,
+vocabulary 100278, no prompt prefix, no soft-cap. Few-shot accuracy
+(zero-shot in brackets): antonym 0.885 (0.000), plural 0.995 (0.010),
+past_tense 0.953 (0.057), present_participle 1.000 (0.000), singular
+1.000 (0.031), number_to_words 1.000 (0.224), last_antonym 0.646
+(0.000), arithmetic_words 0.000 (0.000; fails the gate, as on the
+smaller Qwen3 models). `arithmetic` and `uppercase` ran out of memory
+at batch 128 (the card's 23.5 GB were full after the weights' 13.6 GiB
+and the multi-head attention activations of 128 eight-shot prompts);
+`uppercase` also drops items whose target exceeds four tokens under
+the GPT-2-style tokenizer (`phenomenon`). The batch was set to 32 for
+this family (D35) and the full pilot requested.
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907

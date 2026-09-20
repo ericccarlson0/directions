@@ -12,7 +12,7 @@ model:
   name: allenai/Olmo-3-1025-7B
   dtype: bfloat16          # model execution; captured activations float32, statistics float64
   device: cuda             # fail fast; "auto" silently fell back to the CPU on a worker whose driver could not run the locked torch
-  batch_size: 128          # D20: 32 -> 128 for wall time (logits are gathered at the target positions only)
+  batch_size: 32           # D35: 128 (D20) runs out of memory on the 24 GB tier with this model (multi-head attention, 14.6 GB of weights); the batch enters no statistic
 
 prompt:
   instruction: ""

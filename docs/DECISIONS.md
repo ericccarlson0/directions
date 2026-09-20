@@ -1527,7 +1527,13 @@ Decision:
   Gemma 4 12B (about 24 GB of weights, the 80 GB tier in US-CA-2 as for
   8B, about ten dollars); the three runs per model are the pilot
   (head-mean control), the learned vector and the trajectory
-  comparison.
+  comparison. The OLMo 3 configs run at batch 32: the smoke run at
+  batch 128 ran out of memory on the 24 GB card during the few-shot
+  stage (multi-head attention keeps four times Qwen3's key/value
+  activations), and the batch enters no statistic (D20 raised it from
+  32 to 128 for wall time only; the batching invariance is tested).
+  Going up a tier would have meant a cold cache in US-CA-2 at four
+  times the hourly price for a batch the analysis does not need.
 
 Reading: the core quantities to compare across families are the
 hand-over read point as a fraction of the stack (0.6–0.8 on Qwen3 for

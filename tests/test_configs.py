@@ -27,12 +27,21 @@ QWEN_CONFIGS = {
 }
 
 
+def _normalise_model(a: dict, b: dict, fname: str) -> None:
+    """The OLMo 3 configs run at batch 32 (D35: batch 128 does not fit the 24 GB tier); the batch enters no
+    statistic. Everything else must match."""
+    b["model"]["name"] = a["model"]["name"]
+    if "olmo3" in fname:
+        assert b["model"]["batch_size"] == 32, fname
+        b["model"]["batch_size"] = a["model"]["batch_size"]
+
+
 def test_qwen_configs_differ_only_in_model_name():
     a = config_to_dict(load_config(CONFIGS / "pilot_qwen3_0.6b.yaml"))
     for fname, model_name in QWEN_CONFIGS.items():
         b = config_to_dict(load_config(CONFIGS / fname))
         assert b["model"]["name"] == model_name, fname
-        b["model"]["name"] = a["model"]["name"]
+        _normalise_model(a, b, fname)
         assert a == b, fname
 
 
@@ -120,7 +129,7 @@ def test_learned_configs_are_the_pilot_with_the_learned_control():
     for fname, model_name in LEARNED_CONFIGS.items():
         b = config_to_dict(load_config(CONFIGS / fname))
         assert b["model"]["name"] == model_name, fname
-        b["model"]["name"] = a["model"]["name"]
+        _normalise_model(a, b, fname)
         assert a == b, fname
     assert a["extraction"]["control"] == "learned_vector" and a["extraction"]["learned_vector"]["n_steps"] == 100
     ext_a, ext_p = dict(a["extraction"]), dict(pilot["extraction"])
