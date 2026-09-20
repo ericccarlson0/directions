@@ -3038,6 +3038,32 @@ passed, 8 of 10 qualify (`arithmetic_words` fails the few-shot gate at
   alone retains ≤ 0.83, number_to_words and singular the high ones).
 
 ```
+# workflow run 35538374069 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1, batch 32
+uv run directions pilot --config configs/learned_olmo3_7b.yaml --run-id learned_olmo3_7b_seed20260907
+```
+
+**OLMo 3 7B learned vector** (D31 protocol): 126 min, determinism
+check passed, 9 of 10 qualify (arithmetic_words fails the few-shot
+gate; add_3 qualifies where the head mean did not). The fits reach
+0.00 extraction loss on every task (seed stability 0.19–0.48). Layers
+13 (add_3, antonym, past_tense), 16 (present_participle), 10
+(last_antonym, number_to_words, uppercase) and 6 (plural, singular),
+always ρ = 1 (the fit radius, 1.0 × the stream). Held-out +0.6 to
++9.0 nats per token, 0.89–1.02 of the few-shot gap, accuracy
+0.76–1.00; over the permuted-target null +1.8 to +12.0, over the other
+tasks' vectors +4.5 to +13.9 (all p < 0.001). Collateral damage is
+small: KL on neutral prose 0.30–0.77 nats, 0.2–0.6 above the random
+controls' (Gemma 4's learned vectors: 6–27 nats; OLMo 3's head mean at
+ρ = 1: 4–7 for five tasks). Depth of commitment, every read point
+readable for the single-token tasks: removal leaves 50 % of the effect
+from 0.25–0.59 of the stack on (read points 8–19), 90 % from 0.31–0.69
+(10–22), 1.00 at the end; the direction alone carries 50 % until
+0.44–0.81 of the stack (14–26) and 0.00–0.13 at the end. add_3 and
+number_to_words are the multi-token cases whose per-token rows are
+uninformative (18 unreadable read points each, the random keep at
+1.0).
+
+```
 # workflow run 35529659262 (push-triggered request), H100 80GB HBM3 (ADA_80_PRO), US-CA-2, Flash environment ci-8b
 uv run directions pilot --config configs/pilot_gemma4_12b.yaml --run-id pilot6_gemma4_12b_seed20260907
 ```
