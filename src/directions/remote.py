@@ -222,11 +222,23 @@ def _run_streaming(
     tail_size = 0
     proc = subprocess.Popen(argv, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     assert proc.stdout is not None
-    with log_path.open("wb") as log_file, (live_copy.open("wb") if live_copy else open(os.devnull, "wb")) as live:
+    # The live copy on the volume is best effort: a full volume (disk quota) must not stop the command from
+    # running, since the command may be the one that frees the volume.
+    live = open(os.devnull, "wb")
+    if live_copy is not None:
+        try:
+            live = live_copy.open("wb")
+        except OSError as exc:
+            sys.stdout.write(f"[runner] live log copy unavailable ({exc}); continuing without it\n")
+            sys.stdout.flush()
+    with log_path.open("wb") as log_file, live:
         for line in proc.stdout:
             log_file.write(line)
-            live.write(line)
-            live.flush()
+            try:
+                live.write(line)
+                live.flush()
+            except OSError:
+                pass
             sys.stdout.buffer.write(line)
             sys.stdout.flush()
             tail.append(line)
@@ -263,8 +275,12 @@ def execute(
     live_copy = None
     if on_volume:
         target = Path(volume_root) / VOLUME_RESULTS_SUBDIR / results_name
-        target.mkdir(parents=True, exist_ok=True)
-        live_copy = target / RUNNER_LOG_NAME
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+            live_copy = target / RUNNER_LOG_NAME
+        except OSError as exc:  # a full volume: run anyway, report below
+            sys.stdout.write(f"[runner] cannot create {target} ({exc}); running without the volume copy\n")
+            sys.stdout.flush()
     try:
         returncode, log = _run_streaming(argv, cwd, env, log_path, live_copy)
     except OSError as exc:
@@ -290,7 +306,12 @@ def execute(
         "log_tail": log[-LOG_TAIL_BYTES:],
     }
     if on_volume:
-        shutil.copytree(out_dir, target, dirs_exist_ok=True)
+        try:
+            shutil.copytree(out_dir, target, dirs_exist_ok=True)
+        except (OSError, shutil.Error) as exc:
+            # keep the command's outcome visible in the job output even when the results cannot be kept
+            result.update({"results_tar_b64": None, "results_path": None, "results_error": f"copy to the volume failed: {exc}"})
+            return result
         files = [p for p in target.rglob("*") if p.is_file()]
         result.update(
             {
