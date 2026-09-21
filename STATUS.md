@@ -3415,7 +3415,52 @@ needed (removal below 90 %) until read points 16–36, at the end only
 for uppercase. The learned vector hands over earlier than the head
 mean on this checkpoint (head mean: 50 % from 0.11–0.64 of the
 downstream depth), as the D31 runs found on the Base models.
-Remaining for D36: the trajectory comparison and the lens readout.
+```
+# workflow run 35616622670 (push-triggered request), H100 80GB HBM3 (ADA_80_PRO), US-CA-2, Flash environment ci-8b
+uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-35561394283/pilot6_qwen3_8b_post_seed20260907 --learned-run /runpod-volume/results/run-35616101070/learned_qwen3_8b_post_seed20260907 --run-id trajectories_qwen3_8b_post_seed20260907
+```
+
+**Post-trained Qwen3-8B trajectory comparison**: 19.2 min (factors
+6.2, isotropic 3.3, patch 8.2, subspace 3.1), determinism check
+passed, ten tasks (the head mean absent for add_3). Every read point
+is readable (random controls at 1.00 removal and 0.00–0.06 keep;
+add_3 and arithmetic_words are the per-token cases, random keep 0.94
+and 0.49).
+
+- **The hand-over sits where it sits on the Base model.** The
+  per-prompt keep of the learned vector's perturbation along the
+  prompt's natural difference reaches 0.9 at read point 25 of 36
+  (0.69 of the stack) on eight tasks and 27 (0.75) on
+  arithmetic_words, for injections at layers 7, 14 and 18 (0.39–0.62
+  of the downstream depth); the alignment with the natural difference
+  is 0.33–0.52 there, and the natural difference patched in alone
+  gives 0.99–1.21 of the effect from that read point (the eight
+  single-token tasks). The head-mean vector hands over at read points
+  25–29 (0.69–0.81) for the layer-14/18 tasks and 18 (0.50) for the
+  two layer-7 tasks (antonym, number_to_words; alignment 0.21–0.53).
+  The Base Qwen3-8B: 0.6–0.8 of the stack. The learned perturbation
+  converges on its task's natural trajectory (final cosine 0.50–0.88,
+  coherence at the end 0.46–0.71).
+- **Rank one, the task's own** (subspace test at the hand-over read
+  point, learned vector, eight single-token tasks): keeping only the
+  projection onto the task's top natural-difference component retains
+  0.87–0.99 of the effect (median 0.97), patching that one component
+  alone gives 0.91–1.12 (median 0.99), against −0.84 to +0.18 for the
+  other tasks' top component (keep −0.19 to +0.35), −0.10 to −0.03
+  for the background's and 0.00 for a random direction; the
+  per-prompt ceiling is 0.95–1.16; k = 2 … 8 add at most 0.11. The
+  pool's top component explains 0.68–0.90 of the natural-difference
+  energy (participation ratio 1.2–2.1), cosine 1.00 with the held-out
+  mean.
+- **Necessity, by family, as before.** Removing the rank-one own
+  component at the hand-over read point leaves −0.01 (antonym), 0.65
+  (last_antonym) and 0.69 (number_to_words) of the effect on the
+  three tasks whose carrier is that component alone, and 0.90–1.00 on
+  the five morphological tasks (past_tense, plural,
+  present_participle, singular, uppercase), where it is sufficient but
+  not necessary, as on the Base Qwen3 models.
+
+Remaining for D36: the lens readout.
 
 **Exploratory: is the downstream change of the perturbation a
 rotation?** (`scripts/trajectory_rotation.py` on the stored
