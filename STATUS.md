@@ -3352,7 +3352,7 @@ per-block writing measure. Cost of the two families: about $24 (OLMo 3
 $6.5 on the 4090 at batch 32, Gemma 4 $18 on the H100), one execution
 of each stage plus the smoke runs and the probe.
 
-### D36: the verbalisation test on the post-trained Qwen3-8B (in progress, blocked on RunPod credit)
+### D36: the verbalisation test on the post-trained Qwen3-8B (in progress)
 
 ```
 # workflow run 35561394283 (push-triggered request), H100 80GB HBM3 (ADA_80_PRO), US-CA-2, Flash environment ci-8b
@@ -3381,14 +3381,41 @@ hand-over is the one measured on Qwen3.
 
 The first learned-vector run (workflow run 35561562655) stalled on
 its worker after four tasks (33 min in; no output for 47 min, the
-volume log untouched) and was cancelled with the comparison queued
-behind it; the re-request (35571439131) was refused by the RunPod
-API with `HTTP 402 Payment Required` at job submission: the account's
-credit is exhausted. Remaining for D36 once credit is restored, in
-order (about $6 on the H100): the learned-vector run (`learned_qwen3_8b_post.yaml`,
-~50 min), the trajectory comparison (`configs/trajectories.yaml`,
-~20 min) and the lens readout (`scripts/verbalise.py`, ~5 min); the
-commands are in "Next commands".
+volume log untouched) and was cancelled; the re-request (35571439131)
+was refused at job submission with `HTTP 402 Payment Required` (the
+account's credit was exhausted; `scripts/runpod_balance.py` now gates
+every long request, `docs/INFRA.md` item 7).
+
+```
+# workflow run 35616101070 (push-triggered request), H100 80GB HBM3 (ADA_80_PRO), US-CA-2, Flash environment ci-8b
+uv run directions pilot --config configs/learned_qwen3_8b_post.yaml --run-id learned_qwen3_8b_post_seed20260907
+```
+
+**Post-trained Qwen3-8B learned vector** (D31 protocol): 57 min,
+determinism check passed, 10 of 10 qualify (add_3 and
+arithmetic_words included, which the head mean could not steer; as on
+Gemma 4). The fits drive the extraction loss to 0.00 on every task
+(Base: 0.1–0.5), with seed stability 0.05–0.33 (the under-determined
+fit at the radius, as on Gemma 4). Layer 18 for six tasks, 14 for
+singular and last_antonym, 7 for antonym and number_to_words, all at
+ρ = 1 (the fitted norm is 1.00–1.02 × the median residual norm); the
+learned direction is orthogonal to the task's PC1 at its layer (|cos|
+≤ 0.03). Held-out +3.8 to +7.1 nats per token, steered exact-match
+accuracy 0.78–1.00 from a zero-shot 0.00–0.01, every gate at
+p = 0.0005, excess over the six control kinds +3.8 to +7.8. Depth of
+commitment on the eight single-token tasks (17–29 readable read
+points each; the two multi-token tasks are the known uninformative
+case, random keep 0.9–1.0 on add_3 and 0.49 on arithmetic_words from
+their first read points): removal of the learned direction leaves
+50 % of the effect from 0.10–0.28 of the downstream depth on (read
+points 10–23; 0.28–0.64 of the stack), 90 % from 0.14–0.33; the
+direction alone carries 50 % until 0.17–0.56 of the downstream depth
+(read points 12–28) and 0.00–0.08 at the end; the direction is
+needed (removal below 90 %) until read points 16–36, at the end only
+for uppercase. The learned vector hands over earlier than the head
+mean on this checkpoint (head mean: 50 % from 0.11–0.64 of the
+downstream depth), as the D31 runs found on the Base models.
+Remaining for D36: the trajectory comparison and the lens readout.
 
 **Exploratory: is the downstream change of the perturbation a
 rotation?** (`scripts/trajectory_rotation.py` on the stored
