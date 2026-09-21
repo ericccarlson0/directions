@@ -24,6 +24,7 @@ QWEN_CONFIGS = {
     "pilot_qwen3_8b.yaml": "Qwen/Qwen3-8B-Base",
     "pilot_olmo3_7b.yaml": "allenai/Olmo-3-1025-7B",  # D35: two further families, the same protocol
     "pilot_gemma4_12b.yaml": "google/gemma-4-12B",
+    "pilot_qwen3_8b_post.yaml": "Qwen/Qwen3-8B",  # D36: the post-trained checkpoint with a fitted Jacobian lens
 }
 
 
@@ -118,6 +119,7 @@ LEARNED_CONFIGS = {
     "learned_qwen3_8b.yaml": "Qwen/Qwen3-8B-Base",
     "learned_olmo3_7b.yaml": "allenai/Olmo-3-1025-7B",
     "learned_gemma4_12b.yaml": "google/gemma-4-12B",
+    "learned_qwen3_8b_post.yaml": "Qwen/Qwen3-8B",
 }
 
 
