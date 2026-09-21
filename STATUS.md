@@ -3439,8 +3439,8 @@ and 0.49).
   25–29 (0.69–0.81) for the layer-14/18 tasks and 18 (0.50) for the
   two layer-7 tasks (antonym, number_to_words; alignment 0.21–0.53).
   The Base Qwen3-8B: 0.6–0.8 of the stack. The learned perturbation
-  converges on its task's natural trajectory (final cosine 0.50–0.88,
-  coherence at the end 0.46–0.71).
+  converges on its task's natural trajectory (final cosine 0.87–0.93,
+  add_3 0.50; coherence at the end 0.42–0.89).
 - **Rank one, the task's own** (subspace test at the hand-over read
   point, learned vector, eight single-token tasks): keeping only the
   projection onto the task's top natural-difference component retains
