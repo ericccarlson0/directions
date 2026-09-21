@@ -3352,6 +3352,44 @@ per-block writing measure. Cost of the two families: about $24 (OLMo 3
 $6.5 on the 4090 at batch 32, Gemma 4 $18 on the H100), one execution
 of each stage plus the smoke runs and the probe.
 
+### D36: the verbalisation test on the post-trained Qwen3-8B (in progress, blocked on RunPod credit)
+
+```
+# workflow run 35561394283 (push-triggered request), H100 80GB HBM3 (ADA_80_PRO), US-CA-2, Flash environment ci-8b
+uv run directions pilot --config configs/pilot_qwen3_8b_post.yaml --run-id pilot6_qwen3_8b_post_seed20260907
+```
+
+**Post-trained Qwen3-8B pilot** (the checkpoint with a fitted Jacobian
+lens; the unchanged protocol, no chat template): 71 min, determinism
+check passed, 8 of 10 qualify (arithmetic and arithmetic_words fail
+the head-support gate, as on the Base model). All ten tasks pass the
+few-shot gate (antonym 0.891, last_antonym 0.724, arithmetic_words
+0.609, the rest 0.98–1.00; Base: 0.885 / 0.641 / 0.000). Head count
+16 (pooled joint effect 0.04 / 0.09 / 0.21 / 0.37 / 0.64 / 0.69 / 0.71;
+the doubling to 32 gains 8 %; Base: 32). Layer 18 for seven tasks at
+ρ = 1 (Base: 18 for seven, 7 for plural), number_to_words at layer 14
+and ρ = 2.5 (its only reliable strengths are 2.5–3.9). Held-out +2.3 to
++6.9 nats per token (Base +2.2 to +5.4), every gate at p ≤ 0.0005;
+neutral-prose damage not yet compared. Depth of commitment, every
+read point readable: removal of the head-mean direction leaves 50 %
+of the effect from 0.11–0.64 of the downstream depth on (read points
+20–28; 0.56–0.78 of the stack), 90 % from 0.33–0.94, 0.94–1.33 at the
+end; the direction alone carries 50 % until 0.11–0.44 (Base:
+0.22–0.39). The post-trained checkpoint behaves as the Base one on
+every core quantity, so the lens readouts will be of a model whose
+hand-over is the one measured on Qwen3.
+
+The first learned-vector run (workflow run 35561562655) stalled on
+its worker after four tasks (33 min in; no output for 47 min, the
+volume log untouched) and was cancelled with the comparison queued
+behind it; the re-request (35571439131) was refused by the RunPod
+API with `HTTP 402 Payment Required` at job submission: the account's
+credit is exhausted. Remaining for D36 once credit is restored, in
+order (about $6 on the H100): the learned-vector run (`learned_qwen3_8b_post.yaml`,
+~50 min), the trajectory comparison (`configs/trajectories.yaml`,
+~20 min) and the lens readout (`scripts/verbalise.py`, ~5 min); the
+commands are in "Next commands".
+
 **Exploratory: is the downstream change of the perturbation a
 rotation?** (`scripts/trajectory_rotation.py` on the stored
 population-mean trajectories of the trajectories runs: Qwen3-8B and
