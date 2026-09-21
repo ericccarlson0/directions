@@ -1,11 +1,11 @@
 # Request a GPU run: change this file, commit, push. The run-gpu workflow triggers on every push that changes
 # this file and runs `command` at the repository root on a RunPod worker. To re-request an identical command,
 # there needs to be a new `request` label. A manual workflow_dispatch ignores this file.
-request: learned_qwen3_8b_post_seed20260907 # note that a new label re-requests the same command
-command: uv run directions pilot --config configs/learned_qwen3_8b_post.yaml --run-id learned_qwen3_8b_post_seed20260907
+request: volume_cleanup_us_ca_2_gemma_cache # note that a new label re-requests the same command
+command: uv run python scripts/volume_cleanup.py --delete-model google/gemma-4-12B --delete-incomplete --yes
 gpu_tier: ADA_80_PRO         # memory class ("tier")
 gpu_type: ""              # exact device name to pin instead of the tier, e.g. "NVIDIA RTX A4500"
 datacenter: US-CA-2       # data center of the `directions` network volume
 flash_env: ci-8b          # Flash environment; one run at a time per environment
-timeout_minutes: 340
+timeout_minutes: 30
 max_output_mb: 8
