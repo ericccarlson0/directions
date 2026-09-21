@@ -1599,7 +1599,68 @@ Decision:
   The trajectories' patch and subspace tests carry shape-matched
   isotropic controls only; on Gemma 4 their read points past 30 (0.63
   of the stack) are read against the probe's sensitivity map, not
-  taken at face value. The probe's readable window on Gemma 4 ends
+  taken at face value.
+
+  *The mechanism, made explicit from the checkpoint*
+  (`scripts/checkpoint_norm_gains.py`, which reads the norm weights
+  through HTTP range requests without downloading the model). An
+  RMSNorm block reads x / rms(x) ⊙ w. On Gemma 4 the query token's
+  residual is dominated by one coordinate (1750) from about layer 8
+  on, so rms(x) ≈ |x₁₇₅₀| / √d ≈ 3 in the middle of the stack and the
+  ordinary coordinates, of size ~1, normalise to ~0.3. The learned
+  weights compensate: from layer 12 on the input norm's weight at
+  coordinate 1750 is 0.000 ± 0.003 (the massive coordinate is not
+  read; it only sets the scale) while the *median* weight on the
+  other coordinates is 33 at layer 12, 41 at 16, 16 at 20, 6 at 24,
+  1–2 from 28 on, with maxima of 180–930 and 155–1722 coordinates
+  above 50 at every layer past 12 (the pre-feedforward norm at layer
+  12: median 170, 2916 of 3840 coordinates above 50); the final norm
+  has median 7.4, 92 coordinates above 200 and 0.005 at coordinate
+  1750. Qwen3-8B's norm weights have medians 0.35–2.0 and maxima
+  1.6–10.9, and no coordinate sets the scale. So on Gemma 4 an
+  additive edit of ε per residual coordinate is divided by ~3 and
+  multiplied by 30–170 before a middle block sees it, and by up to
+  600 before the unembedding: a one-percent edit of the residual is
+  a 10–50 percent edit of what the block reads. The Euclidean metric
+  of the residual stream, in which every steering, patching and
+  removal edit of this project (and of the literature it follows) is
+  made, is far from the metric the computation uses on this family.
+  Before layer 12 the picture differs (coordinate 1750 carries weight
+  22–55 at layers 0–4, before the massive activation exists), and the
+  block after which it is established (11) multiplies its output by
+  0.005.
+
+  *Literature.* Both halves are documented, their combination at this
+  degree is not something I have seen described. Outlier dimensions
+  with large norm parameters: Kovaleva et al. 2021 (BERT Busters,
+  arXiv 2105.06990: the outlier dimensions coincide with outlier
+  LayerNorm scaling parameters, and disabling them collapses the
+  model), Timkey & van Schijndel 2021 (arXiv 2109.04404), Puccetti et
+  al. 2022 (arXiv 2205.11380), Dettmers et al. 2022 (LLM.int8,
+  arXiv 2208.07339: emergent outlier features concentrated in a few
+  dimensions from ~6.7B parameters on), Bondarenko et al. 2023
+  (arXiv 2306.12929: outliers arise where attention heads need to do
+  nothing, at the norm's input), He et al. 2024 (arXiv 2405.19279:
+  outlier features and normalisation in training). Massive
+  activations as fixed biases and attention sinks: Sun et al. 2024
+  (arXiv 2402.17762), Xiao et al. 2023 (arXiv 2309.17453). Gemma's
+  numerical fragility is known in practice (Gemma 2, arXiv
+  2408.00118, introduced the post-norms and the logit soft-cap partly
+  for stability; float16 overflow of its activations was widely
+  reported), but the per-block output scalars and the norm gains of
+  this checkpoint I know only from the modelling code and the weights
+  themselves. What is *not* a quirk: RMSNorm is doing exactly its
+  job; the model has learned to keep its content at scale ~1 on the
+  residual next to a scale-setting coordinate and to read it back
+  with large gains. It is a property of this checkpoint (possibly of
+  the family's training recipe), not of normalisation as such, and
+  its consequence for intervention work is general: additive
+  residual edits presuppose that the residual basis is roughly the
+  basis the model reads, and Gemma 4 shows a model for which it is
+  not. A well-conditioned edit on such a model would be made in the
+  read frame (x / rms(x) ⊙ w) or would leave the scale-setting
+  coordinate and the high-gain coordinates untouched; neither is
+  implemented. The probe's readable window on Gemma 4 ends
   where Qwen3's hand-over sits (0.6–0.8 of the stack), so on this
   family the hand-over can be seen to begin (removal of the head-mean
   direction leaves 0.8 of antonym's effect by read point 29–30) but

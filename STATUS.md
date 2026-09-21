@@ -3132,7 +3132,16 @@ uv run python scripts/probe_edit_sensitivity.py --run /runpod-volume/results/run
   (−0.246). So the D29 edits along v move the massive coordinate and,
   through v's other coordinates, the ones the deep blocks read with
   norm-weight gains in the hundreds; both edits push the state off its
-  manifold regardless of what carries the effect. Recorded in D35
+  manifold regardless of what carries the effect. The gains, read off
+  the checkpoint (`scripts/checkpoint_norm_gains.py`): from layer 12
+  on the input norm's weight at coordinate 1750 is 0.000 ± 0.003 and
+  the median weight on the other coordinates is 33 / 41 / 16 / 6 at
+  layers 12 / 16 / 20 / 24 (maxima 180–930; 155–1722 coordinates
+  above 50 at every layer past 12), the final norm's median is 7.4
+  with 92 coordinates above 200; Qwen3-8B's medians are 0.35–2.0 with
+  maxima ≤ 11. Since the massive coordinate sets the RMS (~3), a
+  one-percent edit of the residual is a 10–50 percent edit of what a
+  middle block reads. The mechanism and the literature are in D35. Recorded in D35
   (amended): the hand-over summary now skips read points at which the
   random edits fail their premise, and a norm-matched random null is
   run beside the shape-matched one from here on.
