@@ -3352,6 +3352,39 @@ per-block writing measure. Cost of the two families: about $24 (OLMo 3
 $6.5 on the 4090 at batch 32, Gemma 4 $18 on the H100), one execution
 of each stage plus the smoke runs and the probe.
 
+**Exploratory: is the downstream change of the perturbation a
+rotation?** (`scripts/trajectory_rotation.py` on the stored
+population-mean trajectories of the trajectories runs: Qwen3-8B and
+0.6B from iteration 10, OLMo 3 and Gemma 4 from D35, the latter in the
+rescaled frame with the checkpoint's block scalars.) The direction of
+the mean perturbation turns by 20–25° per block on every model (cosine
+of consecutive states 0.89–0.95, median over tasks; the natural
+trajectory's own 0.82–0.95), and the injected direction is gone by
+the end for the learned vector (cosine of the end state with the
+injected one 0.00–0.06; the head-mean vector on Qwen3-8B keeps
+0.3–0.4). The increments δ_{m+1} − δ_m are *not* in a common
+direction or plane: consecutive increments have cosine +0.01 to +0.06
+(Gemma 4 +0.13), the median pairwise |cos| among all increments after
+the injection is 0.02–0.07 (a random baseline in 3840–4096 dimensions
+is 0.016), and the share of their energy on the top principal
+direction equals what random directions with the same norms give on
+Qwen3 (0.91 vs 0.90 on 8B, 0.84 vs 0.82 on 0.6B; one dominant first
+increment sets it) and exceeds it moderately on OLMo 3 (0.51 vs 0.35)
+and Gemma 4 (0.18 vs 0.09). The increments point only weakly toward
+where the trajectory ends (cosine with δ_L − δ_m: +0.06 on 8B, +0.19
+on 0.6B, +0.12 on OLMo 3). What they do have in common: a positive
+projection on the natural difference *at that depth* (median +0.26 to
++0.30 on every model, rising from ≈ 0.05 right after the injection to
+0.6–0.8 at the last blocks), and a substantial cosine with the
+increment the *same block* writes in the natural run (median +0.52
+on 8B, +0.44 on 0.6B, +0.60 on OLMo 3, +0.39 on Gemma 4; the head-mean
+vector on OLMo 3 +0.6 to +0.9). So the "rotation" is a sequence of
+writes in mutually near-orthogonal directions, each of which is, in
+part, the write that block makes for the demonstrations; the path
+meanders in the residual space and its cumulative effect is to align
+with the natural trajectory, which is itself turning in the same way.
+Population means; the per-prompt increments are not stored.
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
