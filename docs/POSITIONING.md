@@ -80,6 +80,14 @@ capture pass each.
   If it names the task ("opposite", "plural", "past"), the canonical
   form is a verbalizable task concept; if it names nothing or the
   answer, it is not.
+  *Run (D36, on the post-trained Qwen3-8B with the Neuronpedia
+  Jacobian lens; `STATUS.md`): negative at the hand-over.* The
+  natural difference names the task at 0.50–0.61 of the stack on
+  antonym and singular (rank 1) and nothing at the hand-over (0.69)
+  or after; the learned vector's perturbation never names the task;
+  the head mean names the output form. The concept precedes the
+  hand-over, and what is handed over is a later state the lens cannot
+  name.
 - **D. Robustness.** A second seed on OLMo 3 and Gemma 4; sizes within
   one family other than Qwen3 to test the size dependence of
   necessity; Llama 3 as the cheapest further family; necessity on
@@ -157,3 +165,21 @@ model's own computation, and where. If the hand-over is the answer
 becoming readable and the direction is the answer, the result is a
 well-controlled restatement of what lenses already show, and the
 honest conclusion is to stop.
+
+*After test C* (D36): the second condition fails as stated. The
+rank-one direction at the hand-over is not a verbalizable task
+concept, and neither is the control's perturbation at any depth; but
+the hand-over is not the answer becoming readable either (for the
+large-answer tasks the carrier names neither the task nor the
+answer). The verbalizable concept sits earlier, at 0.50–0.61 of the
+stack, on the tasks that have a name. That moves the question to
+tests A and B: whether the hand-over read point is where the
+workspace paper's concept vectors stop being verbal in this model
+(test A, now with a concrete depth to compare), and whether the
+steered increments are produced by the same blocks and components as
+the natural ones (test B). If the natural concept stops being verbal
+at the same depth where the control becomes rank-one along the
+natural difference, the hand-over is the exit from the verbal
+representation rather than the entrance to it, which is a different
+and still mechanistic claim; if not, the phenomenon is a property of
+the answer computation and the conclusion above stands.

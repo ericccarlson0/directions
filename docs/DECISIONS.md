@@ -1747,3 +1747,19 @@ Decision:
   the lens is a linearisation averaged over generic text, and the
   readouts are of population means. A positive result is a lead for
   the mechanism, a negative one closes only this lens.
+
+Result (`STATUS.md`, D36): the carrier at the hand-over is not
+verbalizable in this lens. The mean natural difference names the task
+at 0.50–0.61 of the stack on the tasks that have a name in the
+vocabulary (antonym "opposite" rank 1, mass 0.20; singular "single"
+rank 1; last_antonym and plural weakly) and reads as nothing at the
+hand-over read point (0.69) and after it; the learned vector's
+perturbation never names the task at any read point and reads as the
+answer only on the number tasks late in the stack; the head-mean
+perturbation names the output form (uppercase words, plural nouns,
+past-tense verbs), as the direct decoding of function vectors does in
+Todd et al. 2024; the generic response is never verbal; the plain
+logit lens reads the same as the Jacobian lens wherever either reads
+the task. Test C of `docs/POSITIONING.md` is therefore negative for the
+direction the experiment measures, with the exploratory lead that the
+verbalizable concept precedes the hand-over.

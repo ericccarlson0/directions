@@ -3352,7 +3352,7 @@ per-block writing measure. Cost of the two families: about $24 (OLMo 3
 $6.5 on the 4090 at batch 32, Gemma 4 $18 on the H100), one execution
 of each stage plus the smoke runs and the probe.
 
-### D36: the verbalisation test on the post-trained Qwen3-8B (in progress)
+### D36: the verbalisation test on the post-trained Qwen3-8B
 
 ```
 # workflow run 35561394283 (push-triggered request), H100 80GB HBM3 (ADA_80_PRO), US-CA-2, Flash environment ci-8b
@@ -3460,7 +3460,97 @@ and 0.49).
   present_participle, singular, uppercase), where it is sufficient but
   not necessary, as on the Base Qwen3 models.
 
-Remaining for D36: the lens readout.
+```
+# workflow run 35623495326 (push-triggered request), H100 80GB HBM3 (ADA_80_PRO), US-CA-2, Flash environment ci-8b
+uv run python scripts/verbalise.py --run /runpod-volume/results/run-35616622670/trajectories_qwen3_8b_post_seed20260907 --lens-file qwen3-8b/jlens/Salesforce-wikitext/Qwen3-8B_jacobian_lens.pt --out-dir results/verbalise_qwen3_8b_post
+```
+
+**The lens readout** (2 min; the Neuronpedia lens for `Qwen/Qwen3-8B`,
+461 WikiText prompts, blocks 0–34, identity distance 0.33 at the last
+block; ten tasks, 36 read points, eight random floors per read point).
+The floors: task-word mass ≤ 0.0004 and answer mass ≤ 0.013 at every
+read point. The answer mass of a population mean is informative only
+where the answer set is small (number_to_words 18 tokens, the
+arithmetic tasks); with 187–189 distinct answers the mean difference
+points at none of them, and its answer mass is ≤ 0.05 throughout on
+those tasks by construction.
+
+- **The natural difference names the task in the middle of the
+  stack, before the hand-over, and not at it.** On antonym the
+  Jacobian lens reads "opposite" at rank 1 at read point 22 (mass
+  0.195; 0.04–0.20 over read points 18–22, 0.50–0.61 of the stack,
+  beside " oppos", " opposing", " rivals" and the Chinese 反之 and
+  对立); at the hand-over read point 25 (0.69) the mass is 0.000 again
+  (rank 1061) and stays there to the end. The plain logit lens reads
+  the same (0.17–0.26 at 18–23, rank 1 at 22–23). singular reads
+  "single" at rank 1 at read point 19 (mass 0.040; " alone", " lone",
+  " smaller" beside it), last_antonym "opposite" at rank 10–12 at
+  20–22 (mass 0.006–0.012; logit lens rank 5), plural "plural" at
+  rank 1 at read point 21 under the logit lens only (0.208; the
+  Jacobian lens 0.001). number_to_words and the arithmetic tasks show
+  number words at read points 16–18 (" thirty", " twenty",
+  " sixteen") and "plus" at rank 8–11 at 20–22, then the *answer*:
+  number_to_words at rank 1 with mass 0.58 at read point 28 and 0.42
+  at 35, arithmetic_words 0.94 at 35. past_tense, present_participle
+  and uppercase never name the task (peak mass ≤ 0.003, best rank
+  ≥ 31; the lens gives " family", " even", " etc" at read point 18),
+  and their answer mass rises only late (uppercase 0.16 at 33, logit
+  lens 0.85 at 34; past_tense logit lens 0.24 at 32).
+- **The learned vector's perturbation is never verbal.** Task-word
+  mass ≤ 0.002 and best rank ≥ 50 at every read point on nine tasks
+  (arithmetic_words: "three" rank 7 at read point 35, an answer word);
+  its top tokens are formatting and code fragments at every read point
+  ("：</", "**\r\n", "<LM", "/documentation", "[vi", "<|endoftext|>"),
+  and it becomes readable only as the answer on the number tasks late
+  in the stack (number_to_words 0.09–0.24 at 28–35 with 五百, 六十,
+  " eighty"; arithmetic_words 0.90 at 29). The injected learned
+  vectors read as punctuation under both lenses.
+- **The head-mean perturbation names the output form, not the
+  task.** Task-word mass ≤ 0.007 everywhere, but on the morphological
+  tasks its top tokens are instances of the answer's form: uppercase
+  " AND", " NO", " BUT", " NOT", " THEN" at read point 25 (" AND",
+  " YES" at 18); plural "-olds", " behaviours", " rumours", " endings"
+  at 25 (" others", " names", " people" at 18); past_tense
+  " disappeared", " turned", " didn", " was" at 18;
+  present_participle " being" at 18. The injected head-mean vector
+  under the plain logit lens: present_participle " calculating",
+  " administering", " executing", "Doing"; past_tense " displaced",
+  " moved", " canceled"; antonym " opposing", " opposition", 反之
+  ("opposites" rank 2, task mass 0.075). This is the direct decoding
+  of function vectors in Todd et al. 2024 (ICLR; the vectors decode
+  to task-related output tokens), reproduced through the lens.
+- **The generic response is never verbal** (task mass 0.000, best
+  rank ≥ 737; punctuation, code paths and Arabic fragments at every
+  read point).
+- **The two lenses mostly agree.** Where either reads the task, both
+  do on antonym, last_antonym and the number tasks; the logit lens
+  alone reads "plural", the Jacobian lens alone reads "single" at
+  rank 1. The published lens is not needed for the positive readings
+  here.
+
+**Reading of test C** (`docs/POSITIONING.md`): the rank-one carrier
+at the hand-over is *not* a verbalizable task concept in this lens.
+The verbalizable concept exists, for the tasks that have a name in
+the vocabulary (antonym, singular; weakly last_antonym and plural),
+at 0.50–0.61 of the stack, and it has been transformed into something
+the lens cannot name by the read point where the control's effect
+becomes rank-one along the natural difference (0.69) and where it
+hands over. The control's own perturbation never passes through the
+verbal form at all: it converges onto the natural trajectory (final
+cosine 0.87–0.93) without ever reading as the task word. What the
+hand-over admits is therefore not the workspace-style concept but a
+later, task-specific state; the head mean, being a sum of head
+outputs, carries the output form instead. Both halves of the reading
+rule in D36 fail at the hand-over (neither task nor answer above the
+floor for the large-answer tasks), which by that rule says "not
+verbalizable in this lens", and is the negative outcome of test C for
+the direction the experiment measures. The positive readings (the
+task word at 0.50–0.61, the output form in the head mean) are
+exploratory leads: the concept precedes the hand-over.
+
+**Cost.** The balance fell from 49.63 to 38.51 USD over the three jobs
+(the commands account for about 6.5 USD at 4.79 USD/h; the rest is
+worker start-up and idle time on the endpoint).
 
 **Exploratory: is the downstream change of the perturbation a
 rotation?** (`scripts/trajectory_rotation.py` on the stored
@@ -3664,12 +3754,13 @@ uv run directions pilot --config configs/pilot_gemma4_12b.yaml --run-id pilot6_g
 uv run directions pilot --config configs/learned_gemma4_12b.yaml --run-id learned_gemma4_12b_seed20260907
 uv run python scripts/probe_edit_sensitivity.py --run /runpod-volume/results/run-35529659262/pilot6_gemma4_12b_seed20260907 --tasks antonym past_tense --read-points 16 20 26 30 33 36 40 44 47 48 --out-dir results/probe_gemma4_12b_edit_sensitivity
 uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-35529659262/pilot6_gemma4_12b_seed20260907 --learned-run /runpod-volume/results/run-35533914927/learned_gemma4_12b_seed20260907 --run-id trajectories_gemma4_12b_seed20260907
-# D36 (the verbalisation test) on the post-trained Qwen3-8B, the checkpoint with a fitted Jacobian lens: the protocol
-# once (ci-8b), then the lens readouts of the stored mean directions (the lens is downloaded from the Hub by the script):
+# D36 (the verbalisation test) on the post-trained Qwen3-8B, the checkpoint with a fitted Jacobian lens, as run (workflow runs
+# 35561394283, 35616101070, 35616622670, 35623495326; ci-8b): the protocol once, then the lens readouts of the stored mean
+# directions (the lens is downloaded from the Hub by the script):
 uv run directions pilot --config configs/pilot_qwen3_8b_post.yaml --run-id pilot6_qwen3_8b_post_seed20260907
 uv run directions pilot --config configs/learned_qwen3_8b_post.yaml --run-id learned_qwen3_8b_post_seed20260907
-uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-<pilot>/pilot6_qwen3_8b_post_seed20260907 --learned-run /runpod-volume/results/run-<learned>/learned_qwen3_8b_post_seed20260907 --run-id trajectories_qwen3_8b_post_seed20260907
-uv run python scripts/verbalise.py --run /runpod-volume/results/run-<trajectories>/trajectories_qwen3_8b_post_seed20260907 --lens-file qwen3-8b/jlens/Salesforce-wikitext/Qwen3-8B_jacobian_lens.pt --out-dir results/verbalise_qwen3_8b_post
+uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-35561394283/pilot6_qwen3_8b_post_seed20260907 --learned-run /runpod-volume/results/run-35616101070/learned_qwen3_8b_post_seed20260907 --run-id trajectories_qwen3_8b_post_seed20260907
+uv run python scripts/verbalise.py --run /runpod-volume/results/run-35616622670/trajectories_qwen3_8b_post_seed20260907 --lens-file qwen3-8b/jlens/Salesforce-wikitext/Qwen3-8B_jacobian_lens.pt --out-dir results/verbalise_qwen3_8b_post
 # the pilot protocols, for reference (head-mean control: pilot_*.yaml; learned vector: learned_*.yaml; add-k: arith_*.yaml):
 uv run directions pilot --config configs/learned_qwen3_0.6b.yaml --run-id learned_qwen3_0.6b_seed20260907
 uv run directions aggregate results/remote/<a>/... results/remote/<b>/... --out results/aggregate_<model>.json   # multi-seed summary
