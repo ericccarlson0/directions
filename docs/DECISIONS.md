@@ -1685,3 +1685,65 @@ seven tasks and not at all for three; on Gemma 4 it cannot be measured
 also exposed two architectural facts the protocol must know about:
 post-norm blocks (the head-mean vector's unit) and per-block output
 scalars (the per-block writing measure), recorded above.
+
+## 2026-09-21 — The verbalisation test
+
+### D36. Is the carrier at the hand-over a verbalizable task concept? The Jacobian lens on the post-trained Qwen3-8B
+
+Context: `docs/POSITIONING.md` names three tests that would settle
+whether the phenomenon is a property of control or a restatement of
+where answers appear. The verbalisation test asks whether the rank-one
+direction that carries the effect at the hand-over, the task's mean
+natural difference at that read point, *names the task* when read
+through a lens, as the concept vectors of the Transformer Circuits
+workspace paper do through the Jacobian lens.
+
+Decision:
+
+* **The lens.** The Jacobian lens of that paper (Anthropic's `jlens`,
+  Apache 2.0): one matrix per block, the average Jacobian of the
+  final residual with respect to the block's output, fitted by
+  Neuronpedia on 1000 WikiText contexts and published for named
+  checkpoints (`neuronpedia/jacobian-lens`). A lens linearises one
+  model's downstream computation, so it is used only on the
+  checkpoint it was fitted for. None of the project's six checkpoints
+  has one (the Qwen3 lenses are fitted on the post-trained models,
+  OLMo 3's on a forward pass transformers ≥ 5.13 no longer runs, Gemma
+  4 12B has none), so the test runs on **`Qwen/Qwen3-8B`**, the
+  post-trained sibling of the 8B base model, under the unchanged
+  protocol (`configs/pilot_qwen3_8b_post.yaml`,
+  `configs/learned_qwen3_8b_post.yaml`; the same prompts, no chat
+  template), which also gives a base-versus-post-trained comparison
+  of every core quantity. The lens is applied as published, not
+  refitted, and read with the model's own final norm and unembedding
+  (the backend's logit lens with the transported vector).
+* **Index convention.** The lens is keyed by block output; read point
+  `m` (the input of block `m`) uses the matrix of block `m − 1`, and
+  the last read point is the identity (`directions.verbalise.Lens`,
+  tested).
+* **What is read** (`scripts/verbalise.py`, on the stored
+  population-mean trajectories of the trajectories run): the mean
+  natural difference at every read point; the learned vector's and the
+  head-mean vector's mean perturbation at every read point; the
+  injected vectors at their injection read point; the generic response;
+  and, as the floor, random directions of the natural difference's norm
+  at each read point. Each through the Jacobian lens and, for the
+  natural difference and the injected vectors, through the plain logit
+  lens.
+* **What counts as naming the task.** Two numbers per readout beside
+  the top tokens: the probability mass on a fixed list of task words
+  per task (`TASK_WORDS`, written before any readout was seen: for
+  antonym "opposite", "antonym", "contrary", …; for plural "plural",
+  "many", …; for past_tense "past", "tense", "ago", …), with the best
+  word and its rank; and the mass on the task's *answer* tokens (the
+  first target token of every evaluation prompt), which is the
+  competing reading. The random floor gives the masses a chance level
+  at every read point. Reading: task mass and rank rising above the
+  floor around the hand-over while the answer mass stays low says the
+  carrier is a task concept; answer mass dominating says it is the
+  answer being written; neither above the floor says the direction is
+  not verbalizable in this lens.
+* **Exploratory**, not preregistered: the word lists are a judgement,
+  the lens is a linearisation averaged over generic text, and the
+  readouts are of population means. A positive result is a lead for
+  the mechanism, a negative one closes only this lens.

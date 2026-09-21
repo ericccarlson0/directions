@@ -3554,6 +3554,12 @@ uv run directions pilot --config configs/pilot_gemma4_12b.yaml --run-id pilot6_g
 uv run directions pilot --config configs/learned_gemma4_12b.yaml --run-id learned_gemma4_12b_seed20260907
 uv run python scripts/probe_edit_sensitivity.py --run /runpod-volume/results/run-35529659262/pilot6_gemma4_12b_seed20260907 --tasks antonym past_tense --read-points 16 20 26 30 33 36 40 44 47 48 --out-dir results/probe_gemma4_12b_edit_sensitivity
 uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-35529659262/pilot6_gemma4_12b_seed20260907 --learned-run /runpod-volume/results/run-35533914927/learned_gemma4_12b_seed20260907 --run-id trajectories_gemma4_12b_seed20260907
+# D36 (the verbalisation test) on the post-trained Qwen3-8B, the checkpoint with a fitted Jacobian lens: the protocol
+# once (ci-8b), then the lens readouts of the stored mean directions (the lens is downloaded from the Hub by the script):
+uv run directions pilot --config configs/pilot_qwen3_8b_post.yaml --run-id pilot6_qwen3_8b_post_seed20260907
+uv run directions pilot --config configs/learned_qwen3_8b_post.yaml --run-id learned_qwen3_8b_post_seed20260907
+uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-<pilot>/pilot6_qwen3_8b_post_seed20260907 --learned-run /runpod-volume/results/run-<learned>/learned_qwen3_8b_post_seed20260907 --run-id trajectories_qwen3_8b_post_seed20260907
+uv run python scripts/verbalise.py --run /runpod-volume/results/run-<trajectories>/trajectories_qwen3_8b_post_seed20260907 --lens-file qwen3-8b/jlens/Salesforce-wikitext/Qwen3-8B_jacobian_lens.pt --out-dir results/verbalise_qwen3_8b_post
 # the pilot protocols, for reference (head-mean control: pilot_*.yaml; learned vector: learned_*.yaml; add-k: arith_*.yaml):
 uv run directions pilot --config configs/learned_qwen3_0.6b.yaml --run-id learned_qwen3_0.6b_seed20260907
 uv run directions aggregate results/remote/<a>/... results/remote/<b>/... --out results/aggregate_<model>.json   # multi-seed summary
