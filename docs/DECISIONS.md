@@ -1612,3 +1612,15 @@ own mean natural difference) and the sufficiency-before-necessity gap
 (growing with size on Qwen3). Agreement on both families makes them
 properties of in-context task execution in this class of models;
 disagreement on one of them locates what the Qwen3 result depended on.
+
+Result (2026-09-21; STATUS.md, D35): the hand-over read point and
+the rank-one own-task replacement replicate on both families (OLMo 3:
+0.50–0.69 of the stack, keep-own rank one median 0.93; Gemma 4:
+0.69–0.79, median 0.91), for every injection layer. The
+sufficiency-before-necessity gap is family-dependent: on OLMo 3 7B
+necessity arrives two to five blocks after sufficiency for four of
+seven tasks and not at all for three; on Gemma 4 it cannot be measured
+(the deep half is unreadable by residual edits). The two families
+also exposed two architectural facts the protocol must know about:
+post-norm blocks (the head-mean vector's unit) and per-block output
+scalars (the per-block writing measure), recorded above.

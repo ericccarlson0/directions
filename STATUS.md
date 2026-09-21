@@ -3254,6 +3254,95 @@ sensitivity can only lower them, and their random controls stay at
   (δ_{m+1} against s_m δ_m) is needed before the block localisation is
   read on Gemma 4.
 
+```
+# workflow run 35543066419 (push-triggered request), RTX 4090 (ADA_24), EUR-NO-1
+uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-35529394971/pilot6_olmo3_7b_seed20260907 --learned-run /runpod-volume/results/run-35538374069/learned_olmo3_7b_seed20260907 --run-id trajectories_olmo3_7b_seed20260907
+```
+
+**OLMo 3 7B trajectory comparison**: 52.6 min (factors 14.1,
+isotropic 8.4, patch 26.2, subspace 8.1), determinism check passed,
+nine tasks (the head mean absent for add_3). Every read point is
+readable: the random-direction controls of the patch test sit at
+1.00 (removal) and 0.00–0.05 (keep) throughout, as on Qwen3.
+
+- **The hand-over sits at a fixed read point of the stack.** The
+  per-prompt keep of the learned vector's perturbation along the
+  prompt's natural difference reaches 0.9 at read points 16–22 of 32
+  (0.50–0.69 of the stack) for injections at layers 6, 10, 13 and 16
+  (0.26–0.50 of the downstream depth), and the natural difference
+  patched in alone gives 0.94–1.12 of the effect from the same read
+  point; the alignment of the perturbation with the natural difference
+  is 0.35–0.51 there and rises to 0.4–0.88 at the end. The head-mean
+  vector, strong on this family (+5.8 to +8.0 nats), hands over at the
+  same read points (keep ≥ 0.9 by 0.26–0.36 of the downstream depth,
+  alignment 0.44–0.65 there).
+- **Rank one, the task's own** (subspace test at the hand-over read
+  point, learned vector, seven single-token tasks): keeping only the
+  projection onto the task's top natural-difference component retains
+  0.72–0.96 of the effect (median 0.93; last_antonym 0.51), patching
+  that one component alone gives 0.66–1.01 (median 0.97), against
+  −0.23 to +0.43 for the other tasks' top component (singular 0.43),
+  −0.04 to +0.12 for the background's and 0.00–0.03 for a random
+  direction; the per-prompt ceiling is 0.91–0.99; k = 2 … 8 add at
+  most 0.11. The pool's top component explains 0.65–0.88 of the
+  natural-difference energy (participation ratio 1.3–2.4), cosine 1.00
+  with the held-out mean.
+- **Necessity follows sufficiency by a few blocks, or not at all.**
+  Removing the rank-one own component at the hand-over read point
+  leaves 0.92–1.00 of the effect for antonym, past_tense,
+  present_participle and singular, 0.50 for last_antonym, 0.22 for
+  plural and −0.60 for uppercase. Along the depth (per-prompt removal
+  of the natural direction, learned vector): antonym falls from 0.75
+  at 0.26 of the downstream depth to 0.04 at 0.53 and −0.17 at 0.63,
+  last_antonym to −0.54 at 0.50, plural to −0.28 at 0.62, while
+  past_tense stays at 0.79–0.46 and present_participle at 0.59–0.40
+  from 0.63 on; every task rebounds at the last read point (0.28–0.70,
+  past_tense 0.53). For the head-mean vector the removal costs more
+  and earlier (0.05–0.30 from 0.5 of the downstream depth on for five
+  tasks). So on this family the direction that suffices at the
+  hand-over becomes necessary two to five blocks later for four tasks
+  of seven, and never fully for three; Qwen3-8B's removal left 0.96
+  at the hand-over and Qwen3-0.6B/1.7B's −0.23 / −0.09.
+- **Trajectories converge.** The learned vector's trajectory converges
+  with the natural one (final cosine 0.40–0.88, floors −0.3 to +0.2)
+  for eight of nine primary-layer pairs (antonym and last_antonym
+  aligns_then_, final 0.40–0.43), the head mean's for all (0.74–0.89);
+  the half strength tracks the canonical one (0.69–0.98), the quarter
+  strength less (0.14–0.94).
+- **Per-block writing is distributed** (no block scalars here): the
+  learned vector's dominant block writes 0.07–0.15 of the shared
+  component, entropy 0.93–0.98, rank correlation with the natural
+  trajectory's writing 0.32–0.91; the natural trajectory's top block
+  is block 1 for every task (share 0.11), then blocks 2 and 6.
+
+**D35 across the three families, in one paragraph.** Two of the three
+Qwen3 findings replicate on both new families and the third is
+family-dependent. (1) The hand-over is a property of the stack, not of
+the injection: the per-prompt natural direction carries the effect
+from a fixed read point on, 0.6–0.8 of the stack on Qwen3 (four
+sizes), 0.50–0.69 on OLMo 3 7B and 0.69–0.79 on Gemma 4 12B, for every
+injection layer tried (0.2–0.5 of the stack). (2) What carries it
+there is rank one across prompts, the task's own mean natural
+difference: keeping only that component retains a median 0.9–1.0 of
+the effect on all three families, the other tasks' top component
+≤ 0.4, random directions nothing. (3) Whether the component is also
+necessary at the hand-over differs: on Qwen3 the margin between
+sufficiency and necessity grew with size (removal at the hand-over
+left −0.23 / −0.09 / 0.39 / 0.96 of the effect for 0.6B / 1.7B / 4B /
+8B), on OLMo 3 7B removal leaves 0.9–1.0 for four tasks and ≤ 0.5 for
+three with necessity arriving two to five blocks later, and on Gemma 4
+it cannot be measured: the model's deep half is hypersensitive to
+residual edits of the sizes the tests use (the probe), so only
+positive keep and patch results are read there. Two architectural
+facts changed how the protocol is read rather than what it found:
+post-norm blocks (both families) make the head-mean vector's natural
+unit the pre-norm attention output (ρ = 1 is a fourfold overshoot of
+OLMo 3's own write, with 4–7 nats of collateral damage), and Gemma 4's
+per-block output scalars (0.005–0.92) break the moving-reference
+per-block writing measure. Cost of the two families: about $24 (OLMo 3
+$6.5 on the 4090 at batch 32, Gemma 4 $18 on the H100), one execution
+of each stage plus the smoke runs and the probe.
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
@@ -3322,6 +3411,20 @@ sensitivity can only lower them, and their random controls stay at
   a per-task-pair version would separate "shared" from "the relative's
   own". The answer-content reading (a subspace fitted from the answer
   unembedding directions) was not run.
+- The two further families (D35) have run once each (seed 20260907),
+  the head-mean protocol at ρ = 1 in a unit that overshoots OLMo 3's
+  own write; the norm-matched random null of the commitment test
+  (D29 amended) was added after their pilots, so their commitment
+  curves carry the shape-matched null only (readable throughout on
+  OLMo 3; on Gemma 4 read against the probe). The trajectories' patch
+  and subspace tests have shape-matched controls only, on every
+  model. Gemma 4's per-block writing is not interpretable without the
+  rescaled frame, and its results past 0.63 of the stack are positive
+  keep and patch rows only. Multi-token targets (add_3,
+  arithmetic_words, number_to_words) make the per-token edit rows of
+  the patch and commitment tests uninformative (the later target
+  tokens attend to the steered query token below the edit); their
+  first-token rows are the ones to read.
 - Data centers: EUR-NO-1 (the volume with the 0.6B–4B cache) currently
   offers nothing above 24 GB, and only US-CA-2, US-IL-1, US-MO-2, US-NC-2,
   EU-RO-1 and EUR-NO-1 can host a run at all (`docs/INFRA.md`;
@@ -3397,13 +3500,18 @@ uv run directions trajectories --config configs/trajectories_subspace.yaml --see
 uv run directions trajectories --config configs/trajectories_subspace.yaml --seed 20260916 --fv-run /runpod-volume/results/run-35050661831/pilot6_qwen3_1.7b_seed20260916 --learned-run /runpod-volume/results/run-35414702823/learned_qwen3_1.7b_seed20260916 --run-id trajectories11_qwen3_1.7b_seed20260916
 uv run directions trajectories --config configs/trajectories_subspace.yaml --seed 20260916 --fv-run /runpod-volume/results/run-35051925394/pilot6_qwen3_4b_seed20260916 --learned-run /runpod-volume/results/run-35420419658/learned_qwen3_4b_seed20260916 --run-id trajectories11_qwen3_4b_seed20260916
 uv run directions trajectories --config configs/trajectories_subspace.yaml --seed 20260916 --fv-run /runpod-volume/results/run-35050604985/pilot6_qwen3_8b_seed20260916 --learned-run /runpod-volume/results/run-35414623339/learned_qwen3_8b_seed20260916 --run-id trajectories11_qwen3_8b_seed20260916
-# D35 (two further families): a smoke run per model first (load, targets, few-shot gates; OLMo 3 on ci/ADA_24/EUR-NO-1,
-# Gemma 4 on ci-8b/ADA_80_PRO/US-CA-2), then the pilot, the learned vector and the trajectory comparison:
+# D35 (two further families), as run (workflow run ids in the D35 entry): a smoke run per model first (load, targets,
+# few-shot gates; OLMo 3 on ci/ADA_24/EUR-NO-1, Gemma 4 on ci-8b/ADA_80_PRO/US-CA-2), then the pilot, the learned
+# vector and the trajectory comparison; the Gemma 4 edit-sensitivity probe between the learned run and the comparison:
 uv run directions validate --config configs/pilot_olmo3_7b.yaml --stop-after fewshot --run-id smoke_olmo3_7b
 uv run directions validate --config configs/pilot_gemma4_12b.yaml --stop-after fewshot --run-id smoke_gemma4_12b
 uv run directions pilot --config configs/pilot_olmo3_7b.yaml --run-id pilot6_olmo3_7b_seed20260907
 uv run directions pilot --config configs/learned_olmo3_7b.yaml --run-id learned_olmo3_7b_seed20260907
-uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-<pilot>/pilot6_olmo3_7b_seed20260907 --learned-run /runpod-volume/results/run-<learned>/learned_olmo3_7b_seed20260907 --run-id trajectories_olmo3_7b_seed20260907
+uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-35529394971/pilot6_olmo3_7b_seed20260907 --learned-run /runpod-volume/results/run-35538374069/learned_olmo3_7b_seed20260907 --run-id trajectories_olmo3_7b_seed20260907
+uv run directions pilot --config configs/pilot_gemma4_12b.yaml --run-id pilot6_gemma4_12b_seed20260907
+uv run directions pilot --config configs/learned_gemma4_12b.yaml --run-id learned_gemma4_12b_seed20260907
+uv run python scripts/probe_edit_sensitivity.py --run /runpod-volume/results/run-35529659262/pilot6_gemma4_12b_seed20260907 --tasks antonym past_tense --read-points 16 20 26 30 33 36 40 44 47 48 --out-dir results/probe_gemma4_12b_edit_sensitivity
+uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-35529659262/pilot6_gemma4_12b_seed20260907 --learned-run /runpod-volume/results/run-35533914927/learned_gemma4_12b_seed20260907 --run-id trajectories_gemma4_12b_seed20260907
 # the pilot protocols, for reference (head-mean control: pilot_*.yaml; learned vector: learned_*.yaml; add-k: arith_*.yaml):
 uv run directions pilot --config configs/learned_qwen3_0.6b.yaml --run-id learned_qwen3_0.6b_seed20260907
 uv run directions aggregate results/remote/<a>/... results/remote/<b>/... --out results/aggregate_<model>.json   # multi-seed summary
@@ -3437,14 +3545,17 @@ Suggested next steps (2026-09-18; the list of two days ago with the state of eac
    lens of the common direction (D28) and of the learned vector at the
    last read point, and a head attribution downstream of the injection,
    do not. The unembedding code is in the backend.
-5. **Another model family** (in progress, D35): OLMo 3 7B and Gemma 4
-   12B under the unchanged protocol (`pilot_olmo3_7b.yaml`,
-   `pilot_gemma4_12b.yaml` and the `learned_*` counterparts); the
-   backend reads the architecture (text config, block list, final norm,
-   per-layer head widths, the final-logit soft-cap) and the test suite
-   runs on tiny random models of all three families. GPU smoke runs
-   (`--stop-after fewshot`) precede the full runs; see the D35 entry
-   below once run.
+5. **Another model family** (done, D35): OLMo 3 7B and Gemma 4 12B
+   under the unchanged protocol, one execution of each stage. The
+   hand-over read point and the rank-one own-task replacement
+   replicate on both; the sufficiency-before-necessity gap is
+   family-dependent (OLMo 3: necessity a few blocks later for four of
+   seven tasks) and unmeasurable on Gemma 4 (its deep half is
+   hypersensitive to residual edits; D29 amended with readable read
+   points and a norm-matched null). Open on these families: a second
+   seed, the per-block writing in the rescaled frame on Gemma 4, the
+   head-mean vector's unit on post-norm blocks, and a Llama 3 run
+   (the cheapest further family).
 6. **Hardening** (partial): the determinism check, the device geometry
    and the workflow are in place; the learned-vector run and the
    trajectory comparison now have two seeds (iterations 7b and 10) and
