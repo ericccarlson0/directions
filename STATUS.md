@@ -3468,6 +3468,9 @@ uv run python scripts/landmarks.py --config configs/trajectories_landmarks.yaml 
 uv run python scripts/landmark_summary.py qwen3_0.6b=<run> ... gemma4_12b=<run> --out results/landmarks_summary.json --figure results/landmarks.png
 # D38 (the source test), as run (workflow runs in the D38 entry): one job per model
 uv run directions source --config configs/source.yaml --fv-run /runpod-volume/results/run-<pilot>/pilot6_<model> --learned-run /runpod-volume/results/run-<learned>/learned_<model> --landmark-run /runpod-volume/results/run-<landmark>/landmarks_<model> --run-id source_<model>
+# a task family (D39; the k-th word family): the same five stages on the family-only configs, e.g. kth_<model>.yaml and kth_learned_<model>.yaml,
+# then the within-family geometry on the downloads:
+uv run python scripts/family_geometry.py --learned-run <learned family run> --fv-run <head-mean family run> --labels kth_1,kth_2,kth_3 --params 1,2,3
 ```
 
 **The lens readout** (2 min; the Neuronpedia lens for `Qwen/Qwen3-8B`,
@@ -3840,6 +3843,121 @@ meanders in the residual space and its cumulative effect is to align
 with the natural trajectory, which is itself turning in the same way.
 Population means; the per-prompt increments are not stored.
 
+### D39: the k-th word family (the positional-selection family, three-word lists)
+
+```
+# the family's chain per model (configs/kth_<model>.yaml: head mean; configs/kth_learned_<model>.yaml: learned vector;
+# then configs/trajectories.yaml, scripts/landmarks.py with configs/trajectories_landmarks.yaml, configs/source.yaml).
+# Qwen3 seed 20260916 (the D37/D38 seed), OLMo 3 seed 20260907. Workflow runs, in stage order (head mean, learned,
+# comparison, landmarks, source): 0.6B 35758124343, 35759981863, 35763959846, 35766568262, 35769666762 (RTX 4090,
+# EUR-NO-1); 1.7B 35761456791, 35765847911, 35768829789, 35771038186, 35771380607 (RTX 4090); 4B 35771377062 (the
+# first two requests, 35768585386 and 35769713929, failed on a full US-CA-2 volume; docs/INFRA.md item 6), 35771408727,
+# 35773213531, 35774612714, 35775280093 (H100, US-CA-2); 8B Base 35761426527 (the first request 35758078949 was
+# cancelled at 21 min by an external cancel; its partial log agrees with the re-run), 35759053192, 35763354750,
+# 35766571398, 35767501696 (H100); OLMo 3 7B 35771763692, 35772055428, 35780279731, 35786751207, 35789123503 (RTX 4090).
+# The five-word first attempt (D39 amendment): 35755882597 (0.6B head mean: positions 1, 2, 5 qualify), 35755950091
+# (8B head mean: 1, 5), 35756303397 (0.6B learned); the probe of shorter lists ran on the CPU (--stop-after fewshot).
+uv run directions pilot --config configs/kth_qwen3_0.6b.yaml --seed 20260916 --run-id kth3_qwen3_0.6b_seed20260916
+uv run directions pilot --config configs/kth_learned_qwen3_0.6b.yaml --seed 20260916 --run-id kth3_learned_qwen3_0.6b_seed20260916
+uv run directions trajectories --config configs/trajectories.yaml --seed 20260916 --fv-run /runpod-volume/results/run-35758124343/kth3_qwen3_0.6b_seed20260916 --learned-run /runpod-volume/results/run-35759981863/kth3_learned_qwen3_0.6b_seed20260916 --run-id kth3_trajectories_qwen3_0.6b_seed20260916
+uv run python scripts/landmarks.py --config configs/trajectories_landmarks.yaml --fv-run /runpod-volume/results/run-35758124343/kth3_qwen3_0.6b_seed20260916 --learned-run /runpod-volume/results/run-35759981863/kth3_learned_qwen3_0.6b_seed20260916 --run-id kth3_landmarks_qwen3_0.6b_seed20260916
+uv run directions source --config configs/source.yaml --fv-run /runpod-volume/results/run-35758124343/kth3_qwen3_0.6b_seed20260916 --learned-run /runpod-volume/results/run-35759981863/kth3_learned_qwen3_0.6b_seed20260916 --landmark-run /runpod-volume/results/run-35766568262/kth3_landmarks_qwen3_0.6b_seed20260916 --run-id kth3_source_qwen3_0.6b_seed20260916
+# the same five commands per model with the model's config names, run directories and seed; then, on the downloads:
+uv run python scripts/family_geometry.py --learned-run <learned family run> --fv-run <head-mean family run> --labels kth_1,kth_2,kth_3 --params 1,2,3
+```
+
+**The k-th word family** (D39, amended to three-word lists after the
+five-word first attempt; five checkpoints, determinism checks passed
+in every run; about 17 USD including the failed and cancelled runs and the volume recovery).
+The task: a list of three words, the target its k-th word, k = 1..3,
+the same lists for every k. A parameterised family whose parameter is
+a position, run through the whole chain: head-mean and learned
+controls, the comparison, the landmarks and the source test.
+
+| model | few-shot accuracy, positions 1 / 2 / 3 | head support restored | head mean: selected layer; held-out d(lp/tok) | learned: selected layer; d(lp/tok) | other positions' vectors as controls, head mean / learned (d(lp/tok)) | head-mean cosines 1–2 / 2–3 / 1–3 | learned cosines (median; seed spread) |
+|---|---|---|---|---|---|---|---|
+| Qwen3 0.6B | 1.00 / 0.71 / 0.99 | 0.96 / 0.84 / 0.96 | 14, 14, 14; +2.6, +3.4, +3.7 | 11, 11, 6; +3.4, +4.9, +4.6 | +0.4 to +1.7 / −17.5 to −18.1 | 0.76 / 0.93 / 0.60 | 0.08 at the primary layer (0.16–0.20) |
+| Qwen3 1.7B | 0.98 / 0.58 / 1.00 | 0.81 / 1.03 / 0.81 | 11, 6, 14; +2.1, +1.7, +2.4 | 14, 14, 14; +3.1, +3.9, +3.8 | −0.8 to +1.3 / −20.8 to −22.4 | 0.80 / 0.91 / 0.68 | 0.12 (0.23) |
+| Qwen3 4B | 0.99 / 0.47 / 0.96 (position 2 rejected) | 1.00 / – / 0.99 | 18, –, 18; +2.9, –, +3.3 | 14, –, 14; +3.5, –, +4.4 | +2.1 to +2.3 / −20.1 to −21.8 | – / – / 0.91 | 0.04 (0.13) |
+| Qwen3 8B Base | 1.00 / 0.70 / 0.96 | 0.96 / 0.75 / 0.93 | 18, 18, 18; +1.8, +2.6, +3.0 | 18, 14, 14; +2.8, +4.0, +3.9 | +0.9 to +2.5 / −17.6 to −22.6 | 0.89 / 0.94 / 0.86 | 0.06 (0.12) |
+| OLMo 3 7B | 1.00 / 0.66 / 0.94 (position 1 zero-shot 0.76) | 0.94 / 0.96 / 0.89 | 10, 16, 6; +1.0, +5.4, +6.6 | 10, 13, 6; +1.0, +6.6, +6.8 | −2.5 to +3.0 / −12.5 to −17.9 | 0.84 / 0.94 / 0.76 | 0.11 (0.36–0.46) |
+
+Every qualifying position passes every gate under both controls
+(held-out steering above the 48 matched random controls, p = 0.0005
+on every row).
+
+- **The list length is set by the middle positions.** Five-word lists
+  fail the few-shot gate at positions 2–4 on both the 0.6B (0.55 /
+  0.30 / 0.32) and the 8B (0.48 / 0.27 / 0.28); four-word lists lose
+  their second-to-last position (0.37 on the 0.6B); three-word lists
+  qualify at every position on the 0.6B, 1.7B and 8B (middle 0.58–
+  0.71) and lose the middle on the 4B (0.47). These models find the
+  ends of a list far more easily than its interior, at every size.
+- **The head mean carries the position.** Unlike add-k (D30, no
+  operand in any head set), the universal heads' mean output restores
+  0.75–1.03 of the deranged-to-positive gap at every qualifying
+  position, and the head-mean vectors of the three positions are
+  close but ordered: the two neighbouring pairs' cosines exceed the
+  end-to-end pair's on every model with three labels (0.76 and 0.93
+  against 0.60; 0.80 and 0.91 against 0.68; 0.89 and 0.94 against 0.86; 0.84 and 0.94 against 0.76 on OLMo 3). Another position's head mean still helps (+0.4 to +3.0 nats on all but two rows), so the head means share a "pick a word of the
+  list" component and differ by which.
+- **The learned vectors do not.** Across positions the learned
+  vectors are near-orthogonal (cosines 0.04–0.19 at every candidate
+  layer), at or below the spread between the three seed fits of one
+  position (0.08–0.46), so their geometry is that of the fit's
+  non-uniqueness (D31) and says nothing about the parameter; and
+  their effects are position-specific to the point of being
+  destructive: another position's learned vector costs 17–23 nats.
+  The learned control selects a position by a direction that has no
+  measurable relation to the neighbouring positions' directions.
+- **The family's carriers overlap.** At the hand-over the other
+  positions' pool directions keep 0.50–0.85 of a position's effect (rank one to eight) against 0.60–0.91 for its own, on every model
+  and readable position, where the lexical tasks kept ≤ 0.4 of each
+  other's (D34). The rank-one carrier of a position is mostly the
+  family's shared direction, with a position-specific remainder.
+- **The middle position never hands over.** On every model with a
+  qualifying middle position the learned control's keep-along-natural
+  curve plateaus below 0.9 (0.78 on the 8B) at every read point, on Qwen3 and OLMo 3 alike, so
+  no hand-over read point exists by the D29/D37 rule, and the landmark
+  and source readings of the middle are empty; the head mean's does
+  hand over (read points 17, 22, 21, 17 on the 0.6B, 1.7B, 8B and OLMo 3). The
+  learned control for "the middle word" keeps a component that the
+  natural difference does not explain.
+- **The hand-over of the learned control is later than the heads'
+  write depth on the larger models.** Learned hand-over read points at
+  the ends: 20 / 20 (0.6B, L = 28), 24 / 20 (1.7B), 30 / 24 (4B, L =
+  36), 31 / 25 (8B), 29 / 18 (OLMo 3, L = 32); the universal heads write at 19, 18, 23, 23, 18; offsets +1 to +11 on the 4B, 8B and OLMo 3 against −3 to 0 for the lexical tasks (D37). The head-mean control hands over near the heads on the
+  8B (23, 21, 21) and at the last read point for position 1 on the
+  0.6B and 4B (28).
+- **The source test reads as on the lexical tasks.** Attention writes
+  0.11–0.24 of the steered aligning increment (natural 0.30–0.38; random floor 0.06–0.16), MLP-written by the D38 rule on every
+  readable row; attention's aligning components are never necessary
+  (retained 1.00); the MLPs' are on 6 of 10 readable rows (retained −1.02 to 0.33) and not on the last position of the 1.7B, 4B, 8B and OLMo 3 (0.57–0.99); the selected heads write 0.10–0.39 of attention's aligning write.
+- **OLMo 3 reads the same way.** Every position qualifies under both
+  controls (position 1 with the model already answering it zero-shot
+  in 0.76 of the prompts, so its effects are small: +1.0 nats), the
+  head means are ordered (0.84 and 0.94 against 0.76), the learned
+  vectors are near-orthogonal (0.11 against a seed spread of 0.36–
+  0.46, the largest of the five models) and anti-aligned in effect
+  (−12 to −18 nats), the other positions' directions keep 0.70–0.85 of
+  a position's effect at the hand-over, the middle position's learned
+  control never hands over, and the learned hand-over of position 1
+  (read point 29 of 32) lies 11 read points above the heads' write
+  depth (18), position 3's at it (18). Its source test reads as the others' (attention 0.16 and 0.22 of the steered aligning write; the MLPs' aligning components necessary on position 1, retained 0.08, not on position 3, 0.77).
+
+**Reading.** A control whose parameter is a position behaves, through
+the whole chain, like the one-step lexical controls: it qualifies
+under both constructions, its effect rides on a rank-one carrier at a
+fixed depth, and the MLPs of the blocks before that depth write the
+aligning increments. What is new is that the family's carriers are
+mostly one direction, that the head means are ordered by position
+while the learned vectors are not, and that the learned control's
+hand-over drifts above the heads' write depth with size. For the
+geometry test proper (the mixing of two positions' controls, read as
+a distribution over the list's words) the head-mean construction is
+the one whose vectors carry a geometry to interpolate; the learned
+vectors are unique only in their effect.
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
@@ -3972,7 +4090,7 @@ Population means; the per-prompt increments are not stored.
 ## Next commands
 
 ```bash
-uv run pytest                                                           # 206 tests (the trajectories smoke run covers D32–D34; the backend tests run on the three toy families, D35)
+uv run pytest                                                           #  tests (the trajectories smoke run covers D32–D34; the backend tests run on the three toy families, D35)
 # GPU runs: edit .github/gpu-run.yaml (command + a new `request` label), commit, push; the run-gpu
 # workflow triggers on the push (README, "Run on GPUs"). One run per push; the ci environment runs
 # them one at a time (8B goes through the ci-8b environment in US-CA-2). Then:

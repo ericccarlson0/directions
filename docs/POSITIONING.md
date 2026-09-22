@@ -239,3 +239,24 @@ MLPs of the same blocks reading the steered residual? One capture
 pass per model, decomposing each block's increment at the query
 token into attention and MLP parts in the steered and the
 demonstration runs, settles it.
+
+*After the k-th word family* (D39): the first parameterised family run
+through the whole chain, a position in a three-word list. Everything
+established for the one-step lexical controls holds for it (both
+constructions qualify at every position the model does few-shot, the
+effect rides on a rank-one carrier, the MLPs write the aligning
+increments, attention's are dispensable), with three additions that
+bear on the control-versus-computation question. The family's
+carriers are mostly one direction (the other positions' directions
+keep 0.50–0.85 of a position's effect at the hand-over), so a
+position is a small deviation from a shared "select a listed word"
+signal. The head-mean vectors carry that deviation in an ordered
+geometry (neighbouring positions closer than the ends, on every model
+with three labels), while the learned vectors are near-orthogonal
+across positions at their seed spread and destructive across
+positions: a control that is a parameter of the computation exists
+here as the heads' construction, not as the optimiser's. And the
+learned control's hand-over drifts above the heads' write depth on
+the larger models, where the lexical tasks' sat at it. The mixing
+test of the add-k geometry now has its second family and its
+construction: interpolate head means, read the position.

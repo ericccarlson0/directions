@@ -2062,3 +2062,29 @@ and the same selected layer; 8B: positions 1 and 5) and the 0.6B's
 five-word learned run are kept as data on the five-word labels and
 are not carried through the later stages; the pending five-word
 learned run on the 8B was cancelled before it started.
+
+Result (`STATUS.md`, D39; five checkpoints, the three-word family):
+(i) every position qualifies under both controls where it passes the
+few-shot gate (the middle position fails on the 4B, 0.47), and the
+head-support gate passes at every qualifying position (0.75–1.03 of
+the gap restored): unlike add-k's operand, a position *is* carried by
+the mean output of the universal heads. (ii) The hand-over, landmarks
+and sublayer shares of the qualifying end positions read as on the
+lexical tasks (rank-one carrier, MLP-written aligning increments,
+attention's components never necessary), with two differences: the
+family's carriers overlap (the other positions' pool directions keep
+0.50–0.83 of a position's effect at the hand-over, where other
+lexical tasks kept ≤ 0.4), and the learned control's hand-over sits
+above the universal heads' write depth on the larger models (offsets
++1 to +8 read points against −3 to 0 in D37); the middle position's
+learned control never hands over (its keep-along-natural curve
+plateaus below 0.9 on every model). (iii) The head-mean vectors are
+close and ordered by position on every model with three labels (the
+neighbouring pairs' cosines 0.76–0.94 exceed the end-to-end pair's
+0.60–0.86), while the learned vectors are near-orthogonal across
+positions (0.04–0.19) at or below their seed spread (0.08–0.23) and
+anti-aligned in effect (another position's learned vector costs
+12–23 nats; another position's head mean helps by 0.4–3.0 nats on
+all but two rows). The mixing test of the geometry test proper
+therefore has a construction with a geometry to interpolate, the
+head mean, and one without, the learned vector.
