@@ -3463,6 +3463,9 @@ and 0.49).
 ```
 # workflow run 35623495326 (push-triggered request), H100 80GB HBM3 (ADA_80_PRO), US-CA-2, Flash environment ci-8b
 uv run python scripts/verbalise.py --run /runpod-volume/results/run-35616622670/trajectories_qwen3_8b_post_seed20260907 --lens-file qwen3-8b/jlens/Salesforce-wikitext/Qwen3-8B_jacobian_lens.pt --out-dir results/verbalise_qwen3_8b_post
+# D37 (the landmark test), as run (workflow runs in the D37 entry): one job per model, then the aggregation
+uv run python scripts/landmarks.py --config configs/trajectories_landmarks.yaml --fv-run /runpod-volume/results/run-<pilot>/pilot6_<model> --learned-run /runpod-volume/results/run-<learned>/learned_<model> --run-id landmarks_<model> [--lens-file qwen3-8b/jlens/Salesforce-wikitext/Qwen3-8B_jacobian_lens.pt]
+uv run python scripts/landmark_summary.py qwen3_0.6b=<run> ... gemma4_12b=<run> --out results/landmarks_summary.json --figure results/landmarks.png
 ```
 
 **The lens readout** (2 min; the Neuronpedia lens for `Qwen/Qwen3-8B`,
@@ -3551,6 +3554,128 @@ exploratory leads: the concept precedes the hand-over.
 **Cost.** The balance fell from 49.63 to 38.51 USD over the three jobs
 (the commands account for about 6.5 USD at 4.79 USD/h; the rest is
 worker start-up and idle time on the endpoint).
+
+### D37: the landmark test (test A)
+
+```
+# one job per model (scripts/landmarks.py: the landmark comparison, then the readouts; configs/trajectories_landmarks.yaml)
+# workflow runs 35685354053 (Qwen3 0.6B; the first run 35681354287 lacked the centred profile), 35682020094 (1.7B), 35682273805 (4B),
+# RTX 4090 (ADA_24), EUR-NO-1; 35682027963 (8B Base) and 35682281295 (Qwen/Qwen3-8B with the lens; the first run 35681360670
+# read the target-bearing eval prompts at a trailing-space token), H100 80GB HBM3 (ADA_80_PRO), US-CA-2; 35683785727 (Gemma 4 12B,
+# after the cleanup runs 35682862196 and 35683694069 freed the volume), H100; 35682751114 (OLMo 3 7B: the comparison; its readout
+# OOMed on the 24 GB card with the comparison's model still resident) and 35685649916 (OLMo readout only), RTX 4090
+uv run python scripts/landmarks.py --config configs/trajectories_landmarks.yaml --fv-run /runpod-volume/results/run-35050574186/pilot6_qwen3_0.6b_seed20260916 --learned-run /runpod-volume/results/run-35414652608/learned_qwen3_0.6b_seed20260916 --run-id landmarks_qwen3_0.6b_seed20260916
+uv run python scripts/landmarks.py --config configs/trajectories_landmarks.yaml --fv-run /runpod-volume/results/run-35050661831/pilot6_qwen3_1.7b_seed20260916 --learned-run /runpod-volume/results/run-35414702823/learned_qwen3_1.7b_seed20260916 --run-id landmarks_qwen3_1.7b_seed20260916
+uv run python scripts/landmarks.py --config configs/trajectories_landmarks.yaml --fv-run /runpod-volume/results/run-35051925394/pilot6_qwen3_4b_seed20260916 --learned-run /runpod-volume/results/run-35420419658/learned_qwen3_4b_seed20260916 --run-id landmarks_qwen3_4b_seed20260916
+uv run python scripts/landmarks.py --config configs/trajectories_landmarks.yaml --fv-run /runpod-volume/results/run-35050604985/pilot6_qwen3_8b_seed20260916 --learned-run /runpod-volume/results/run-35414623339/learned_qwen3_8b_seed20260916 --run-id landmarks_qwen3_8b_seed20260916
+uv run python scripts/landmarks.py --config configs/trajectories_landmarks.yaml --fv-run /runpod-volume/results/run-35561394283/pilot6_qwen3_8b_post_seed20260907 --learned-run /runpod-volume/results/run-35616101070/learned_qwen3_8b_post_seed20260907 --run-id landmarks_qwen3_8b_post_seed20260907 --lens-file qwen3-8b/jlens/Salesforce-wikitext/Qwen3-8B_jacobian_lens.pt
+uv run python scripts/landmarks.py --config configs/trajectories_landmarks.yaml --fv-run /runpod-volume/results/run-35529394971/pilot6_olmo3_7b_seed20260907 --learned-run /runpod-volume/results/run-35538374069/learned_olmo3_7b_seed20260907 --run-id landmarks_olmo3_7b_seed20260907
+uv run python scripts/landmarks.py --run /runpod-volume/results/run-35682751114/landmarks_olmo3_7b_seed20260907 --fv-run /runpod-volume/results/run-35529394971/pilot6_olmo3_7b_seed20260907 --learned-run /runpod-volume/results/run-35538374069/learned_olmo3_7b_seed20260907 --out-dir results/landmarks_olmo3_7b_seed20260907/landmarks
+uv run python scripts/landmarks.py --config configs/trajectories_landmarks.yaml --fv-run /runpod-volume/results/run-35529659262/pilot6_gemma4_12b_seed20260907 --learned-run /runpod-volume/results/run-35533914927/learned_gemma4_12b_seed20260907 --run-id landmarks_gemma4_12b_seed20260907
+uv run python scripts/landmark_summary.py qwen3_0.6b=<run> qwen3_1.7b=<run> qwen3_4b=<run> qwen3_8b=<run> qwen3_8b_post=<run> olmo3_7b=<run> gemma4_12b=<run> --out results/landmarks_summary.json --figure results/landmarks.png
+```
+
+**The landmark test** (D37; seven checkpoints; the criteria fixed in
+D37 before any profile was read; comparison run times 6.5–26 min,
+determinism checks passed; the readouts a few minutes each; about
+6.3 USD in all, 38.26 → 31.97 USD, with the two re-runs, the readout re-run and the cleanups). The hand-over
+is now located to the read point: the patch test of the learned
+vector at every downstream read point of the primary layer.
+
+| model | L | hand-over, learned (median; range) | hand-over, head mean | universal heads write at (median) | verbal window, logit lens | uncentred top-1 at read point 1 / L |
+|---|---|---|---|---|---|---|
+| Qwen3 0.6B | 28 | 20 (0.71); 18–20 | 19; 10–20 | 16–20 (19) | none | 0.94–0.99 / 0.59–0.91 |
+| Qwen3 1.7B | 28 | 20 (0.71); 18–27 | 19; 16–20 | 16–26 (18.5) | none | 0.93–0.99 / 0.57–0.95 |
+| Qwen3 4B | 36 | 23 (0.64); 22–25 | 24; 14–27 | 17–34 (23) | last_antonym 21–23 | 0.75–0.99 / 0.62–0.90 |
+| Qwen3 8B Base | 36 | 24 (0.67); 19–27 | 24.5; 20–30 | 17–28 (23) | antonym 18–20, last_antonym 20, plural 21 | 0.89–0.99 / 0.57–0.88 |
+| Qwen/Qwen3-8B | 36 | 24 (0.67); 20–26 | 25; 18–28 | 17–26 (21.5) | antonym 18–24, plural 20–21, arithmetic_words 22–23, last_antonym 23, singular 33 (J-lens: antonym 18–22, singular 18–19, last_antonym 20) | 0.89–0.99 / 0.77–0.92 |
+| OLMo 3 7B | 32 | 19 (0.59); 16–21 | 18; 16–20 | 11–22 (16.5) | plural 18–19 | 0.99 / 0.65–0.85 |
+| Gemma 4 12B | 48 | 33 (0.69); 32–37 | 29.5; 16–31 | 28–41 (32) | arithmetic_words 47–48 only | 0.64–0.99 / 0.50–0.89 |
+
+- **The universal heads write where the hand-over is.** On every
+  checkpoint the median read point the selected heads write to is
+  0–2.5 read points below the learned vector's hand-over (offsets
+  −1, −1.5, 0, −1, −2.5, −3, −1; median absolute offset over
+  models 1.0), and the band of head write points (16–20, 16–26,
+  17–34, 17–28, 17–26, 11–22, 28–41) contains the hand-over on
+  every model. The head set is the same for every task of a model
+  (the universal heads of D27), so this is one number per model
+  against one number per model. Across the seven models the two
+  depths co-vary as well: the hand-over spans 0.59–0.71 of the stack
+  (OLMo 3 lowest, the two small Qwen3 highest) and the heads' median
+  0.52–0.68 in the same order, Spearman ρ = 0.85 with a permutation
+  p = 0.015 over seven models; by the D37 rule (p ≤ 0.05 and median
+  |offset| ≤ 2 read points) this landmark coincides with the
+  hand-over. It is the only one that does.
+- **The head-mean vector hands over at the same read point** as the
+  learned one (median offset −1 to +1 on six models, −4 on Gemma;
+  |offset| median 1.0), as D33–D35 found on the eighths grid.
+- **The verbal onset precedes the hand-over and does not move with
+  it.** Where a task word is read at all (rank ≤ 10 with mass
+  ≥ 10⁻³: the two 8B checkpoints on antonym, last_antonym and plural,
+  the 4B on last_antonym, OLMo 3 on plural, Gemma on arithmetic_words
+  at the end), the window opens 2–6 read points before the hand-over
+  on the Qwen3 checkpoints and at it on OLMo's one task (offsets of
+  the onset −2, −3, −4, +1; of the exit 0, −3, 0, +2), and Gemma's
+  one reading is the answer word at the last read point;
+  the 0.6B and 1.7B never name a task (best ranks ≥ 21), and Gemma's
+  logit lens on difference vectors is flat (every token tied) at
+  several read points, which the rank guard excludes. D36's finding
+  (the concept is verbal at 0.50–0.61 and gone by the hand-over)
+  holds at read-point resolution on the Base 8B as well.
+- **The pool's rank is not a landmark as defined.** The uncentred
+  spectrum of the pool's natural differences is rank one from read
+  point 1 on every model (top component 0.64–0.99 of the energy at
+  read point 1, cosine 1.00 with the pool mean at every read point),
+  and it *decreases* with depth (0.50–0.95 at the last read point):
+  the difference between the demonstrated and the undemonstrated
+  prompt is a common offset from the first block, and prompt-specific
+  content grows on top of it. The preregistered knee therefore sits at
+  read point 1 on three models, at the last read points or never on
+  three (their profiles dip below 0.7 late), and at 18.5 on the 4B
+  (a dip mid-stack that recovers); the secondary knee (0.9 of the
+  maximum) sits at read point 1–2 on every model, 19–23 read points
+  below the hand-over. Exploratory, the
+  spectrum about the pool mean (the prompt-to-prompt variation) peaks
+  at read points 10–16 on the Qwen3 Base models (medians 12, 12, 15,
+  14 of 28, 28, 36, 36: 0.39–0.43 of the stack, 8–10 read points
+  below the hand-over; 0.46–0.60 of the variation in one direction on
+  the 1.7B–8B, 0.20–0.27 on the 0.6B), at read point 1–2 on OLMo 3,
+  and at the last read point on the post-trained 8B and on Gemma; it
+  does not sit at the hand-over on any model.
+- **The lens's workspace band on `Qwen/Qwen3-8B` lies above the
+  hand-over, and the published lens reads no better than the logit
+  lens there.** The paper's six lens-quality sets (937 intermediates)
+  read through the Neuronpedia lens at the paper's positions: the
+  pooled rate at which an intermediate ranks within the top 10 rises
+  from read point 28 (0.78 of the stack) to a maximum of 0.17 at read
+  point 35 (top 1: 0.07); per set, multihop 0.28 (from 29), multilingual
+  0.26 (from 28), order-ops 0.60 at the last read point, typo 0.11
+  (23–31); association and poetry are never read (median best rank
+  over read points 2587 and 2716). The plain logit lens gives the same
+  band (pooled top-10 rate 0.16 from read point 27) and reads typo
+  better (0.21, from read point 6). The hand-over (24, 0.67) precedes
+  this band by four read points; the band's onset is not the
+  workspace onset the paper reports for its models (0.38 of the
+  stack), which on this checkpoint with this lens does not appear.
+  What the lens does read mid-stack on this checkpoint is D36's
+  finding: the task word in the natural difference at 18–22.
+
+**Reading.** One landmark coincides with the hand-over on all seven
+checkpoints and three families, in offset and in co-variation: the
+write depth of the universal heads, the heads whose mean output is
+the head-mean vector. The hand-over is where the model's own
+in-context heads write, zero to three blocks below the read point at
+which the control's perturbation has become the natural difference. That is a mechanistic statement
+about the fixed read point: the perturbation is rotated into the
+natural direction by the blocks that carry the demonstration-reading
+heads, and hands over once they have written. Whether the heads
+*cause* the rotation (their outputs, reading the steered residual at
+the query and the demonstration-less context, being the increments
+that align it) is test B's question, now with the blocks named. The
+other landmarks do not co-locate: the verbal form precedes the
+hand-over and ends at it, the pool's rank is degenerate, and the
+lens's band lies above it.
 
 **Exploratory: is the downstream change of the perturbation a
 rotation?** (`scripts/trajectory_rotation.py` on the stored

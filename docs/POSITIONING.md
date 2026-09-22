@@ -39,10 +39,10 @@ function vector, a learned single vector or a PC1:
 
 What is not established: the mechanism (which sublayer writes the
 increments in the steered run, where no demonstrations exist to be
-read), whether the hand-over read point coincides with an
-independently defined landmark, the per-prompt geometry (population
-means only), a second seed on the new families, and necessity on
-Gemma 4.
+read; D37 names the blocks, the universal heads', as where the
+hand-over happens, but not whether their outputs are the increments),
+the per-prompt geometry (population means only), a second seed on the
+new families, and necessity on Gemma 4.
 
 ## What would show potential, or its absence
 
@@ -64,6 +64,12 @@ capture pass each.
   stopping point (partly excluded already: the rank-one direction is
   task-level, and the shared component survives removal of the answer
   direction, D33).
+  *Run (D37, seven checkpoints; `STATUS.md`): one landmark coincides,
+  the write depth of the universal heads (offset −3 to 0 read points
+  on every model, co-varying across models with ρ = 0.85, p = 0.015).
+  The verbal window ends at the hand-over, the pool's rank is
+  degenerate, and the published lens's band on `Qwen/Qwen3-8B` lies
+  above the hand-over and is matched by the logit lens.*
 - **B. The source test.** Decompose each block's increment at the
   query token into its attention and MLP parts in the steered
   zero-shot run and in the demonstration run. In the steered run there
@@ -194,3 +200,18 @@ read point is a landmark of the model's own computation (A) and
 whether the steered increments are produced by the same blocks and
 components as the natural ones (B); if neither, the phenomenon is a
 property of the answer computation and the conclusion above stands.
+
+*After test A* (D37): the first of these is answered. The hand-over
+coincides with the write depth of the universal heads on all seven
+checkpoints and co-varies with it across them; no other landmark
+does. The fixed read point is where the model's own in-context heads
+write, so the control is admitted into the computation at the depth
+where the demonstration-reading heads would have written what it
+carries. That narrows test B to a single question with the blocks
+named: in the steered run, with no demonstrations to read, are the
+increments that rotate the injected direction into the natural one
+written by those heads (attending to the query itself) or by the
+MLPs of the same blocks reading the steered residual? One capture
+pass per model, decomposing each block's increment at the query
+token into attention and MLP parts in the steered and the
+demonstration runs, settles it.

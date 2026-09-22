@@ -1844,3 +1844,34 @@ Decision:
 * **Exploratory**, not preregistered beyond the criteria above: the
   knee thresholds are judgements (0.7 of the energy, rank 10, half the
   maximum rate), fixed here before the profiles were seen.
+
+Amendments made while running (before the results were read across
+models): the pool's uncentred spectrum turned out to be rank one from
+read point 1 on the first model (its top component is the pool mean),
+so the spectrum about the mean was recorded beside it, labelled
+exploratory; a readout's rank counts as a verbal reading only with
+task-word mass ≥ 10⁻³ (Gemma 4's final norm makes some difference
+vectors read out flat, every token tied, which the strict rank
+reported as rank 1), and ranks count ties against the word; the
+target-bearing eval prompts are read at the token before the target
+under the paper's joint tokenisation (the first run read a trailing
+space token). The plain logit lens was recorded beside the Jacobian
+lens in the band.
+
+Result (`STATUS.md`, D37): one landmark coincides with the hand-over,
+the write depth of the universal heads: median offset −3 to 0 read
+points on all seven checkpoints (|offset| median 1.0), the band of
+head write points containing the hand-over on every model, and the
+two depths co-varying across models (hand-over 0.59–0.71 of the
+stack, heads 0.52–0.68; Spearman ρ = 0.85, permutation p = 0.015),
+which meets the rule above. The head-mean vector hands over at the
+same read point as the learned one. The verbal window, where there
+is one, opens 2–6 read points before the hand-over and closes at it;
+the pool's uncentred rank is degenerate (rank one from read point 1)
+and its centred peak sits 8–10 read points below the hand-over on the
+Qwen3 Base models and elsewhere on the others; the published lens's
+band on `Qwen/Qwen3-8B` (the paper's six eval sets) lies above the
+hand-over (top-10 rate rising from 0.78 of the stack to 0.17) and is
+matched by the plain logit lens. The fixed read point is therefore
+the depth at which the model's own in-context heads write; test B
+now has its blocks named.
