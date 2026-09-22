@@ -80,6 +80,13 @@ capture pass each.
   then the control is a substitute *input* to a fixed per-block
   computation, and the same output arises from a different source;
   that is a mechanistic claim with teeth. One capture pass per model.
+  *Run (D38, six checkpoints; `STATUS.md`): the aligning increments
+  are MLP-written in the steered run (attention 0.10–0.29) and mostly
+  MLP-written in the natural run too (attention 0.20–0.46); attention's
+  aligning writes are never necessary, the MLPs' are in part, more so
+  on the smaller models. The control substitutes for the heads'
+  delivery; the MLPs of the same blocks do the transformation in both
+  runs.*
 - **C. The verbalisation test.** Read the rank-one own direction at
   the hand-over through a lens: the logit lens (in the backend) and,
   where fitted lenses exist for the open models, the Jacobian lens.
@@ -200,6 +207,23 @@ read point is a landmark of the model's own computation (A) and
 whether the steered increments are produced by the same blocks and
 components as the natural ones (B); if neither, the phenomenon is a
 property of the answer computation and the conclusion above stands.
+
+*After test B* (D38): the second is answered too. In both runs the
+increments that align the residual with the task direction are
+written mostly by the MLPs of the blocks between the injection and
+the hand-over; the heads write a third of them in the demonstration
+run and a sixth in the steered run, and their steered writes can be
+removed without loss. So the picture is: the heads deliver the
+demonstration-derived signal to the query position, the MLPs turn it
+into the task direction, and the injected vector replaces the
+delivery and is finished by the same MLPs at the same depth, which is
+why the hand-over sits where the heads write (D37). That is the
+mechanistic claim the test was designed to reach: the same output
+arises from a different source at the delivery step and from the same
+source at the transformation step. What remains open is what the
+verbal form at 0.50–0.61 of the stack is for, given that neither run
+needs it at the hand-over (D36), and the per-prompt geometry, second
+seeds on the new families and Gemma's necessity, all listed above.
 
 *After test A* (D37): the first of these is answered. The hand-over
 coincides with the write depth of the universal heads on all seven

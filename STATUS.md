@@ -3466,6 +3466,8 @@ uv run python scripts/verbalise.py --run /runpod-volume/results/run-35616622670/
 # D37 (the landmark test), as run (workflow runs in the D37 entry): one job per model, then the aggregation
 uv run python scripts/landmarks.py --config configs/trajectories_landmarks.yaml --fv-run /runpod-volume/results/run-<pilot>/pilot6_<model> --learned-run /runpod-volume/results/run-<learned>/learned_<model> --run-id landmarks_<model> [--lens-file qwen3-8b/jlens/Salesforce-wikitext/Qwen3-8B_jacobian_lens.pt]
 uv run python scripts/landmark_summary.py qwen3_0.6b=<run> ... gemma4_12b=<run> --out results/landmarks_summary.json --figure results/landmarks.png
+# D38 (the source test), as run (workflow runs in the D38 entry): one job per model
+uv run directions source --config configs/source.yaml --fv-run /runpod-volume/results/run-<pilot>/pilot6_<model> --learned-run /runpod-volume/results/run-<learned>/learned_<model> --landmark-run /runpod-volume/results/run-<landmark>/landmarks_<model> --run-id source_<model>
 ```
 
 **The lens readout** (2 min; the Neuronpedia lens for `Qwen/Qwen3-8B`,
@@ -3676,6 +3678,134 @@ that align it) is test B's question, now with the blocks named. The
 other landmarks do not co-locate: the verbal form precedes the
 hand-over and ends at it, the pool's rank is degenerate, and the
 lens's band lies above it.
+
+### D38: the source test (test B)
+
+```
+# one job per model (`directions source`, configs/source.yaml; the hand-over read points from the D37 landmark runs)
+# workflow runs 35689345430 (Qwen3 0.6B), 35689544898 (1.7B), 35690463091 (4B), 35690702732 (OLMo 3 7B), RTX 4090 (ADA_24), EUR-NO-1;
+# 35689352296 (8B Base) and 35690343279 (Gemma 4 12B; the first run 35689549896 subtracted writes not scaled by the block's output
+# scalar and is superseded), H100 80GB HBM3 (ADA_80_PRO), US-CA-2
+uv run directions source --config configs/source.yaml --fv-run /runpod-volume/results/run-35050574186/pilot6_qwen3_0.6b_seed20260916 --learned-run /runpod-volume/results/run-35414652608/learned_qwen3_0.6b_seed20260916 --landmark-run /runpod-volume/results/run-35685354053/landmarks_qwen3_0.6b_seed20260916 --run-id source_qwen3_0.6b_seed20260916
+uv run directions source --config configs/source.yaml --fv-run /runpod-volume/results/run-35050661831/pilot6_qwen3_1.7b_seed20260916 --learned-run /runpod-volume/results/run-35414702823/learned_qwen3_1.7b_seed20260916 --landmark-run /runpod-volume/results/run-35682020094/landmarks_qwen3_1.7b_seed20260916 --run-id source_qwen3_1.7b_seed20260916
+uv run directions source --config configs/source.yaml --fv-run /runpod-volume/results/run-35051925394/pilot6_qwen3_4b_seed20260916 --learned-run /runpod-volume/results/run-35420419658/learned_qwen3_4b_seed20260916 --landmark-run /runpod-volume/results/run-35682273805/landmarks_qwen3_4b_seed20260916 --run-id source_qwen3_4b_seed20260916
+uv run directions source --config configs/source.yaml --fv-run /runpod-volume/results/run-35050604985/pilot6_qwen3_8b_seed20260916 --learned-run /runpod-volume/results/run-35414623339/learned_qwen3_8b_seed20260916 --landmark-run /runpod-volume/results/run-35682027963/landmarks_qwen3_8b_seed20260916 --run-id source_qwen3_8b_seed20260916
+uv run directions source --config configs/source.yaml --fv-run /runpod-volume/results/run-35529394971/pilot6_olmo3_7b_seed20260907 --learned-run /runpod-volume/results/run-35538374069/learned_olmo3_7b_seed20260907 --landmark-run /runpod-volume/results/run-35685649916/landmarks_olmo3_7b_seed20260907 --run-id source_olmo3_7b_seed20260907
+uv run directions source --config configs/source.yaml --fv-run /runpod-volume/results/run-35529659262/pilot6_gemma4_12b_seed20260907 --learned-run /runpod-volume/results/run-35533914927/learned_gemma4_12b_seed20260907 --landmark-run /runpod-volume/results/run-35683785727/landmarks_gemma4_12b_seed20260907 --run-id source_gemma4_12b_seed20260907
+```
+
+**The source test** (D38; six checkpoints, 2–15 min each, determinism
+checks passed, the split of every block's increment into its
+attention and MLP writes exact to a median relative residual of
+6–9 × 10⁻³, the bf16 rounding of the residual adds; 2.3 USD in all,
+31.97 → 29.67 USD, with the Gemma re-run). The window is the blocks from the injection layer
+to the hand-over read point of D37, per task; the aligning write of a
+sublayer is the component of its steered increment along the
+prompt's natural difference at the read point the write lands on.
+
+| model | attention's share of the steered aligning write (median over tasks; range) | the same in the natural run | random-direction floor | steered ÷ natural aligning sum: attention / MLP | removal retained: attention's aligning components / MLP's (medians; ranges) | MLP necessary by the D38 rule (aligning components) |
+|---|---|---|---|---|---|---|
+| Qwen3 0.6B | 0.16; 0.13–0.27 | 0.37; 0.34–0.43 | 0.06 | 0.25 / 0.76 | 0.99 (0.89–1.00) / −0.19 (−0.73–1.00) | 7 of 8 |
+| Qwen3 1.7B | 0.15; 0.10–0.29 | 0.31; 0.26–0.33 | 0.08 | 0.30 / 0.79 | 1.00 (0.54–1.01) / 0.29 (−1.50–1.00) | 5 of 9 |
+| Qwen3 4B | 0.16; 0.13–0.25 | 0.33; 0.29–0.46 | 0.10 | 0.32 / 0.79 | 1.00 (0.93–1.00) / 0.76 (−0.39–1.00) | 3 of 10 |
+| Qwen3 8B Base | 0.17; 0.11–0.22 | 0.34; 0.19–0.37 | 0.09 | 0.31 / 0.74 | 1.00 (0.99–1.02) / 0.88 (0.30–1.00) | 1 of 10 |
+| OLMo 3 7B | 0.17; 0.14–0.25 | 0.33; 0.25–0.36 | 0.12 | 0.32 / 0.69 | 1.00 (0.89–1.00) / 0.97 (−0.17–1.00) | 1 of 9 |
+| Gemma 4 12B | 0.14; 0.10–0.22 | 0.21; 0.20–0.26 | 0.11 | 0.39 / 0.62 | unreadable (below) | unreadable |
+
+- **The aligning increments of the steered run are MLP-written, on
+  every model and every task.** Attention writes 0.10–0.29 of the
+  steered run's aligning increment over the window (medians 0.14–
+  0.17 per model; every task "MLP-written" by the D38 rule), against a
+  random-direction floor of 0.01–0.24 (a perturbation carrying no task
+  still receives MLP writes along the task direction, 0.19–0.59 of
+  the steered run's, a third typically: the generic response has a
+  component along the natural difference). Net of the floor, attention's share
+  of the excess is 0.17–0.21 (medians).
+- **The natural run's aligning increments at the query token are
+  MLP-written too, with attention a third.** In the demonstration
+  run, attention writes 0.20–0.46 of the aligning increment over the
+  same window (medians 0.21–0.37; "MLP-written" or "mixed" by the
+  rule on every task). The steered run reproduces 0.62–0.79 of the
+  natural MLP aligning sum (medians) but only 0.25–0.39 of the natural
+  attention aligning sum: what the control lacks, relative to the
+  demonstrations, is the heads' contribution, and the MLPs make up
+  most of the difference. The steered increments resemble the natural
+  ones more for the MLP than for attention (window-median cosines
+  0.33–0.41 against 0.10–0.28).
+- **The universal heads write 0.19–0.67 of attention's own aligning
+  write in the steered run** (medians 0.24–0.46 per model; exact on
+  Qwen3, the pre-norm output on OLMo 3 and Gemma): the heads whose
+  depth the hand-over coincides with (D37) do write along the task
+  direction when the query is steered, but their writes are a
+  minority of a minority.
+- **Attention's aligning writes are never necessary; the MLPs' are,
+  in part.** Removing attention's aligning components over the window
+  (against random per-example directions of the same norms, which
+  retain 0.99–1.02) retains 0.54–1.02 (median 1.00; below 0.89 on one
+  1.7B task); removing the MLPs' aligning components
+  (random 0.85–1.02) retains −1.50 to 1.00, meeting the necessity rule
+  (≤ 0.5 retained with the random control ≥ 0.9) on 7 of 8, 5 of 9,
+  3 of 10 and 1 of 10 tasks from the 0.6B up, and on 1 of 9 on OLMo 3:
+  the smaller the model, the more the effect rides on exactly those
+  components; on the larger models the perturbation's other
+  components regenerate the alignment downstream (D29's finding that
+  removal at a single read point before the hand-over is recovered).
+  On OLMo 3, whose hand-over is early (read points 16–21 of 32), the
+  whole MLP increments are necessary against a clean random control
+  on number_to_words (0.11 retained, random 0.89) and uppercase (0.19,
+  random 0.92), the whole attention increments on last_antonym alone
+  (0.38, random 1.00). Removing the *whole*
+  MLP increments retains −0.74 to 1.05 (medians −0.28 to −0.07) with
+  p ≤ 0.001 against the matched random removal on nearly every Qwen3
+  task, but the random removal of vectors of those norms is itself
+  destructive (retaining −0.67 to 1.00, medians −0.27 to 0.37), so
+  the rule's control condition fails and the reading is "the MLP
+  increments are necessary; the random null is not clean at these
+  norms". Removing the whole attention increments retains ≥ 0.9 on 22
+  of the 37 Qwen3 tasks (8 of 10 on the 8B, 7 of 10 on the 4B, 6 of 9
+  on the 1.7B, 1 of 8 on the 0.6B, where the random removals of those
+  norms retain 0.35–0.94 themselves): attention's whole increments
+  matter on the smallest model, its aligning components nowhere. One
+  block at a time, no single block's aligning component is necessary
+  before the last block (the MLP's removal retains ≥ 0.60 on the 0.6B,
+  ≥ 0.82 on the 1.7B, ≥ 0.90 on the 4B and 8B; attention's ≥ 0.91);
+  the last block's MLP component is on most Qwen3 tasks (retained
+  −1.16 to 1.00, median 0.27) and on none of OLMo's (0.98–1.00), the
+  last block's attention component never (0.97–1.01).
+- **Gemma 4.** The split is exact once the writes are taken in the
+  frame they land in (the block's output scalar, 0.005–0.92, multiplies
+  both writes and rescales the residual; the rescaling term is −0.27
+  to −0.47 of the two writes' aligning sum over the window: the
+  perturbation is shrunk by every block while the sublayers rebuild
+  it). The shares read as on the other families (steered 0.10–0.22,
+  natural 0.20–0.26). The removals are unreadable by the D29/D35 rule:
+  the window reaches into the hypersensitive deep half (read points
+  ≥ 30), where the matched random removals themselves retain −1.5 to
+  +0.9 on all but two rows (attention's aligning components on add_3
+  and antonym, random 0.87 and 0.91, real 1.00 and 0.98).
+
+**Reading of test B.** The increments that turn the injected direction
+into the model's natural task direction are written by the MLPs of
+the blocks between the injection and the hand-over, not by the heads.
+In the demonstration run the same blocks' aligning increments are
+also mostly MLP-written at the query token, with the heads
+contributing a third; in the steered run the heads' contribution
+drops to a sixth and the MLPs supply most of what is missing. So the
+control is a substitute *input* to a per-block computation that is
+mostly the MLPs' in both runs: the heads' job in the natural run is
+to deliver the demonstration-derived signal to the query position,
+the MLPs' to turn it into the task direction, and the injected vector
+replaces the delivery. The hand-over coinciding with the heads' write
+depth (D37) is then not because the heads write the aligning
+increments in the steered run (they write a sixth of them, and can be
+removed without loss); it is because the hand-over is where the
+natural run's own delivery ends and the MLPs' transformation
+completes, and the control, entering earlier, is finished by the same
+blocks at the same depth. The mechanistic claim with teeth in
+`docs/POSITIONING.md` reads, after the test: the same output arises
+from a different source at the delivery step (heads in the natural
+run, the vector in the steered run) and from the same source at the
+transformation step (the MLPs in both).
 
 **Exploratory: is the downstream change of the perturbation a
 rotation?** (`scripts/trajectory_rotation.py` on the stored

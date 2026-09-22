@@ -1948,3 +1948,28 @@ Decision:
 * **Exploratory**, not preregistered beyond the criteria above: the
   thresholds (0.6/0.4 for the shares, 0.5/0.9 for necessity) are
   judgements fixed here.
+
+Amendment made while running: Gemma 4 multiplies a block's output by
+a per-block scalar after both adds, so the writes are captured in
+the frame they land in and a block's increment carries a third,
+rescaling term, `(scalar − 1)` times the block's input, recorded
+beside the two writes; the first Gemma run, which subtracted unscaled
+writes, is superseded.
+
+Result (`STATUS.md`, D38): the aligning increments of the steered run
+are MLP-written on every model and task (attention 0.10–0.29 of the
+aligning write over the window to the hand-over, medians 0.14–0.17),
+and the natural run's are MLP-written too with attention a third
+(0.20–0.46, medians 0.21–0.37); the steered run reproduces 0.62–0.79
+of the natural MLP aligning sum and 0.25–0.39 of the natural
+attention aligning sum; the universal heads write 0.19–0.67 of
+attention's own aligning write. Attention's aligning components are
+never necessary (removal retains 0.54–1.02, median 1.00, against
+random 0.99–1.02); the MLPs' are necessary by the rule on 7 of 8, 5 of
+9, 3 of 10, 1 of 10 tasks from the 0.6B to the 8B and 1 of 9 on OLMo
+3, and their whole increments on nearly every Qwen3 task with p ≤
+0.001, where the matched random removal is itself destructive at
+those norms. Gemma 4's removals are unreadable by the D29/D35 rule
+(the window reaches the hypersensitive deep half). Test B is
+answered: the control substitutes for the heads' delivery, and the
+MLPs of the same blocks perform the transformation in both runs.
