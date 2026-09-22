@@ -129,6 +129,28 @@ def _cmd_trajectories(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_mixing(args: argparse.Namespace) -> int:
+    """The geometry test (docs/DECISIONS.md D40): a control mixed between two labels of a family."""
+    from .config import load_mixing_config
+    from .mixing import run_mixing
+
+    cfg = load_mixing_config(args.config)
+    if args.output_dir:
+        cfg.output_dir = args.output_dir
+    if args.seed is not None:
+        cfg.seed = int(args.seed)
+    runs: dict[str, tuple[str, str | None]] = {}
+    for spec in args.runs:
+        family, _, rest = spec.partition("=")
+        learned, _, fv = rest.partition(":")
+        if not family or not learned:
+            raise SystemExit(f"--runs entries are family=<learned run>[:<head-mean run>], got {spec!r}")
+        runs[family] = (learned, fv or None)
+    root = run_mixing(cfg, runs, run_id=args.run_id, config_path=str(args.config))
+    print(root)
+    return 0
+
+
 def _cmd_source(args: argparse.Namespace) -> int:
     """The source test (docs/DECISIONS.md D38): attention against MLP writes of the aligning increments."""
     from .config import load_source_config
@@ -187,6 +209,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--output-dir", default=None, help="override output_dir from the config")
     p.add_argument("--run-id", default=None, help="explicit run directory name")
     p.add_argument("--seed", type=int, default=None, help="override the test's own seed from the config")
+    p = sub.add_parser("mixing", help="the geometry test (D40): a control mixed between two labels of a family, read as the "
+                                      "masses of the family's candidate continuations against the dilution null")
+    p.add_argument("--config", required=True, help="YAML config of the test (configs/mixing.yaml)")
+    p.add_argument("--runs", nargs="+", required=True,
+                   help="family=<learned run>[:<head-mean run>] for every family to run (others are skipped)")
+    p.add_argument("--output-dir", default=None, help="override output_dir from the config")
+    p.add_argument("--run-id", default=None, help="explicit run directory name")
+    p.add_argument("--seed", type=int, default=None, help="override the test's own seed from the config")
     args = parser.parse_args(argv)
     if args.command in ("validate", "pilot"):
         return _cmd_run(args, args.command)
@@ -200,6 +230,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_trajectories(args)
     if args.command == "source":
         return _cmd_source(args)
+    if args.command == "mixing":
+        return _cmd_mixing(args)
     parser.error("unknown command")
     return 2
 

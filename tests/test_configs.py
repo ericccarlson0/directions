@@ -19,6 +19,12 @@ def test_all_configs_load():
             cfg = load_source_config(p)
             assert cfg.n_controls >= 1 and cfg.variants, p
             continue
+        if p.name == "mixing.yaml":  # the geometry test's own config (D40)
+            from directions.config import load_mixing_config
+
+            cfg = load_mixing_config(p)
+            assert cfg.pairs and {pp.family for pp in cfg.pairs} == {"kth_word", "add_k", "lexical"}, p
+            continue
         cfg = load_config(p)
         assert cfg.tasks, p
 

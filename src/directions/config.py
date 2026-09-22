@@ -515,6 +515,81 @@ def load_source_config(path: str | Path) -> SourceConfig:
     return cfg
 
 
+@dataclass
+class MixingPair:
+    """One pair of end labels of a family for the geometry test (docs/DECISIONS.md D40).
+
+    family         the family's name; the command line maps it to a learned run and a head-mean run
+    labels         the two end labels (task keys in the runs), a and b
+    intermediates  the labels read as intermediates (their masses carry the parameter reading)
+    readout        "list_words" (the k-th word family: the listed words' masses), "operands" (add-k: the masses of
+                   n + k over the family's operands) or "own_targets" (two tasks with different inputs: each task's
+                   own held-out effect along the path)
+    operands       the operands of an "operands" readout (a label add_<k> reads as the operand k)
+    constructions  "fv" (the head mean) and/or "learned"
+    """
+
+    family: str
+    labels: list[str] = field(default_factory=list)
+    intermediates: list[str] = field(default_factory=list)
+    readout: str = "list_words"
+    operands: list[int] = field(default_factory=list)
+    constructions: list[str] = field(default_factory=lambda: ["fv", "learned"])
+
+
+@dataclass
+class MixingConfig:
+    """The geometry test (docs/DECISIONS.md D40): a control mixed between two labels of a family, v(t) = alpha *
+    normalise((1 - t) u_a + t u_b), injected at label a's selected layer and strength on label a's held-out
+    zero-shot prompts and read as the masses of the family's candidate continuations at every weight t, against the
+    dilution null (each endpoint mixed with random directions along the same path).
+
+    weights           the mixing weights t (0 and 1 are the endpoints)
+    n_null            random unit directions per side for the dilution curves
+    interior          the weights within which an intermediate label's maximum counts as interior
+    determinism_check one steered pass repeated, bit identity required (D23)
+    """
+
+    name: str = "mixing"
+    seed: int = 20260907
+    output_dir: str = "results"
+    weights: list[float] = field(default_factory=lambda: [i / 10 for i in range(11)])
+    n_null: int = 4
+    n_prompts: int = 96
+    n_boot: int = 1000
+    ci_alpha: float = 0.05
+    interior: list[float] = field(default_factory=lambda: [0.2, 0.8])
+    determinism_check: bool = True
+    device: str | None = None
+    pairs: list[MixingPair] = field(default_factory=list)
+
+
+def load_mixing_config(path: str | Path) -> MixingConfig:
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    pairs = data.pop("pairs", None) or []
+    cfg = _from_dict(MixingConfig, data)
+    cfg.pairs = [_from_dict(MixingPair, p, f"pairs[{i}]") for i, p in enumerate(pairs)]
+    if not cfg.pairs:
+        raise ValueError("the mixing config needs at least one pair")
+    if not cfg.weights or any(not (0 <= w <= 1) for w in cfg.weights) or 0.0 not in cfg.weights or 1.0 not in cfg.weights:
+        raise ValueError("weights must lie in [0, 1] and include 0 and 1")
+    if cfg.n_null < 1:
+        raise ValueError("n_null must be at least 1")
+    if len(cfg.interior) != 2 or not (0 < cfg.interior[0] < cfg.interior[1] < 1):
+        raise ValueError("interior must be [low, high] with 0 < low < high < 1")
+    for p in cfg.pairs:
+        if len(p.labels) != 2 or p.labels[0] == p.labels[1]:
+            raise ValueError(f"pair {p.family}: labels must be two distinct task keys")
+        if p.readout not in ("list_words", "operands", "own_targets"):
+            raise ValueError(f"pair {p.family}: unknown readout {p.readout!r}")
+        if p.readout == "operands" and not p.operands:
+            raise ValueError(f"pair {p.family}: an operands readout needs operands")
+        if any(c not in ("fv", "learned") for c in p.constructions) or not p.constructions:
+            raise ValueError(f"pair {p.family}: constructions must be a non-empty subset of fv, learned")
+    return cfg
+
+
 # --------------------------------------------------------------------------- #
 # (De)serialisation
 # --------------------------------------------------------------------------- #

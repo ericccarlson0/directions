@@ -1,0 +1,57 @@
+# The geometry test (docs/DECISIONS.md D40; `directions mixing`): a control mixed between two labels of a family,
+# v(t) = alpha * normalise((1 - t) u_a + t u_b), injected at label a's selected layer and strength on label a's
+# held-out zero-shot prompts, read as the masses of the family's candidate continuations at every weight t, against
+# the dilution null (each endpoint mixed with random directions along the same path). The runs come from the
+# command line, one learned and one head-mean run per family:
+#
+#   uv run directions mixing --config configs/mixing.yaml \
+#       --runs kth_word=<learned run>:<head-mean run> add_k=<learned run>:<head-mean run> lexical=<learned run>:<head-mean run> \
+#       --run-id mixing_<model>
+#
+# A family whose runs are not given is skipped; a construction whose vectors are not qualified for both labels is
+# skipped and noted.
+name: mixing
+seed: 20260907                 # the test's own draws: the random directions of the dilution null, the bootstraps
+output_dir: results
+
+weights: [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+n_null: 4                      # random unit directions per side (a -> random, random -> b)
+n_prompts: 96                  # the first n held-out prompts of label a (the readout pool)
+n_boot: 1000
+ci_alpha: 0.05
+interior: [0.2, 0.8]           # the weights at which an intermediate label's maximum counts as interior
+determinism_check: true        # one steered pass repeated, bit identity required (D23)
+
+pairs:
+  - family: kth_word           # the k-th word family (D39): the ends of the three-word list
+    labels: [kth_1, kth_3]
+    intermediates: [kth_2]
+    readout: list_words
+    constructions: [fv, learned]
+  - family: kth_word           # exploratory: the neighbouring pairs, where the middle qualifies
+    labels: [kth_1, kth_2]
+    intermediates: []
+    readout: list_words
+    constructions: [fv, learned]
+  - family: kth_word
+    labels: [kth_2, kth_3]
+    intermediates: []
+    readout: list_words
+    constructions: [fv, learned]
+  - family: add_k              # the add-k family (D30) under the learned vector of the family-only learned runs
+    labels: [add_1, add_5]
+    intermediates: [add_2, add_3]
+    readout: operands
+    operands: [1, 2, 3, 5, 10]
+    constructions: [learned, fv]
+  - family: add_k
+    labels: [add_2, add_10]
+    intermediates: [add_3, add_5]
+    readout: operands
+    operands: [1, 2, 3, 5, 10]
+    constructions: [learned, fv]
+  - family: lexical            # the switch baseline: two lexical tasks with different inputs
+    labels: [antonym, plural]
+    intermediates: []
+    readout: own_targets
+    constructions: [fv, learned]
