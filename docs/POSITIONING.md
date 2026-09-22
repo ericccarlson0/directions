@@ -172,14 +172,25 @@ concept, and neither is the control's perturbation at any depth; but
 the hand-over is not the answer becoming readable either (for the
 large-answer tasks the carrier names neither the task nor the
 answer). The verbalizable concept sits earlier, at 0.50–0.61 of the
-stack, on the tasks that have a name. That moves the question to
-tests A and B: whether the hand-over read point is where the
-workspace paper's concept vectors stop being verbal in this model
-(test A, now with a concrete depth to compare), and whether the
-steered increments are produced by the same blocks and components as
-the natural ones (test B). If the natural concept stops being verbal
-at the same depth where the control becomes rank-one along the
-natural difference, the hand-over is the exit from the verbal
-representation rather than the entrance to it, which is a different
-and still mechanistic claim; if not, the phenomenon is a property of
-the answer computation and the conclusion above stands.
+stack, on the tasks that have a name. Test A(ii) is thereby answered
+from the same run, and it is negative: the lens first names the task
+at read points 18–19, the hand-over is at 25. What the run also shows
+is that the control's alignment with the natural difference climbs
+*through* the verbal window (antonym keep-along-natural 0.62 → 0.88 →
+1.16 at read points 18, 21, 25; singular 0.21 → 0.48 → 1.00 at 20, 22,
+25) and crosses 0.9 where the verbal readout disappears (23–25). That
+coincidence is not evidence of a mechanism: both are stages of one
+trajectory, and the natural difference patched in at the verbal
+stage already gives the full effect (antonym 1.05 at read point 18,
+1.18 at 21; singular 0.96 at 22), so the direction carries the task
+before, during and after its verbal form, and the loss of the verbal
+form is not what admits the control. The remaining tests do not bear
+on this: A(i), (iii) and (iv) locate the hand-over against other
+landmarks (the pool's rank, the workspace onset, the universal
+heads), and B asks which components write the steered increments;
+neither asks about verbalisation. The verbal question is closed by C.
+What A and B can still decide is the original one: whether the fixed
+read point is a landmark of the model's own computation (A) and
+whether the steered increments are produced by the same blocks and
+components as the natural ones (B); if neither, the phenomenon is a
+property of the answer computation and the conclusion above stands.
