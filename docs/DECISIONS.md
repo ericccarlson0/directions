@@ -2040,3 +2040,25 @@ Decision:
   learned add-k run it is compared with; they are the geometry test
   proper and get their own decision once the family's backbone
   exists.
+
+Amendment made after the first head-mean runs (Qwen3 0.6B and 8B
+Base, five-word lists; the few-shot probe of shorter lists on the
+0.6B on the CPU, `--stop-after fewshot`): the middle positions of a
+five-word list fail the few-shot gate on both models (accuracies
+1.00 / 0.55 / 0.30 / 0.32 / 0.94 on the 0.6B and 1.00 / 0.48 / 0.27 /
+0.28 / 0.92 on the 8B for positions 1–5), and a four-word list loses
+its second-to-last position on the 0.6B (1.00 / 0.59 / 0.37); a
+three-word list qualifies at every position (1.00 / 0.70 / 0.98). The
+family is therefore the three-word list, k = 1..3 (`kth_1`..`kth_3`
+in the same configs), which leaves the ordered test of reading (iii)
+without power (three labels give six label permutations, so the
+one-sided p cannot fall below 1/6); reading (iii) is reduced to the
+cross-label cosines against the seed spread and, exploratory, whether
+the two neighbouring pairs' cosines exceed the end-to-end pair's. The
+mixing test (the later decision) becomes the family's real test of
+order. The five-word head-mean runs (0.6B: positions 1, 2 and 5
+qualify with the head mean supported at 81–94 % of the gap restored
+and the same selected layer; 8B: positions 1 and 5) and the 0.6B's
+five-word learned run are kept as data on the five-word labels and
+are not carried through the later stages; the pending five-word
+learned run on the 8B was cancelled before it started.

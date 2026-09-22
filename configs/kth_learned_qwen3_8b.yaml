@@ -1,5 +1,5 @@
 # The k-th word family (docs/DECISIONS.md D39) under the learned single vector (D31): the learned config with the
-# tasks replaced by `kth_word`, k = 1..5. Everything but `name`, `model.name` and `tasks` is the learned config
+# tasks replaced by `kth_word`, k = 1..3 (D39 amended: three-word lists). Everything but `name`, `model.name` and `tasks` is the learned config
 # (enforced by tests/test_configs.py); the files differ only in `model.name`.
 name: kth_learned
 seed: 20260907
@@ -30,19 +30,13 @@ data:
 tasks:
   - name: kth_word
     label: kth_1
-    params: {n_words: 5, k: 1, n_items: 500, items_seed: 20260908}
+    params: {n_words: 3, k: 1, n_items: 500, items_seed: 20260908}
   - name: kth_word
     label: kth_2
-    params: {n_words: 5, k: 2, n_items: 500, items_seed: 20260908}
+    params: {n_words: 3, k: 2, n_items: 500, items_seed: 20260908}
   - name: kth_word
     label: kth_3
-    params: {n_words: 5, k: 3, n_items: 500, items_seed: 20260908}
-  - name: kth_word
-    label: kth_4
-    params: {n_words: 5, k: 4, n_items: 500, items_seed: 20260908}
-  - name: kth_word
-    label: kth_5
-    params: {n_words: 5, k: 5, n_items: 500, items_seed: 20260908}
+    params: {n_words: 3, k: 3, n_items: 500, items_seed: 20260908}
 
 qualification:
   enforce: true

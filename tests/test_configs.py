@@ -192,9 +192,9 @@ KTH_CONFIGS = {
 
 
 def _kth_tasks(cfg: dict) -> None:
-    assert [t["label"] for t in cfg["tasks"]] == [f"kth_{k}" for k in range(1, 6)]
+    assert [t["label"] for t in cfg["tasks"]] == [f"kth_{k}" for k in range(1, 4)]
     assert all(t["name"] == "kth_word" for t in cfg["tasks"])
-    assert [t["params"] for t in cfg["tasks"]] == [{"n_words": 5, "k": k, "n_items": 500, "items_seed": 20260908} for k in range(1, 6)]
+    assert [t["params"] for t in cfg["tasks"]] == [{"n_words": 3, "k": k, "n_items": 500, "items_seed": 20260908} for k in range(1, 4)]
 
 
 def test_kth_configs_are_the_pilot_and_the_learned_config_with_the_kth_word_family():
