@@ -196,6 +196,11 @@ def collect_task_landmarks(task_json: dict[str, Any], readout: dict[str, Any] | 
         out["pool_rank"] = {"explained_top1": top1, "participation_ratio": pr, "top_cos_with_mean": cos,
                             "knee": rank_one_onset(top1, rank_one_threshold),
                             "pr_le_1_5_sustained": first_sustained([None if p is None else -p for p in pr], -1.5)}
+        if any("explained_centered" in s for s in spec):
+            # exploratory: the same knees on the spectrum about the pool's mean (the prompt-to-prompt variation)
+            top1c = [s["explained_centered"][0] if s.get("explained_centered") else None for s in spec]
+            out["pool_rank"]["centered"] = {"explained_top1": top1c, "participation_ratio": [s.get("participation_ratio_centered") for s in spec],
+                                            "mean_share": [s.get("mean_share") for s in spec], "knee": rank_one_onset(top1c, rank_one_threshold)}
     if readout:
         for lk in sorted({lens_key, "logit_lens", "jlens"}):
             ranks: list[int | None] = [None] * (L + 1)
@@ -247,13 +252,16 @@ def model_summary(tasks: dict[str, Any], L: int | None) -> dict[str, Any]:
     hand_fv = per_task(lambda t: (t["handover"].get("fv") or {}).get("read_point"))
     rank_sus = per_task(lambda t: (t.get("pool_rank") or {}).get("knee", {}).get("sustained"))
     rank_fom = per_task(lambda t: (t.get("pool_rank") or {}).get("knee", {}).get("fraction_of_max"))
+    rank_c = per_task(lambda t: ((t.get("pool_rank") or {}).get("centered") or {}).get("knee", {}).get("sustained"))
+    rank_c_fom = per_task(lambda t: ((t.get("pool_rank") or {}).get("centered") or {}).get("knee", {}).get("fraction_of_max"))
     verbal_on = per_task(lambda t: ((t.get("verbal") or {}).get("logit_lens") or {}).get("window", {}).get("onset"))
     verbal_ex = per_task(lambda t: ((t.get("verbal") or {}).get("logit_lens") or {}).get("window", {}).get("exit"))
     verbal_on_j = per_task(lambda t: ((t.get("verbal") or {}).get("jlens") or {}).get("window", {}).get("onset"))
     verbal_ex_j = per_task(lambda t: ((t.get("verbal") or {}).get("jlens") or {}).get("window", {}).get("exit"))
     heads_med = per_task(lambda t: (t.get("heads") or {}).get("median"))
     landmarks = {"handover_learned": hand_learned, "handover_fv": hand_fv, "pool_rank_sustained": rank_sus,
-                 "pool_rank_fraction_of_max": rank_fom, "verbal_onset": verbal_on, "verbal_exit": verbal_ex,
+                 "pool_rank_fraction_of_max": rank_fom, "pool_rank_centered_sustained": rank_c, "pool_rank_centered_fraction_of_max": rank_c_fom,
+                 "verbal_onset": verbal_on, "verbal_exit": verbal_ex,
                  "verbal_onset_jlens": verbal_on_j, "verbal_exit_jlens": verbal_ex_j, "heads_median": heads_med}
     out: dict[str, Any] = {"n_layers": L, "per_task": landmarks, "median": {k: _median(list(v.values())) for k, v in landmarks.items()},
                            "n_tasks": {k: sum(1 for x in v.values() if x is not None) for k, v in landmarks.items()}}

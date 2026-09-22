@@ -16,6 +16,7 @@ from directions.landmarks import across_models
 
 COLUMNS = [("handover_learned", "hand-over (learned)"), ("handover_fv", "hand-over (head mean)"),
            ("pool_rank_sustained", "pool rank one (sustained ≥ 0.7)"), ("pool_rank_fraction_of_max", "pool rank (0.9 × max)"),
+           ("pool_rank_centered_sustained", "centred rank one (expl.)"), ("pool_rank_centered_fraction_of_max", "centred rank 0.9 × max (expl.)"),
            ("verbal_onset", "verbal onset (logit lens)"), ("verbal_exit", "verbal exit (logit lens)"),
            ("verbal_onset_jlens", "verbal onset (J-lens)"), ("verbal_exit_jlens", "verbal exit (J-lens)"),
            ("heads_median", "universal heads (median)")]

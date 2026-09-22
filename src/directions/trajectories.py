@@ -1255,6 +1255,14 @@ class Trajectories:
                 top = fit(own_X)[:, 0]
                 mean_nat = geo.unit_rows(ref[m].to(t.float64).mean(0, keepdim=True))[0]
                 sp["top_component_cos_with_mean_natural"] = float(abs(top @ mean_nat).cpu())
+                # exploratory beside the uncentred (D34) spectrum: the spectrum about the pool's mean, i.e. of the
+                # prompt-to-prompt variation of the natural difference
+                Xc = own_X.to(geo.device, t.float64)
+                Xc = Xc - Xc.mean(0, keepdim=True)
+                spc = spectrum(Xc)
+                sp["explained_centered"] = spc["explained"]
+                sp["participation_ratio_centered"] = spc["participation_ratio"]
+                sp["mean_share"] = float((own_X.to(geo.device, t.float64).mean(0).norm() ** 2 / (own_X.to(geo.device, t.float64) ** 2).mean(0).sum()).cpu())
                 sp["read_point"] = m
                 prof.append(sp)
             out["pool_spectrum"] = prof

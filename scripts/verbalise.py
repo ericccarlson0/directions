@@ -44,8 +44,8 @@ def handover_read_point(res: dict, layer: int) -> int | None:
     sub = info.get("subspace")
     if sub and "learned" in sub.get("constructions", {}):
         return sub["constructions"]["learned"].get("handover_read_point")
-    patch = info.get("patch", {}).get("learned") or {}
-    for row in patch.get("rows", []):
+    patch = ((info.get("patch") or {}).get("constructions") or {}).get("learned") or {}
+    for row in sorted(patch.get("rows", []), key=lambda r: r["read_point"]):
         if row.get("keep", {}).get("retained", 0) >= 0.9:
             return row["read_point"]
     return None
