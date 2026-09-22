@@ -148,13 +148,18 @@ def intermediate_forms(word: str, eval_set: str) -> list[str]:
     return out
 
 
-def readout_prompt(prompt: str, eval_set: str) -> str:
-    """The prompt whose last token is the paper's readout position: the prompt itself, except poetry, read at
-    the last newline (the end of line 1), where the prompt is truncated after that newline."""
+def readout_prompt(prompt: str, eval_set: str, has_target: bool = False) -> str:
+    """The prompt whose last token is the paper's readout position. Poetry is read at the last newline (the end
+    of line 1): the prompt is truncated after that newline. A prompt with a ``target`` is read at the token
+    immediately preceding the target; under the paper's joint tokenisation of prompt and target a trailing
+    space of the prompt merges into the target's first token, so that token is the last word of the prompt
+    without the trailing space, which is what is returned. Otherwise the prompt itself (its final token)."""
     if eval_set == "poetry":
         i = prompt.rfind("\n")
         if i >= 0:
             return prompt[: i + 1]
+    if has_target:
+        return prompt.rstrip(" ")
     return prompt
 
 

@@ -46,7 +46,8 @@ def test_band_from_rates():
 
 def test_eval_set_helpers():
     assert readout_prompt("A rhyming couplet:\nline one,\nAnd the face of ", "poetry") == "A rhyming couplet:\nline one,\n"
-    assert readout_prompt("Fact: the ocean is the ", "multihop") == "Fact: the ocean is the "
+    assert readout_prompt("Fact: the ocean is the ", "multihop", has_target=True) == "Fact: the ocean is the"
+    assert readout_prompt("She kept his mug.", "association") == "She kept his mug."
     assert intermediate_forms("Brazil", "multihop") == [" Brazil", "Brazil"]
     forms = intermediate_forms("5", "order-ops")
     assert " 5" in forms and " five" in forms and "five" in forms

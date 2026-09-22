@@ -56,12 +56,20 @@ def main() -> None:
             print(line)
         band = m.get("lens_band")
         if band and band.get("pooled"):
-            for k in ("hit@1", "hit@5", "hit@10"):
-                b = band["pooled"]["band"][k]
-                print(f"  workspace band ({k}, pooled sets)       onset {fmt(b['onset'], L)} peak {fmt(b['peak'], L)} exit {fmt(b['exit'], L)} (max rate {b['max']:.2f})")
-            for name, sset in band["sets"].items():
-                b = sset["band"]["hit@10"]
-                print(f"    [{name:12s}] hit@10 onset {fmt(b['onset'], L)} peak {fmt(b['peak'], L)} (max {b['max']:.2f}; hit@1 max {max(v for v in sset['rates']['hit@1'] if v is not None):.2f}; n={sset['n_intermediates']})")
+            for which in ("jlens", "logit_lens"):
+                pooled = band["pooled"].get(which)
+                if not pooled:
+                    continue
+                for k in ("hit@1", "hit@5", "hit@10"):
+                    b = pooled["band"][k]
+                    print(f"  workspace band ({which}, {k}, pooled)   onset {fmt(b['onset'], L)} peak {fmt(b['peak'], L)} exit {fmt(b['exit'], L)} (max rate {b['max']:.2f})")
+                for name, sset in band["sets"].items():
+                    e = sset.get(which)
+                    if not e:
+                        continue
+                    b = e["band"]["hit@10"]
+                    print(f"    [{name:12s}] {which:10s} hit@10 onset {fmt(b['onset'], L)} peak {fmt(b['peak'], L)} (max {b['max']:.2f}; "
+                          f"hit@1 max {max(v for v in e['rates']['hit@1'] if v is not None):.2f}; n={e['n_intermediates']})")
 
     cross = across_models(models)
     print("\nacross models (fractions of the stack; Spearman with a permutation p; |offset| in read points):")

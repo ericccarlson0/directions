@@ -52,49 +52,55 @@ def lens_eval_band(backend: ModelBackend, lens: Lens, eval_dir: Path, ks: tuple[
     L = backend.n_layers
     tok = backend.tokenizer
     out: dict[str, Any] = {"n_layers": L, "sets": {}, "pooled": {}}
-    all_ranks: list[np.ndarray] = []
+    all_ranks: dict[str, list[np.ndarray]] = {}
     for name in EVAL_SETS:
         path = eval_dir / f"lens-eval-{name}.json"
         if not path.exists():
             continue
         items = json.load(open(path))["items"]
-        prompts = [Prompt(prompt=readout_prompt(it["prompt"], name), target=" x", query=Item(it["prompt"], "x"), demos=()) for it in items]
+        prompts = [Prompt(prompt=readout_prompt(it["prompt"], name, "target" in it), target=" x", query=Item(it["prompt"], "x"), demos=())
+                   for it in items]
         t0 = time.time()
         res = backend.run(prompts, capture=True, batch_size=batch_size)
         assert res.residuals is not None
         H = res.residuals  # (L+1, n, d) at the readout position
-        ranks_set: list[list[int]] = []  # per intermediate: rank per read point
+        ranks_set: dict[str, list[list[int]]] = {"jlens": [], "logit_lens": []}  # per intermediate: rank per read point
         names: list[str] = []
         for i, it in enumerate(items):
             for word in it["intermediates"]:
                 ids = first_token_ids(tok, intermediate_forms(word, name))
                 if not ids:
                     continue
-                per_m = []
+                per_m: dict[str, list[int]] = {"jlens": [], "logit_lens": []}
                 for m in range(1, L + 1):  # read points 1..L: the outputs of blocks 0..L-1, the lens's own layers
-                    z = transport(lens, H[m, i], m, L)
-                    logits = backend.logits_from_residual(z.reshape(1, -1).to(backend.device))[0].float()
-                    order = torch.argsort(logits, descending=True)
-                    pos = torch.empty_like(order)
-                    pos[order] = torch.arange(len(order), device=order.device)
-                    per_m.append(int(min(pos[j].item() for j in ids)) + 1)
-                ranks_set.append(per_m)
+                    for which in per_m:
+                        z = transport(lens if which == "jlens" else None, H[m, i], m, L)
+                        logits = backend.logits_from_residual(z.reshape(1, -1).to(backend.device))[0].float()
+                        order = torch.argsort(logits, descending=True)
+                        pos = torch.empty_like(order)
+                        pos[order] = torch.arange(len(order), device=order.device)
+                        per_m[which].append(int(min(pos[j].item() for j in ids)) + 1)
+                for which in per_m:
+                    ranks_set[which].append(per_m[which])
                 names.append(f"{it.get('name', i)}:{word}")
-        R = np.asarray(ranks_set, dtype=np.int64)
-        all_ranks.append(R)
-        rates = {k: [None] + v for k, v in hit_rates(R, ks).items()}  # indexed by read point (none at 0)
-        out["sets"][name] = {"n_items": len(items), "n_intermediates": int(R.shape[0]), "seconds": round(time.time() - t0, 1),
-                             "rates": rates, "band": {f"hit@{k}": band_from_rates(rates[f"hit@{k}"]) for k in ks},
-                             "min_rank_over_read_points": [int(x) for x in R.min(1)], "intermediates": names}
-        b = out["sets"][name]["band"]["hit@10"]
-        print(f"lens band [{name}] {R.shape[0]} intermediates: hit@10 onset m={b['onset']} peak m={b['peak']} (max {b['max']:.2f}) exit m={b['exit']}; "
-              f"hit@1 max {max(v for v in rates['hit@1'] if v is not None):.2f}; {out['sets'][name]['seconds']}s", flush=True)
-    if all_ranks:
-        R = np.concatenate(all_ranks, 0)
+        entry: dict[str, Any] = {"n_items": len(items), "seconds": round(time.time() - t0, 1), "intermediates": names}
+        for which in ranks_set:
+            R = np.asarray(ranks_set[which], dtype=np.int64)
+            all_ranks.setdefault(which, []).append(R)
+            rates = {k: [None] + v for k, v in hit_rates(R, ks).items()}  # indexed by read point (none at 0)
+            entry[which] = {"n_intermediates": int(R.shape[0]), "rates": rates, "band": {f"hit@{k}": band_from_rates(rates[f"hit@{k}"]) for k in ks},
+                            "min_rank_over_read_points": [int(x) for x in R.min(1)]}
+        out["sets"][name] = entry
+        for which in ("jlens", "logit_lens"):
+            b = entry[which]["band"]["hit@10"]
+            print(f"lens band [{name}] {which:10s} {entry[which]['n_intermediates']} intermediates: hit@10 onset m={b['onset']} peak m={b['peak']} "
+                  f"(max {b['max']:.2f}) exit m={b['exit']}; hit@1 max {max(v for v in entry[which]['rates']['hit@1'] if v is not None):.2f}", flush=True)
+    for which, Rs in all_ranks.items():
+        R = np.concatenate(Rs, 0)
         rates = {k: [None] + v for k, v in hit_rates(R, ks).items()}
-        out["pooled"] = {"n_intermediates": int(R.shape[0]), "rates": rates, "band": {f"hit@{k}": band_from_rates(rates[f"hit@{k}"]) for k in ks}}
-        b = out["pooled"]["band"]["hit@10"]
-        print(f"lens band [pooled] {R.shape[0]} intermediates: hit@10 onset m={b['onset']} ({b['onset'] / L:.2f}) peak m={b['peak']} exit m={b['exit']}", flush=True)
+        out["pooled"][which] = {"n_intermediates": int(R.shape[0]), "rates": rates, "band": {f"hit@{k}": band_from_rates(rates[f"hit@{k}"]) for k in ks}}
+        b = out["pooled"][which]["band"]["hit@10"]
+        print(f"lens band [pooled] {which}: {R.shape[0]} intermediates: hit@10 onset m={b['onset']} peak m={b['peak']} exit m={b['exit']} (max {b['max']:.2f})", flush=True)
     return out
 
 
