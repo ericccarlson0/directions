@@ -1,8 +1,8 @@
 # Request a GPU run: change this file, commit, push. The run-gpu workflow triggers on every push that changes
 # this file and runs `command` at the repository root on a RunPod worker. To re-request an identical command,
 # there needs to be a new `request` label. A manual workflow_dispatch ignores this file.
-request: source_qwen3_4b_seed20260916 # note that a new label re-requests the same command
-command: uv run directions source --config configs/source.yaml --fv-run /runpod-volume/results/run-35051925394/pilot6_qwen3_4b_seed20260916 --learned-run /runpod-volume/results/run-35420419658/learned_qwen3_4b_seed20260916 --landmark-run /runpod-volume/results/run-35682273805/landmarks_qwen3_4b_seed20260916 --run-id source_qwen3_4b_seed20260916
+request: source_olmo3_7b_seed20260907 # note that a new label re-requests the same command
+command: uv run directions source --config configs/source.yaml --fv-run /runpod-volume/results/run-35529394971/pilot6_olmo3_7b_seed20260907 --learned-run /runpod-volume/results/run-35538374069/learned_olmo3_7b_seed20260907 --landmark-run /runpod-volume/results/run-35685649916/landmarks_olmo3_7b_seed20260907 --run-id source_olmo3_7b_seed20260907
 gpu_tier: ADA_24         # memory class ("tier")
 gpu_type: ""              # exact device name to pin instead of the tier, e.g. "NVIDIA RTX A4500"
 datacenter: EUR-NO-1       # data center of the `directions` network volume
