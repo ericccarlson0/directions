@@ -1763,3 +1763,84 @@ logit lens reads the same as the Jacobian lens wherever either reads
 the task. Test C of `docs/POSITIONING.md` is therefore negative for the
 direction the experiment measures, with the exploratory lead that the
 verbalizable concept precedes the hand-over.
+
+### D37. The landmark test: does the hand-over coincide with a depth defined without the control?
+
+Context: the hand-over sits at a fixed read point of the stack for any
+injection layer (D33–D35: 0.6–0.8 of the stack on Qwen3, 0.50–0.69 on
+OLMo 3, 0.69–0.79 on Gemma 4), so it belongs to the stack, not to the
+control. Test A of `docs/POSITIONING.md` asks what else has a knee
+there, measured with no steering. Written before any landmark was
+read; the criteria below are fixed so that a coincidence cannot be
+found after the fact among 28–48 read points.
+
+Decision:
+
+* **The hand-over at read-point resolution.** The patch test of D33
+  (keep only the steered perturbation's component along the prompt's
+  natural difference) is run at *every* downstream read point of the
+  primary layer (`configs/trajectories_landmarks.yaml`: 64 fractions of
+  the downstream depth, which lands on every read point for at most 32
+  downstream blocks), for the learned and the head-mean vector. The
+  hand-over of a task is the first read point at which the keep
+  retains 0.9 of the effect (the D33/D34 share); the model's hand-over
+  is the median over tasks. The learned vector's is the primary
+  quantity; the head mean's is a landmark of its own.
+* **Landmark (i), the pool's rank.** The uncentred spectrum of the
+  pool's natural differences (D34's pools, extraction plus calibration)
+  at every read point (`subspace.pool_spectrum_all_read_points`). The
+  knee: the first read point from which the top component explains
+  ≥ 0.7 of the energy at every later read point (primary); the first
+  read point reaching 0.9 of the profile's maximum (secondary). The
+  participation ratio is recorded beside it.
+* **Landmark (ii), the verbal onset.** The logit-lens readout of the
+  stored mean natural difference at every read point
+  (`scripts/verbalise.py` without a lens; D36's word lists, unchanged).
+  The onset: the first read point at which the best task word ranks
+  within the top 10; the exit: the last such read point; none where
+  the task is never named. On the checkpoint with a published lens the
+  Jacobian-lens readout is recorded as well, but the comparison across
+  models uses the logit lens on every model, so that the instrument
+  is the same.
+* **Landmark (iii), the workspace band**, on `Qwen/Qwen3-8B` only,
+  the one checkpoint with a published Jacobian lens; no other model
+  gets a substitute for it. The paper's own six lens-quality prompt
+  sets (`data/jlens_evaluations`, copied from the companion repository
+  with their readout positions) are read through the Neuronpedia lens
+  at every read point at the paper's readout position; the rate at
+  which an intermediate ranks within the top 10 (also top 1 and 5) per
+  read point is the profile; the onset is the first read point at
+  which that rate reaches half of its maximum, the exit the last, the
+  peak its argmax; per set and pooled.
+* **Landmark (iv), the universal heads.** The selected heads of the
+  head-mean run (`fv_heads`); block `l` writes to read point `l + 1`;
+  the landmark is the median read point over the selected heads, with
+  the band (min–max) recorded.
+* **The comparison.** Per model, every landmark's offset from the
+  learned vector's hand-over in read points, per task and as the
+  median. Across models (the four Qwen3 Base sizes at seed 20260916,
+  OLMo 3 7B and Gemma 4 12B at seed 20260907, and the post-trained
+  Qwen3-8B), the scatter of landmark depth against hand-over depth,
+  both as fractions of the stack, one point per model, with Spearman's
+  rank correlation and a permutation p-value. A landmark is said to
+  coincide with the hand-over only if p ≤ 0.05 across models *and* the
+  median absolute offset over models is ≤ 2 read points. With six or
+  seven models the test has little power; a landmark that fails the
+  correlation but sits within two read points on every model is
+  reported as "co-located, not shown to co-vary".
+* **What the outcomes mean.** A landmark that coincides makes the
+  fixed read point a property of the model's own computation named by
+  that landmark (the pool's collapse to one direction, the task's
+  verbal form, the heads' write depth, the lens's workspace band). None
+  coinciding leaves the hand-over a property of how a rank-one bump is
+  rotated into the natural direction, and test B remains.
+* **Runs.** `scripts/landmarks.py` runs the comparison and the
+  readouts in one job per model (one model load for the comparison,
+  one for the readouts); `scripts/landmark_summary.py` aggregates.
+  The comparison's own seed and determinism check are those of the
+  trajectories runs. The prior trajectories runs are not reused for
+  the hand-over (their grid is eighths); their pools are re-captured
+  by the same code.
+* **Exploratory**, not preregistered beyond the criteria above: the
+  knee thresholds are judgements (0.7 of the energy, rank 10, half the
+  maximum rate), fixed here before the profiles were seen.

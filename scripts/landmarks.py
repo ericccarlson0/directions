@@ -1,0 +1,148 @@
+"""The landmark test (docs/DECISIONS.md D37) on one model: run the landmark comparison
+(configs/trajectories_landmarks.yaml: the patch test at every downstream read point and the pool's spectrum
+at every read point), then the verbal-onset readout of the stored mean natural difference (scripts/verbalise.py,
+logit lens; the Jacobian lens too when one is named), then, when a lens is named, the workspace band of the
+paper's own lens-quality prompt sets (data/jlens_evaluations) read through that lens, and collect the model's
+landmarks (directions.landmarks) into ``<run>/landmarks/landmarks.json``.
+
+usage: uv run python scripts/landmarks.py --config configs/trajectories_landmarks.yaml \
+           --fv-run <head-mean run> --learned-run <learned run> --run-id landmarks_<model>_seed<seed> \
+           [--lens-file qwen3-8b/jlens/Salesforce-wikitext/Qwen3-8B_jacobian_lens.pt | --lens <local .pt>] \
+           [--eval-sets data/jlens_evaluations] [--run <finished comparison run: skip the comparison>]
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import torch
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import verbalise  # noqa: E402  (scripts/verbalise.py)
+
+from directions.config import load_config, load_trajectories_config  # noqa: E402
+from directions.landmarks import band_from_rates, collect_model_landmarks, hit_rates, intermediate_forms, readout_prompt  # noqa: E402
+from directions.model import ModelBackend  # noqa: E402
+from directions.prompts import Prompt  # noqa: E402
+from directions.tasks import Item  # noqa: E402
+from directions.trajectories import run_trajectories  # noqa: E402
+from directions.verbalise import Lens, transport  # noqa: E402
+
+EVAL_SETS = ("multihop", "multilingual", "order-ops", "association", "typo", "poetry")
+
+
+def first_token_ids(tokenizer: Any, forms: list[str]) -> list[int]:
+    ids: list[int] = []
+    for f in forms:
+        enc = tokenizer.encode(f, add_special_tokens=False)
+        if enc and enc[0] not in ids:
+            ids.append(enc[0])
+    return ids
+
+
+def lens_eval_band(backend: ModelBackend, lens: Lens, eval_dir: Path, ks: tuple[int, ...] = (1, 5, 10), batch_size: int = 16) -> dict[str, Any]:
+    """The paper's lens-quality sets read through the lens at every read point: per set and pooled, the rate at
+    which the intermediates rank within k, and the band those rates define (directions.landmarks.band_from_rates)."""
+    L = backend.n_layers
+    tok = backend.tokenizer
+    out: dict[str, Any] = {"n_layers": L, "sets": {}, "pooled": {}}
+    all_ranks: list[np.ndarray] = []
+    for name in EVAL_SETS:
+        path = eval_dir / f"lens-eval-{name}.json"
+        if not path.exists():
+            continue
+        items = json.load(open(path))["items"]
+        prompts = [Prompt(prompt=readout_prompt(it["prompt"], name), target=" x", query=Item(it["prompt"], "x"), demos=()) for it in items]
+        t0 = time.time()
+        res = backend.run(prompts, capture=True, batch_size=batch_size)
+        assert res.residuals is not None
+        H = res.residuals  # (L+1, n, d) at the readout position
+        ranks_set: list[list[int]] = []  # per intermediate: rank per read point
+        names: list[str] = []
+        for i, it in enumerate(items):
+            for word in it["intermediates"]:
+                ids = first_token_ids(tok, intermediate_forms(word, name))
+                if not ids:
+                    continue
+                per_m = []
+                for m in range(1, L + 1):  # read points 1..L: the outputs of blocks 0..L-1, the lens's own layers
+                    z = transport(lens, H[m, i], m, L)
+                    logits = backend.logits_from_residual(z.reshape(1, -1).to(backend.device))[0].float()
+                    order = torch.argsort(logits, descending=True)
+                    pos = torch.empty_like(order)
+                    pos[order] = torch.arange(len(order), device=order.device)
+                    per_m.append(int(min(pos[j].item() for j in ids)) + 1)
+                ranks_set.append(per_m)
+                names.append(f"{it.get('name', i)}:{word}")
+        R = np.asarray(ranks_set, dtype=np.int64)
+        all_ranks.append(R)
+        rates = {k: [None] + v for k, v in hit_rates(R, ks).items()}  # indexed by read point (none at 0)
+        out["sets"][name] = {"n_items": len(items), "n_intermediates": int(R.shape[0]), "seconds": round(time.time() - t0, 1),
+                             "rates": rates, "band": {f"hit@{k}": band_from_rates(rates[f"hit@{k}"]) for k in ks},
+                             "min_rank_over_read_points": [int(x) for x in R.min(1)], "intermediates": names}
+        b = out["sets"][name]["band"]["hit@10"]
+        print(f"lens band [{name}] {R.shape[0]} intermediates: hit@10 onset m={b['onset']} peak m={b['peak']} (max {b['max']:.2f}) exit m={b['exit']}; "
+              f"hit@1 max {max(v for v in rates['hit@1'] if v is not None):.2f}; {out['sets'][name]['seconds']}s", flush=True)
+    if all_ranks:
+        R = np.concatenate(all_ranks, 0)
+        rates = {k: [None] + v for k, v in hit_rates(R, ks).items()}
+        out["pooled"] = {"n_intermediates": int(R.shape[0]), "rates": rates, "band": {f"hit@{k}": band_from_rates(rates[f"hit@{k}"]) for k in ks}}
+        b = out["pooled"]["band"]["hit@10"]
+        print(f"lens band [pooled] {R.shape[0]} intermediates: hit@10 onset m={b['onset']} ({b['onset'] / L:.2f}) peak m={b['peak']} exit m={b['exit']}", flush=True)
+    return out
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--config", default="configs/trajectories_landmarks.yaml")
+    ap.add_argument("--fv-run", required=True)
+    ap.add_argument("--learned-run", required=True)
+    ap.add_argument("--run-id", default=None)
+    ap.add_argument("--run", default=None, help="a finished landmark comparison run to read instead of running one")
+    ap.add_argument("--lens", default=None)
+    ap.add_argument("--lens-repo", default="neuronpedia/jacobian-lens")
+    ap.add_argument("--lens-file", default=None)
+    ap.add_argument("--eval-sets", default="data/jlens_evaluations")
+    ap.add_argument("--n-random", type=int, default=8)
+    args = ap.parse_args()
+
+    if args.run:
+        root = Path(args.run)
+    else:
+        cfg = load_trajectories_config(args.config)
+        root = run_trajectories(cfg, args.fv_run, args.learned_run, run_id=args.run_id, config_path=args.config)
+    out_dir = root / "landmarks"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    run_cfg = load_config(Path(args.learned_run) / "config.resolved.yaml")
+    t0 = time.time()
+    backend = ModelBackend(run_cfg.model, run_seed=run_cfg.seed)
+    lens, lens_path = verbalise.load_lens(backend, args.lens, args.lens_repo, args.lens_file)
+    print(f"landmarks: model {backend.metadata()['name']} ({backend.n_layers} layers); " + (f"lens {lens_path}" if lens else "logit lens only")
+          + f"; load {time.time() - t0:.0f}s", flush=True)
+    verbalise.readout(root, backend, lens, out_dir / "readout", n_random=args.n_random, lens_path=lens_path)
+    band = None
+    if lens is not None:
+        band = lens_eval_band(backend, lens, Path(args.eval_sets))
+        with open(out_dir / "lens_band.json", "w") as f:
+            json.dump(band, f, indent=1)
+    lm = collect_model_landmarks(root, out_dir / "readout", Path(args.fv_run), band, lens_key="jlens" if lens else "logit_lens")
+    with open(out_dir / "landmarks.json", "w") as f:
+        json.dump(lm, f, indent=1)
+    s = lm["summary"]
+    print(f"\nlandmarks of {lm['model']} (L={lm['n_layers']}): medians over tasks (read points)", flush=True)
+    for k, v in s["median"].items():
+        n = s["n_tasks"][k]
+        off = s["offset_from_handover"].get(k, {})
+        print(f"  {k:28s} {v if v is None else round(v, 1)!s:>6} (n={n})" + (f"  offset from hand-over median {off.get('median')} |median| {off.get('median_abs')}" if off else ""), flush=True)
+    print("wrote", out_dir, flush=True)
+
+
+if __name__ == "__main__":
+    main()

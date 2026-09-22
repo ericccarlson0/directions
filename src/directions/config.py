@@ -345,6 +345,8 @@ class SubspaceConfig:
                      prompt's own direction retains ``handover_share`` of the effect (needs the patch test)
     handover_share   that share, also the share defining k90 (the smallest k reaching it)
     n_controls       random per-example k-dimensional subspaces matched to each edit
+    pool_spectrum_all_read_points  also record the pool's uncentred spectrum (explained fractions, participation
+                     ratio, top component's cosine with the mean) at every read point (the landmark test, D37)
     other_tasks      fit the leave-one-task-out subspace as well
     background       fit the unsteered residuals' top-k subspace as well
     pools            the runs' prompt pools the subspaces are fitted on (disjoint from the evaluation pool)
@@ -357,6 +359,7 @@ class SubspaceConfig:
     at_handover: bool = True
     handover_share: float = 0.9
     n_controls: int = 2
+    pool_spectrum_all_read_points: bool = False
     other_tasks: bool = True
     background: bool = True
     pools: list[str] = field(default_factory=lambda: ["extraction", "calibration"])

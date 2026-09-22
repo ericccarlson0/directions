@@ -1245,6 +1245,20 @@ class Trajectories:
             return {"explained": p[:kmax].cpu().tolist(), "participation_ratio": float(((s ** 2).sum() ** 2 / (s ** 4).sum()).cpu()),
                     "rank": int(min(X.shape))}
 
+        if sc.pool_spectrum_all_read_points:
+            # D37: the pool's spectrum at every read point (the rank landmark), with the top component's cosine
+            # with the held-out mean natural difference there
+            prof = []
+            for m in range(L + 1):
+                own_X = self.pool_natural[name][m]
+                sp = spectrum(own_X)
+                top = fit(own_X)[:, 0]
+                mean_nat = geo.unit_rows(ref[m].to(t.float64).mean(0, keepdim=True))[0]
+                sp["top_component_cos_with_mean_natural"] = float(abs(top @ mean_nat).cpu())
+                sp["read_point"] = m
+                prof.append(sp)
+            out["pool_spectrum"] = prof
+
         for c in sc.constructions:
             if c not in deltas:
                 continue

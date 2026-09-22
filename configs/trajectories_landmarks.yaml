@@ -1,0 +1,59 @@
+# The landmark test's comparison run (docs/DECISIONS.md D37; `scripts/landmarks.py`, which runs it and then the
+# readouts). The same machinery as configs/trajectories.yaml, reduced to what the landmarks need: the patch test
+# of the learned and the head-mean vector at the primary layer at EVERY downstream read point (the hand-over at
+# read-point resolution, instead of eighths), and the subspace stage only for the pool's spectrum at every read
+# point (the rank landmark), with the smallest edit grid the stage allows. The stored mean trajectories feed the
+# verbal-onset readout (scripts/verbalise.py, logit lens).
+#
+#   uv run python scripts/landmarks.py --config configs/trajectories_landmarks.yaml \
+#       --fv-run results/pilot6_qwen3_0.6b_seed20260916 --learned-run results/learned_qwen3_0.6b_seed20260916 \
+#       --run-id landmarks_qwen3_0.6b_seed20260916
+name: trajectories
+seed: 20260907
+output_dir: results
+
+layers: selected
+neighbour_layers: 0            # the primary layer only
+n_isotropic: 1                 # the floor is not read here; the minimum the stage allows
+second_demo_sample: false      # the ceiling is not read here
+remove_answer_direction: false
+remove_generic_response: false
+pc1_rho_grid: [0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0]
+strength_factors: [1.0]        # canonical strength only
+generic_diagnostics: false
+diagnostic_top_k: [1, 4, 16, 64]
+logit_lens_top: 10
+patch:
+  enabled: true
+  constructions: [learned, fv]
+  layers: primary
+  # 64 fractions of the downstream depth: with at most 32 downstream blocks (every model here) the rounding lands
+  # on every downstream read point, so the hand-over (the first read point at which keeping the prompt's own
+  # direction retains 0.9 of the effect) is located to the read point
+  depth_fractions: [0.015625, 0.03125, 0.046875, 0.0625, 0.078125, 0.09375, 0.109375, 0.125, 0.140625, 0.15625,
+                    0.171875, 0.1875, 0.203125, 0.21875, 0.234375, 0.25, 0.265625, 0.28125, 0.296875, 0.3125,
+                    0.328125, 0.34375, 0.359375, 0.375, 0.390625, 0.40625, 0.421875, 0.4375, 0.453125, 0.46875,
+                    0.484375, 0.5, 0.515625, 0.53125, 0.546875, 0.5625, 0.578125, 0.59375, 0.609375, 0.625,
+                    0.640625, 0.65625, 0.671875, 0.6875, 0.703125, 0.71875, 0.734375, 0.75, 0.765625, 0.78125,
+                    0.796875, 0.8125, 0.828125, 0.84375, 0.859375, 0.875, 0.890625, 0.90625, 0.921875, 0.9375,
+                    0.953125, 0.96875, 0.984375, 1.0]
+  n_controls: 2
+  reference: icl
+
+subspace:
+  enabled: true
+  constructions: [learned]
+  k_grid: [1]
+  depth_fractions: [1.0]       # one edit read point (the stage needs at least its own grid); the pool spectrum is what is read
+  at_handover: false
+  handover_share: 0.9
+  n_controls: 1
+  pool_spectrum_all_read_points: true   # D37: the pool's spectrum at every read point
+  other_tasks: false
+  background: false
+  pools: [extraction, calibration]
+
+n_boot: 1000
+ci_alpha: 0.05
+determinism_check: true
+figures: false
