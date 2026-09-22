@@ -1,0 +1,21 @@
+# The source test (docs/DECISIONS.md D38; `directions source`): which sublayer, attention or MLP, writes the
+# increments that turn the injected direction into the model's natural task direction, and whether that
+# sublayer's aligning writes are necessary. The model, prompts, splits, the learned vector and its strength come
+# from the learned-vector run; the selected heads from the head-mean run; the hand-over read point per task from
+# the landmark run (D37). One file serves every model.
+#
+#   uv run directions source --config configs/source.yaml \
+#       --fv-run results/pilot6_qwen3_0.6b_seed20260916 --learned-run results/learned_qwen3_0.6b_seed20260916 \
+#       --landmark-run results/landmarks_qwen3_0.6b_seed20260916 --run-id source_qwen3_0.6b_seed20260916
+name: source
+seed: 20260907
+output_dir: results
+
+n_controls: 4          # random directions injected at the learned vector's norm: the split of a perturbation without a task
+n_edit_controls: 2     # random per-example directions matched (per read point and norm) to each removal
+handover_share: 0.9    # the share that defined the hand-over read point in the landmark run
+variants: [along, full]   # removals: the component along the natural difference; the whole increment
+per_block: true        # also each block's aligning component removed alone, one block at a time
+n_boot: 1000
+ci_alpha: 0.05
+determinism_check: true

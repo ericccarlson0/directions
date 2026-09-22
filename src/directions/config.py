@@ -469,6 +469,52 @@ def load_trajectories_config(path: str | Path) -> TrajectoriesConfig:
     return cfg
 
 
+@dataclass
+class SourceConfig:
+    """The source test (docs/DECISIONS.md D38): which sublayer writes the increments that turn the injected
+    direction into the natural one. On the held-out prompts of every task, the learned vector at the primary
+    layer and its canonical strength: the attention and MLP writes of every block at the query token are
+    captured in the unsteered zero-shot run, the steered run and the demonstration run, and each block's
+    steered and natural increments are split into their attention and MLP parts and their components along the
+    prompt's natural difference at the read point they land on. Over the window from the injection layer to
+    the hand-over read point (from the landmark run, D37) the aligned write is shared between the two
+    sublayers; then each sublayer's aligned component (and its whole increment) is removed from the steered
+    run over that window, against random per-example directions of the same norms (D29 mechanics).
+
+    n_controls        random directions injected at the learned vector's norm (the generic response's split)
+    n_edit_controls   random per-example directions matched to each removal
+    handover_share    the share defining the hand-over read point in the landmark run's patch grid
+    variants          removals: "along" (the component along the natural difference), "full" (the whole increment)
+    per_block         also remove each block's aligned component alone, one block at a time
+    """
+
+    name: str = "source"
+    seed: int = 20260907
+    output_dir: str = "results"
+    n_controls: int = 4
+    n_edit_controls: int = 2
+    handover_share: float = 0.9
+    variants: list[str] = field(default_factory=lambda: ["along", "full"])
+    per_block: bool = True
+    n_boot: int = 1000
+    ci_alpha: float = 0.05
+    determinism_check: bool = True
+    device: str | None = None
+
+
+def load_source_config(path: str | Path) -> SourceConfig:
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    cfg = _from_dict(SourceConfig, data)
+    if cfg.n_controls < 1 or cfg.n_edit_controls < 1:
+        raise ValueError("n_controls and n_edit_controls must be at least 1")
+    if not (0 < cfg.handover_share <= 1):
+        raise ValueError("handover_share must lie in (0, 1]")
+    if not cfg.variants or any(v not in ("along", "full") for v in cfg.variants):
+        raise ValueError("variants must be a non-empty subset of along, full")
+    return cfg
+
+
 # --------------------------------------------------------------------------- #
 # (De)serialisation
 # --------------------------------------------------------------------------- #

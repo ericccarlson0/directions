@@ -129,6 +129,21 @@ def _cmd_trajectories(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_source(args: argparse.Namespace) -> int:
+    """The source test (docs/DECISIONS.md D38): attention against MLP writes of the aligning increments."""
+    from .config import load_source_config
+    from .source import run_source
+
+    cfg = load_source_config(args.config)
+    if args.output_dir:
+        cfg.output_dir = args.output_dir
+    if args.seed is not None:
+        cfg.seed = int(args.seed)
+    root = run_source(cfg, args.fv_run, args.learned_run, landmark_run=args.landmark_run, run_id=args.run_id, config_path=str(args.config))
+    print(root)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="directions", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -163,6 +178,15 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--run-id", default=None, help="explicit run directory name")
     p.add_argument("--seed", type=int, default=None, help="override the comparison's own seed from the config (its draws: "
                                                           "second demonstration sample, derangements, isotropic directions, bootstraps)")
+    p = sub.add_parser("source", help="the source test (D38): which sublayer writes the increments that turn the injected "
+                                      "direction into the natural one, and whether it is necessary")
+    p.add_argument("--config", required=True, help="YAML config of the test (configs/source.yaml)")
+    p.add_argument("--fv-run", required=True, help="finished run with extraction.control: function_vector (the selected heads)")
+    p.add_argument("--learned-run", required=True, help="finished run with extraction.control: learned_vector (same seed)")
+    p.add_argument("--landmark-run", default=None, help="finished landmark run (D37): the hand-over read point per task")
+    p.add_argument("--output-dir", default=None, help="override output_dir from the config")
+    p.add_argument("--run-id", default=None, help="explicit run directory name")
+    p.add_argument("--seed", type=int, default=None, help="override the test's own seed from the config")
     args = parser.parse_args(argv)
     if args.command in ("validate", "pilot"):
         return _cmd_run(args, args.command)
@@ -174,6 +198,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_aggregate(args)
     if args.command == "trajectories":
         return _cmd_trajectories(args)
+    if args.command == "source":
+        return _cmd_source(args)
     parser.error("unknown command")
     return 2
 

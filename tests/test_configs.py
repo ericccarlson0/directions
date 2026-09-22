@@ -13,6 +13,12 @@ def test_all_configs_load():
             cfg = load_trajectories_config(p)
             assert cfg.n_isotropic >= 1 and cfg.layers == "selected", p
             continue
+        if p.name == "source.yaml":  # the source test's own config (D38)
+            from directions.config import load_source_config
+
+            cfg = load_source_config(p)
+            assert cfg.n_controls >= 1 and cfg.variants, p
+            continue
         cfg = load_config(p)
         assert cfg.tasks, p
 

@@ -154,3 +154,17 @@ def test_gradients_match_finite_differences_and_batching(backend, prompts):
     assert np.allclose(g, backend.gradients(prompts, batch_size=2), atol=1e-5)
     a = backend.run(prompts, capture=True)
     assert np.array_equal(a.logprob_sum, backend.run(prompts).logprob_sum)
+
+
+def test_sublayer_writes_sum_to_the_residual_increments(backend, prompts):
+    """D38: the captured attention and MLP writes are exactly what each block adds to the residual stream on
+    every family (pre-norm Qwen3; OLMo 3 and Gemma 4 with their post-sublayer norms)."""
+    res = backend.run(prompts, capture=True, capture_sublayers=True)
+    assert res.attn_writes.shape == (4, 6, 32) and res.mlp_writes.shape == (4, 6, 32)
+    inc = res.residuals[1:] - res.residuals[:-1]
+    err = np.abs(res.attn_writes + res.mlp_writes - inc).max()
+    assert err < 1e-4 * (1 + np.abs(inc).max()), err
+    # an intervention at a read point changes the writes of the blocks after it, not before
+    steered = backend.run(prompts, interventions=[Intervention(2, np.ones(32, dtype=np.float32), 0.5)], capture=True, capture_sublayers=True)
+    assert np.allclose(steered.attn_writes[:2], res.attn_writes[:2]) and np.allclose(steered.mlp_writes[:2], res.mlp_writes[:2])
+    assert not np.allclose(steered.attn_writes[2:], res.attn_writes[2:])

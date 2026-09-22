@@ -1875,3 +1875,76 @@ hand-over (top-10 rate rising from 0.78 of the stack to 0.17) and is
 matched by the plain logit lens. The fixed read point is therefore
 the depth at which the model's own in-context heads write; test B
 now has its blocks named.
+
+### D38. The source test: which sublayer writes the increments that turn the injected direction into the natural one, and is it necessary?
+
+Context: D37 places the hand-over at the write depth of the universal
+heads on seven checkpoints. Test B of `docs/POSITIONING.md` asks who
+writes the steered run's aligning increments there: in the steered
+zero-shot run there are no demonstrations to read, so the increments
+that align the perturbation with the natural difference are produced
+either by the attention sublayer (the heads, attending to the query
+itself) or by the MLP sublayer reading the steered residual. Written
+before any decomposition was read.
+
+Decision:
+
+* **What is captured.** Every block's attention write and MLP write
+  at the query token (`ModelBackend.run(capture_sublayers=True)`: the
+  attention and MLP module outputs on pre-norm blocks, the
+  post-sublayer norm outputs on OLMo 3 and Gemma 4, so that the two
+  writes sum to the residual increment exactly; tested on the three
+  toy families and checked in every run as the median relative
+  residual of the split), in three passes on the held-out prompts of
+  every task: the unsteered zero-shot run, the steered run (the
+  learned vector at the primary layer, canonical strength: the same
+  vector and strength as D33–D37) and the demonstration run (the same
+  few-shot construction as the trajectories runs). `directions source`
+  (`configs/source.yaml`).
+* **The aligning write of a sublayer** at block `l` is the component
+  of its increment (steered minus unsteered, or demonstrations minus
+  none) along the prompt's natural difference at read point `l + 1`,
+  the read point the write lands on; the two components sum to the
+  aligning increment of the block. Per block: their medians with
+  bootstrap CIs, the norms of the four increments, the cosine of the
+  steered attention (MLP) increment with the natural attention (MLP)
+  increment.
+* **The window shares.** Over the blocks from the injection layer to
+  the hand-over read point of D37 (the landmark run's per-task
+  hand-over of the learned vector), the aligning writes are summed per
+  sublayer and prompt, and attention's share of the total is read; the
+  same after the hand-over and over all downstream blocks, and the
+  same for the natural run. Reading: a window is *attention-written*
+  if the median share is ≥ 0.6 with its CI above 0.5, *MLP-written*
+  if ≤ 0.4 with the CI below 0.5, mixed otherwise. The question of
+  test B is whether the steered window to the hand-over is
+  attention-written like the natural one, or MLP-written.
+* **The selected heads.** From the per-head outputs (before the
+  output projection), the selected heads' share of the attention
+  write's aligning component over the blocks that hold selected heads:
+  exact on pre-norm blocks (the write is linear in the head outputs),
+  the pre-norm attention output on OLMo 3 and Gemma 4.
+* **The random floor.** Random directions injected at the learned
+  vector's norm (four per task) give the split of a perturbation that
+  carries no task: their aligning components against the natural
+  difference and the norms of their increments.
+* **Necessity.** Each sublayer's aligning component is removed from the
+  steered run over the window to the hand-over by subtracting it at the
+  read point it lands on (the D29 edit at the query token, one
+  intervention per read point, the removed vectors those of the
+  unedited steered run), and the effect retained (per-token gain over
+  the unsteered run, relative to the steered run's) is read against
+  random per-example directions of the same norms at the same read
+  points (two matched controls, the paired excess test of D29). The
+  whole increment is removed the same way. Reading: a sublayer is
+  *necessary* if its removal retains ≤ 0.5 of the effect while the
+  matched random removal retains ≥ 0.9; the comparison of the two
+  sublayers is the answer. One block at a time, each block's aligning
+  component is removed alone, for the profile.
+* **Runs.** The six checkpoints of D37 with their landmark runs (the
+  post-trained 8B is not repeated: its core quantities equal the Base
+  model's). Seeds, determinism check (a repeated steered pass with the
+  capture, bit-identical) and bootstraps as in the trajectories runs.
+* **Exploratory**, not preregistered beyond the criteria above: the
+  thresholds (0.6/0.4 for the shares, 0.5/0.9 for necessity) are
+  judgements fixed here.

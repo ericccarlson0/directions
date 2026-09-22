@@ -120,6 +120,11 @@ class ForwardResult:
     n_target_tokens: np.ndarray  # (N,)
     residuals: np.ndarray | None  # (L+1, N, d) float32 at the final query token, if captured
     head_outputs: np.ndarray | None = None  # (L, N, n_heads, head_dim) float32 at the query token, if captured
+    # The sublayer writes at the query token, ``(L, N, d)`` float32, if captured (D38): what each block's attention
+    # and MLP add to the residual stream (the post-norm outputs on OLMo 3 / Gemma 4); attn + mlp = the residual
+    # difference between consecutive read points.
+    attn_writes: np.ndarray | None = None
+    mlp_writes: np.ndarray | None = None
     first_token_logprob: np.ndarray | None = None  # (N,) log p of the first target token (D21 head ranking)
     query_logprobs: np.ndarray | None = None  # (N, V) float32 next-token log-probabilities at the query token, if captured
     # Damage against a reference run's query-token distribution (docs/DECISIONS.md D24), if one was given:
@@ -201,6 +206,10 @@ class ModelBackend:
         # the residual instead). There the head-mean vector (the sum of head outputs through the output
         # projection) is the pre-norm attention output, not the model's own write of it (docs/DECISIONS.md D35).
         self.attention_output_normed = all(getattr(b, "post_feedforward_layernorm", None) is not None for b in self.blocks)
+        # The modules whose outputs are added to the residual stream (D38): the attention and MLP modules on
+        # pre-norm blocks, the post-sublayer norms on OLMo 3 / Gemma 4.
+        self.attn_write_modules = [b.post_attention_layernorm if self.attention_output_normed else b.self_attn for b in self.blocks]
+        self.mlp_write_modules = [b.post_feedforward_layernorm if self.attention_output_normed else b.mlp for b in self.blocks]
         self._session: _HookSession | None = None
         self._register_hooks()
 
@@ -367,7 +376,19 @@ class ModelBackend:
         for l, block in enumerate(self.blocks):
             block.register_forward_pre_hook(self._make_pre_hook(l), with_kwargs=True)
             self.attn_out[l].register_forward_pre_hook(self._make_head_hook(l))
+            self.attn_write_modules[l].register_forward_hook(self._make_write_hook("attn", l))
+            self.mlp_write_modules[l].register_forward_hook(self._make_write_hook("mlp", l))
         self.blocks[L - 1].register_forward_hook(self._make_post_hook(L))
+
+    def _make_write_hook(self, kind: str, layer: int):
+        def hook(module, args, output):
+            if self._session is None or not self._session.capture_sublayers:
+                return None
+            out = output[0] if isinstance(output, tuple) else output
+            self._session.capture_write(kind, layer, out)
+            return None
+
+        return hook
 
     def _make_head_hook(self, layer: int):
         def hook(module, args):
@@ -492,6 +513,7 @@ class ModelBackend:
         capture_heads: bool = False,
         capture_logprobs: bool = False,
         reference_logprobs: Any = None,
+        capture_sublayers: bool = False,
     ) -> ForwardResult:
         """Teacher-forced forward over ``prompts`` with optional interventions/patches/capture.
 
@@ -523,7 +545,7 @@ class ModelBackend:
                 for hp in head_patches
             ]
             ref = None if reference_logprobs is None else reference_logprobs[start : start + bs]
-            outs.append(self._run_batch(batch, sliced, capture, patches, capture_heads, capture_logprobs, ref))
+            outs.append(self._run_batch(batch, sliced, capture, patches, capture_heads, capture_logprobs, ref, capture_sublayers))
         return _concat_results(outs)
 
     def reference_tensor(self, query_logprobs: np.ndarray) -> torch.Tensor:
@@ -671,6 +693,7 @@ class ModelBackend:
         capture_heads: bool = False,
         capture_logprobs: bool = False,
         reference: torch.Tensor | None = None,
+        capture_sublayers: bool = False,
     ) -> ForwardResult:
         batch = self._prepare_batch(prompts)
         session = _HookSession(
@@ -684,6 +707,7 @@ class ModelBackend:
             n_heads=self.n_heads,
             head_dim=self.head_dim,
             head_dims=self.head_dims,
+            capture_sublayers=capture_sublayers,
         )
         sc = self._forward_scores(batch, session, capture_logprobs, reference)
         residuals = session.stacked() if capture else None
@@ -696,6 +720,8 @@ class ModelBackend:
             n_target_tokens=batch["n_tgt"].numpy().astype(np.int64),
             residuals=residuals,
             head_outputs=heads,
+            attn_writes=session.stacked_writes("attn") if capture_sublayers else None,
+            mlp_writes=session.stacked_writes("mlp") if capture_sublayers else None,
             first_token_logprob=sc["first_lp"].cpu().numpy().astype(np.float64),
             query_logprobs=sc["query_logprobs"].cpu().numpy().astype(np.float32) if capture_logprobs else None,
             kl_from_reference=sc["kl"].cpu().numpy().astype(np.float64) if reference is not None else None,
@@ -736,8 +762,11 @@ class _HookSession:
         n_heads: int = 0,
         head_dim: int = 0,
         head_dims: Sequence[int] | None = None,
+        capture_sublayers: bool = False,
     ) -> None:
         self.n_layers = n_layers
+        self.capture_sublayers = capture_sublayers
+        self.captured_writes: dict[str, dict[int, torch.Tensor]] = {"attn": {}, "mlp": {}}
         # the head width per layer (all equal to head_dim unless the architecture varies it); captured head
         # outputs are padded to head_dim, patch values sliced to the layer's width
         self.head_dims = list(head_dims) if head_dims is not None else [head_dim] * n_layers
@@ -782,6 +811,18 @@ class _HookSession:
                 got = torch.nn.functional.pad(got, (0, self.head_dim - hd))
             self.captured_heads[layer] = got
         return x
+
+    def capture_write(self, kind: str, layer: int, out: torch.Tensor) -> None:
+        """Record a sublayer's write at the query token."""
+        self.captured_writes[kind][layer] = out[self.batch_idx, self.query_pos].detach().float().cpu()
+
+    def stacked_writes(self, kind: str) -> np.ndarray:
+        """The sublayer writes at the query token, ``(L, B, d)`` float32."""
+        got = self.captured_writes[kind]
+        missing = [l for l in range(self.n_layers) if l not in got]
+        if missing:
+            raise RuntimeError(f"{kind} writes not captured at layers {missing}")
+        return torch.stack([got[l] for l in range(self.n_layers)]).numpy().astype(np.float32)
 
     def stacked_heads(self) -> np.ndarray:
         """Per-head outputs at the query token, ``(L, B, n_heads, head_dim)`` float32, zero-padded to the widest
@@ -841,6 +882,8 @@ def _concat_results(parts: list[ForwardResult]) -> ForwardResult:
         n_target_tokens=np.concatenate([p.n_target_tokens for p in parts]),
         residuals=None if parts[0].residuals is None else np.concatenate([p.residuals for p in parts], axis=1),
         head_outputs=None if parts[0].head_outputs is None else np.concatenate([p.head_outputs for p in parts], axis=1),
+        attn_writes=None if parts[0].attn_writes is None else np.concatenate([p.attn_writes for p in parts], axis=1),
+        mlp_writes=None if parts[0].mlp_writes is None else np.concatenate([p.mlp_writes for p in parts], axis=1),
         first_token_logprob=None if parts[0].first_token_logprob is None else np.concatenate([p.first_token_logprob for p in parts]),
         query_logprobs=None if parts[0].query_logprobs is None else np.concatenate([p.query_logprobs for p in parts]),
         kl_from_reference=None if parts[0].kl_from_reference is None else np.concatenate([p.kl_from_reference for p in parts]),
