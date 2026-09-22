@@ -14,6 +14,7 @@ usage: uv run python scripts/landmarks.py --config configs/trajectories_landmark
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import sys
 import time
@@ -116,6 +117,7 @@ def main() -> None:
     ap.add_argument("--lens-file", default=None)
     ap.add_argument("--eval-sets", default="data/jlens_evaluations")
     ap.add_argument("--n-random", type=int, default=8)
+    ap.add_argument("--out-dir", default=None, help="where the readouts and landmarks go (default <run>/landmarks)")
     args = ap.parse_args()
 
     if args.run:
@@ -123,7 +125,12 @@ def main() -> None:
     else:
         cfg = load_trajectories_config(args.config)
         root = run_trajectories(cfg, args.fv_run, args.learned_run, run_id=args.run_id, config_path=args.config)
-    out_dir = root / "landmarks"
+        # the comparison's model must leave the device before the readouts load theirs (a 7B model twice does not
+        # fit a 24 GB card)
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    out_dir = Path(args.out_dir) if args.out_dir else root / "landmarks"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     run_cfg = load_config(Path(args.learned_run) / "config.resolved.yaml")
