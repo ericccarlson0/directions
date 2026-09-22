@@ -1,8 +1,8 @@
 # Request a GPU run: change this file, commit, push. The run-gpu workflow triggers on every push that changes
 # this file and runs `command` at the repository root on a RunPod worker. To re-request an identical command,
 # there needs to be a new `request` label. A manual workflow_dispatch ignores this file.
-request: cleanup_us_ca_2_drop_qwen3_8b_post # note that a new label re-requests the same command
-command: uv run python scripts/volume_cleanup.py --delete-model Qwen/Qwen3-8B --delete-incomplete --yes
+request: cleanup_us_ca_2_drop_qwen3_8b_base # note that a new label re-requests the same command
+command: uv run python scripts/volume_cleanup.py --delete-model Qwen/Qwen3-8B-Base --delete-incomplete --yes
 gpu_tier: ADA_80_PRO         # memory class ("tier")
 gpu_type: ""              # exact device name to pin instead of the tier, e.g. "NVIDIA RTX A4500"
 datacenter: US-CA-2       # data center of the `directions` network volume
