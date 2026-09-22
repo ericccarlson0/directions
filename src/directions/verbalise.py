@@ -95,8 +95,9 @@ def readout_summary(logprobs: np.ndarray, decode: Callable[[list[int]], str], to
         "top": [(decode([int(i)]), float(logprobs[i])) for i in order],
         "task_mass": float(p[ids].sum()) if ids else 0.0,
         "task_best": (max(task_ids, key=lambda w: logprobs[task_ids[w]]) if task_ids else None),
-        "task_best_rank": (int((logprobs > max(logprobs[i] for i in ids)).sum()) + 1) if ids else None,
+        # ranks count ties against the word (a flat readout, where every token ties, ranks at the vocabulary size)
+        "task_best_rank": int((logprobs >= max(logprobs[i] for i in ids)).sum()) if ids else None,
         "answer_mass": float(p[ans].sum()) if ans.size else 0.0,
-        "answer_best_rank": (int((logprobs > logprobs[ans].max()).sum()) + 1) if ans.size else None,
+        "answer_best_rank": int((logprobs >= logprobs[ans].max()).sum()) if ans.size else None,
         "entropy": float(-(p * logprobs).sum()),
     }

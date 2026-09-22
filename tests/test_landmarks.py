@@ -71,8 +71,8 @@ def test_collect_task_landmarks_and_model_summary():
     keep = [0.1, 0.4, 0.7, 0.92, 0.95, 1.0]           # read points 3..8: hand-over at 6
     explained = [0.2, 0.3, 0.5, 0.6, 0.72, 0.75, 0.8, 0.85, 0.9]  # read points 0..8: sustained ≥ 0.7 from 4
     tj = _task_json(L, layer, keep, explained)
-    readout = {"rows": [{"read_point": m, "natural": {"logit_lens": {"task_best_rank": r, "task_mass": 0.01}}}
-                        for m, r in zip(range(1, L + 1), [900, 300, 50, 8, 2, 30, 400, 5000])]}
+    readout = {"rows": [{"read_point": m, "natural": {"logit_lens": {"task_best_rank": r, "task_mass": 0.01 if m != 7 else 1e-5}}}
+                        for m, r in zip(range(1, L + 1), [900, 300, 50, 8, 2, 30, 1, 5000])]}  # read point 7: a flat readout's tie
     t = collect_task_landmarks(tj, readout, np.array([[3, 0], [4, 1], [4, 2]]))
     assert t["handover"]["learned"]["read_point"] == 6 and t["handover"]["fv"]["read_point"] == 6
     assert t["pool_rank"]["knee"]["sustained"] == 4

@@ -182,9 +182,12 @@ def _json(path: Path) -> Any:
 
 def collect_task_landmarks(task_json: dict[str, Any], readout: dict[str, Any] | None, fv_heads: np.ndarray | None,
                            share: float = 0.9, rank_threshold: int = 10, rank_one_threshold: float = 0.7,
-                           lens_key: str = "logit_lens") -> dict[str, Any]:
+                           lens_key: str = "logit_lens", min_task_mass: float = 1e-3) -> dict[str, Any]:
     """One task's landmarks from its ``trajectories.json`` (the landmark comparison run), its verbalise readout
-    (``<task>.json`` of ``scripts/verbalise.py``) and the head-mean run's selected heads."""
+    (``<task>.json`` of ``scripts/verbalise.py``) and the head-mean run's selected heads. A readout's rank counts
+    as a verbal reading only if the task-word mass is at least ``min_task_mass``: a flat readout (every token
+    at the same probability, as Gemma 4's final norm gives on some difference vectors) ranks a word first by
+    tie without any mass on it."""
     layer = int(task_json["primary_layer"])
     L = int(task_json["n_read_points"]) - 1
     info = task_json["per_layer"][str(layer)]
@@ -213,8 +216,9 @@ def collect_task_landmarks(task_json: dict[str, Any], readout: dict[str, Any] | 
             for row in readout.get("rows", []):
                 r = (row.get("natural") or {}).get(lk)
                 if r is not None:
-                    ranks[int(row["read_point"])] = r.get("task_best_rank")
                     masses[int(row["read_point"])] = r.get("task_mass")
+                    valid = r.get("task_mass") is not None and r["task_mass"] >= min_task_mass
+                    ranks[int(row["read_point"])] = r.get("task_best_rank") if valid else None
             if any(r is not None for r in ranks):
                 out["verbal"][lk] = {"best_rank": ranks, "task_mass": masses, "window": verbal_window(ranks, rank_threshold)}
     if fv_heads is not None:
