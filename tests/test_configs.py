@@ -212,3 +212,28 @@ def test_kth_configs_are_the_pilot_and_the_learned_config_with_the_kth_word_fami
         for key in ("model", "prompt", "data", "qualification", "extraction", "calibration", "evaluation", "commitment",
                     "exploratory", "analysis", "figures", "seed"):
             assert a[key] == ref[key], (base, key)
+
+
+ARITH_LEARNED_CONFIGS = {
+    "arith_learned_qwen3_0.6b.yaml": "Qwen/Qwen3-0.6B-Base",
+    "arith_learned_qwen3_1.7b.yaml": "Qwen/Qwen3-1.7B-Base",
+    "arith_learned_qwen3_4b.yaml": "Qwen/Qwen3-4B-Base",
+    "arith_learned_qwen3_8b.yaml": "Qwen/Qwen3-8B-Base",
+}
+
+
+def test_arith_learned_configs_are_the_learned_config_with_the_add_k_family():
+    """The learned add-k configs (D40) differ from the learned config only in the tasks and the run name."""
+    ref = config_to_dict(load_config(CONFIGS / "learned_qwen3_0.6b.yaml"))
+    a = config_to_dict(load_config(CONFIGS / "arith_learned_qwen3_0.6b.yaml"))
+    for fname, model_name in ARITH_LEARNED_CONFIGS.items():
+        b = config_to_dict(load_config(CONFIGS / fname))
+        assert b["model"]["name"] == model_name, fname
+        _normalise_model(a, b, fname)
+        assert a == b, fname
+    assert [t["label"] for t in a["tasks"]] == [f"add_{k}" for k in (1, 2, 3, 5, 10)]
+    assert all(t["name"] == "arithmetic" and t["target_scoring"] == "changed_tokens" for t in a["tasks"])
+    assert [t["params"]["operand"] for t in a["tasks"]] == [1, 2, 3, 5, 10]
+    for key in ("model", "prompt", "data", "qualification", "extraction", "calibration", "evaluation", "commitment",
+                "exploratory", "analysis", "figures", "seed"):
+        assert a[key] == ref[key], key

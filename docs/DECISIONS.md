@@ -2088,3 +2088,79 @@ anti-aligned in effect (another position's learned vector costs
 all but two rows). The mixing test of the geometry test proper
 therefore has a construction with a geometry to interpolate, the
 head mean, and one without, the learned vector.
+
+### D40. The geometry test: is a control a value or a choice? Mixing two labels' controls and reading the intermediate
+
+Context: D39 gives a parameterised family whose head means are
+ordered by position and whose learned vectors are not; D30 gives the
+add-k family with head means that carry no operand and, so far, a
+learned vector for one operand. The positioning's second test asks
+whether a control is a continuous parameter of one computation (a
+value on a dial) or a selector among programs (a choice). The
+vectors' geometry alone cannot answer it (the head means of both
+families share a large common component; the learned fit is not
+unique, D31). The behavioural version can: mix two labels' controls
+and read what the model does with a control it was never given.
+Written before any mixed control was run.
+
+Decision:
+
+* **Vectors and families.** For a model and a family, two end labels
+  a and b with their unit directions u_a, u_b under one construction
+  and one injection layer: the mixed control at weight t ∈ {0, 0.1,
+  …, 1} is v(t) = α · normalise((1 − t) u_a + t u_b), injected at the
+  query token of the zero-shot prompt, with α the calibrated strength
+  of label a at that layer (the head-mean norm or the learned radius;
+  the endpoints t = 0 and t = 1 are then a's control and b's
+  direction at a's strength). The layer is a's selected layer; the
+  head-mean vector is one vector regardless of layer, and the learned
+  vector at that candidate layer is taken from b's fit there. The
+  families and end labels: the k-th word family (D39), positions 1
+  and 3, on Qwen3 0.6B–8B and OLMo 3 7B, under both constructions;
+  the add-k family, operands 1 and 5 (and 2 and 10 where both
+  qualify), under the learned vector from the family-only learned
+  runs of this decision (`configs/arith_learned_<model>.yaml`: the
+  learned config with the five `arithmetic` operands of D30, scored
+  on the changed digits) on Qwen3 0.6B–8B, and under the head mean
+  where D30's head means qualified (add-1 on the 4B and 8B only, so
+  the head-mean mix of add-k is at most one pair); and the lexical
+  baseline, antonym and plural, from the existing runs (the
+  seed-20260916 learned and head-mean runs on Qwen3, the 20260907
+  runs on OLMo 3), under both constructions.
+* **Readout.** On the held-out evaluation prompts of label a (the
+  k-th word lists are the same for every position; the add-k numbers
+  are the same for every operand), at every t the teacher-forced
+  log-probability of every candidate continuation of the family: the
+  three listed words for the k-th word family (the position
+  distribution, normalised over the three), the five operands' results
+  n + 1, 2, 3, 5, 10 for add-k (changed-token scoring, D30). For the
+  lexical baseline, whose two tasks have different inputs, the readout
+  is each task's own held-out effect (d(lp/tok) of the own target on
+  the task's own prompts) at every t: two effect curves.
+* **Null.** Mixing dilutes the endpoint control; a rise of an
+  intermediate label's mass in the middle of the path may be the
+  endpoint's effect fading rather than a new control. The null is the
+  same path from u_a towards a random unit direction (and from u_b
+  towards another), `n_null` random directions per side at the same
+  norm: the dilution curves. A candidate's mass at weight t is
+  compared with its mass on the dilution curves at the same t, paired
+  over prompts (the paired excess test of D18, one-sided).
+* **Readings, per model, family and construction.** *Parameter*: the
+  intermediate label's mass (position 2; the operands between a and
+  b) exceeds, at some interior weight 0.2 ≤ t ≤ 0.8, both endpoints'
+  values of it and the dilution null's at that t (p ≤ 0.05), and its
+  curve over t has an interior maximum. *Switch*: the two end labels'
+  masses cross, and the intermediate label never exceeds the dilution
+  null (the mix is one endpoint or the other, or neither). *Neither*:
+  the endpoints' masses do not cross (the mix is not even a switch;
+  the path leaves the family). The lexical baseline is expected to
+  read as a switch and calibrates what one looks like. A family reads
+  as a parameter under a construction when at least three of the four
+  Qwen3 sizes with a qualifying pair read so; the constructions are
+  reported separately, as D39 found only the head means ordered.
+* **Superposition.** The unnormalised sum u_a + u_b at the norm α is
+  the t = 0.5 point up to a factor √2 · cos(θ/2) in norm; it is read
+  from the same curve and not run separately.
+* **Exploratory**: the same curves for the position pair (1, 2) and
+  (2, 3) where the middle qualifies; the pair's path length (the angle
+  between u_a and u_b) beside the curves.
