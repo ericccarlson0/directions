@@ -58,10 +58,14 @@ def row_cosines(A: np.ndarray, B: np.ndarray, eps: float = 1e-12) -> np.ndarray:
     return (A * B).sum(-1) / np.maximum(np.linalg.norm(A, axis=-1) * np.linalg.norm(B, axis=-1), eps)
 
 
-def decompose(base: ForwardResult, steered: ForwardResult, icl: ForwardResult, layer: int) -> dict[str, np.ndarray]:
+def decompose(base: ForwardResult, steered: ForwardResult, icl: ForwardResult, layer: int,
+              scalars: np.ndarray | None = None) -> dict[str, np.ndarray]:
     """Per block ``l >= layer`` and prompt: the attention and MLP parts of the steered and the natural increment,
     their components along the natural difference at read point ``l + 1``, norms, cosines between the steered
-    and the natural part, and the exactness of the split (attention + MLP against the residual increment)."""
+    and the natural part, and the exactness of the split (attention + MLP, plus the rescaling term on blocks
+    with an output scalar, against the residual increment). ``scalars`` are the blocks' output scalars (Gemma 4;
+    ones elsewhere): a block's increment then also contains ``(scalar - 1)`` times the perturbation entering it,
+    recorded as ``rescale_along`` (steered) and ``nat_rescale_along`` (natural)."""
     assert base.residuals is not None and steered.residuals is not None and icl.residuals is not None
     assert base.attn_writes is not None and steered.attn_writes is not None and icl.attn_writes is not None
     assert base.mlp_writes is not None and steered.mlp_writes is not None and icl.mlp_writes is not None
@@ -74,10 +78,15 @@ def decompose(base: ForwardResult, steered: ForwardResult, icl: ForwardResult, l
     nA = icl.attn_writes.astype(np.float64) - base.attn_writes.astype(np.float64)
     nM = icl.mlp_writes.astype(np.float64) - base.mlp_writes.astype(np.float64)
     keys = ["att_along", "mlp_along", "nat_att_along", "nat_mlp_along", "att_norm", "mlp_norm", "nat_att_norm", "nat_mlp_norm",
-            "cos_att", "cos_mlp", "exactness", "increment_along", "natural_norm"]
+            "cos_att", "cos_mlp", "exactness", "increment_along", "natural_norm", "rescale_along", "nat_rescale_along"]
     out = {k: np.full((L, N), np.nan) for k in keys}
+    sc = np.ones(L) if scalars is None else np.asarray(scalars, dtype=np.float64)
     for l in range(layer, L):
         u = U[l + 1]
+        rescale = (sc[l] - 1.0) * delta[l]
+        nat_rescale = (sc[l] - 1.0) * ref[l]
+        out["rescale_along"][l] = along(rescale, u)
+        out["nat_rescale_along"][l] = along(nat_rescale, u)
         out["att_along"][l] = along(dA[l], u)
         out["mlp_along"][l] = along(dM[l], u)
         out["nat_att_along"][l] = along(nA[l], u)
@@ -89,7 +98,7 @@ def decompose(base: ForwardResult, steered: ForwardResult, icl: ForwardResult, l
         out["cos_att"][l] = row_cosines(dA[l], nA[l])
         out["cos_mlp"][l] = row_cosines(dM[l], nM[l])
         inc = delta[l + 1] - delta[l]
-        out["exactness"][l] = np.linalg.norm(dA[l] + dM[l] - inc, axis=-1) / np.maximum(np.linalg.norm(inc, axis=-1), 1e-12)
+        out["exactness"][l] = np.linalg.norm(dA[l] + dM[l] + rescale - inc, axis=-1) / np.maximum(np.linalg.norm(inc, axis=-1), 1e-12)
         out["increment_along"][l] = along(inc, u)
         out["natural_norm"][l] = np.linalg.norm(ref[l + 1], axis=-1)
     return out
@@ -274,7 +283,8 @@ class SourceTest:
                 raise RuntimeError("determinism check failed: a repeated steered pass differs")
         base_lp, steered_lp = base.logprob_per_token, steered.logprob_per_token
         full = float(np.mean(steered_lp - base_lp))
-        dec = decompose(base, steered, icl, layer)
+        scalars = np.asarray(backend.block_scalars, dtype=np.float64)
+        dec = decompose(base, steered, icl, layer, scalars)
         handover = self._handover(name)
         self.log.info("[%s] layer %d alpha %.2f, full effect %+.3f nats/tok, hand-over read point %s; split exactness median %.2e (max %.2e)",
                       name, layer, alpha, full, handover, float(np.nanmedian(dec["exactness"])), float(np.nanmax(dec["exactness"])))
@@ -286,7 +296,7 @@ class SourceTest:
             for j in range(cfg.n_controls):
                 R = unit_vectors(rng_for(cfg.seed, "source_random", name, j), 1, d)[0]
                 r = backend.run(zs, [Intervention(layer, R, alpha)], capture=True, capture_sublayers=True)
-                dr = decompose(base, r, icl, layer)
+                dr = decompose(base, r, icl, layer, scalars)
                 for k in rand_keys:
                     rand[k].append(dr[k])
         rand_mean = {k: np.nanmean(np.stack(v), axis=0) for k, v in rand.items()}  # (L, N), mean over controls
@@ -294,12 +304,13 @@ class SourceTest:
         result: dict[str, Any] = {
             "task": name, "layer": layer, "alpha": alpha, "strength": strength, "n_examples": len(ev), "n_layers": L,
             "full_effect": full, "handover_read_point": handover, "attention_output_normed": backend.attention_output_normed,
+            "block_scalars": [float(x) for x in scalars],
             "per_block": {}, "windows": {}, "heads": None, "removal": {}, "per_block_removal": {},
         }
         blocks = list(range(layer, L))
         result["per_block"]["blocks"] = blocks
         for k in ("att_along", "mlp_along", "nat_att_along", "nat_mlp_along", "att_norm", "mlp_norm", "nat_att_norm", "nat_mlp_norm",
-                  "cos_att", "cos_mlp", "exactness", "increment_along", "natural_norm"):
+                  "cos_att", "cos_mlp", "exactness", "increment_along", "natural_norm", "rescale_along", "nat_rescale_along"):
             result["per_block"][k] = _rows_summary(dec[k][blocks], brng, cfg.n_boot, cfg.ci_alpha)
         for k in rand_keys:
             result["per_block"]["random_" + k] = _rows_summary(rand_mean[k][blocks], brng, cfg.n_boot, cfg.ci_alpha)

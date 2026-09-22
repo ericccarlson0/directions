@@ -43,6 +43,12 @@ def test_decompose_splits_the_increment_exactly_and_aligns_along_the_natural_dif
     assert np.allclose(dec["increment_along"][2], 2.0)
     assert np.allclose(dec["nat_att_along"][2], along(ai[2] - ab[2], u))
     assert dec["att_norm"][2].shape == (N,) and np.allclose(dec["att_norm"][2], 2.0)
+    assert np.allclose(dec["rescale_along"][2], 0.0)  # no output scalars: no rescaling term
+    # with a block scalar, the increment contains (scalar - 1) times the perturbation entering the block
+    sc = np.array([1.0, 1.0, 0.5, 1.0])
+    rs2 = rs.copy(); rs2[3:] = rb[3:] + 0.5 * (rs[3] - rb[3])  # the block-2 output rescaled by 0.5 (the perturbation halves)
+    dec2 = decompose(_result(rb, ab, mb), _result(rs2, as_, ms), _result(ri, ai, mi), layer=1, scalars=sc)
+    assert np.allclose(dec2["rescale_along"][2], along(-0.5 * (rs[2] - rb[2]), u)) and dec2["exactness"][2].max() > 0.1  # the raw writes are not scaled here
 
 
 def test_window_shares_and_verdict():

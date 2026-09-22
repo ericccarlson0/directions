@@ -210,6 +210,12 @@ class ModelBackend:
         # pre-norm blocks, the post-sublayer norms on OLMo 3 / Gemma 4.
         self.attn_write_modules = [b.post_attention_layernorm if self.attention_output_normed else b.self_attn for b in self.blocks]
         self.mlp_write_modules = [b.post_feedforward_layernorm if self.attention_output_normed else b.mlp for b in self.blocks]
+        # Gemma 4 multiplies a block's whole output (residual plus both writes) by a per-block scalar: a write lands
+        # scaled, and the residual entering the block is rescaled by the same factor. The captured writes are in
+        # the landed frame (multiplied by the scalar); the rescaling of the residual is the third term of a block's
+        # increment, (scalar - 1) times the block's input (D38). 1.0 where a block has no such scalar.
+        self.block_scalars = [float(getattr(b, "layer_scalar").detach().float().reshape(-1)[0].item()) if getattr(b, "layer_scalar", None) is not None else 1.0
+                              for b in self.blocks]
         self._session: _HookSession | None = None
         self._register_hooks()
 
@@ -342,6 +348,7 @@ class ModelBackend:
     def metadata(self) -> dict[str, Any]:
         n_params = int(sum(p.numel() for p in self.model.parameters()))
         meta = {
+            "block_scalars_present": any(x != 1.0 for x in self.block_scalars),
             "backend": self.cfg.backend,
             "name": self.cfg.name if self.cfg.backend == "hf" else f"toy:{self.cfg.toy}",
             "architecture": type(self.model).__name__,
@@ -385,7 +392,7 @@ class ModelBackend:
             if self._session is None or not self._session.capture_sublayers:
                 return None
             out = output[0] if isinstance(output, tuple) else output
-            self._session.capture_write(kind, layer, out)
+            self._session.capture_write(kind, layer, out, self.block_scalars[layer])
             return None
 
         return hook
@@ -812,9 +819,9 @@ class _HookSession:
             self.captured_heads[layer] = got
         return x
 
-    def capture_write(self, kind: str, layer: int, out: torch.Tensor) -> None:
-        """Record a sublayer's write at the query token."""
-        self.captured_writes[kind][layer] = out[self.batch_idx, self.query_pos].detach().float().cpu()
+    def capture_write(self, kind: str, layer: int, out: torch.Tensor, scalar: float = 1.0) -> None:
+        """Record a sublayer's write at the query token, in the frame it lands in (times the block's scalar)."""
+        self.captured_writes[kind][layer] = out[self.batch_idx, self.query_pos].detach().float().cpu() * scalar
 
     def stacked_writes(self, kind: str) -> np.ndarray:
         """The sublayer writes at the query token, ``(L, B, d)`` float32."""

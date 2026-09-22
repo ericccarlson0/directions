@@ -168,3 +168,19 @@ def test_sublayer_writes_sum_to_the_residual_increments(backend, prompts):
     steered = backend.run(prompts, interventions=[Intervention(2, np.ones(32, dtype=np.float32), 0.5)], capture=True, capture_sublayers=True)
     assert np.allclose(steered.attn_writes[:2], res.attn_writes[:2]) and np.allclose(steered.mlp_writes[:2], res.mlp_writes[:2])
     assert not np.allclose(steered.attn_writes[2:], res.attn_writes[2:])
+    assert backend.block_scalars == [1.0] * 4
+    if backend.cfg.toy.family == "gemma4":
+        # Gemma 4's per-block output scalar: the writes land scaled and the residual is rescaled by (scalar - 1)
+        for b, v in zip(backend.blocks, (0.5, 0.8, 1.0, 0.25)):
+            b.layer_scalar.fill_(v)
+        backend.block_scalars = [0.5, 0.8, 1.0, 0.25]
+        try:
+            r2 = backend.run(prompts, capture=True, capture_sublayers=True)
+            inc = r2.residuals[1:] - r2.residuals[:-1]
+            sc = np.array(backend.block_scalars)[:, None, None]
+            err = np.abs(r2.attn_writes + r2.mlp_writes + (sc - 1) * r2.residuals[:-1] - inc).max()
+            assert err < 1e-4 * (1 + np.abs(inc).max()), err
+        finally:
+            for b in backend.blocks:
+                b.layer_scalar.fill_(1.0)
+            backend.block_scalars = [1.0] * 4
