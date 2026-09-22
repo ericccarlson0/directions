@@ -4090,7 +4090,7 @@ vectors are unique only in their effect.
 ## Next commands
 
 ```bash
-uv run pytest                                                           #  tests (the trajectories smoke run covers D32–D34; the backend tests run on the three toy families, D35)
+uv run pytest                                                           # 234 tests (the trajectories smoke run covers D32–D34; the backend tests run on the three toy families, D35)
 # GPU runs: edit .github/gpu-run.yaml (command + a new `request` label), commit, push; the run-gpu
 # workflow triggers on the push (README, "Run on GPUs"). One run per push; the ci environment runs
 # them one at a time (8B goes through the ci-8b environment in US-CA-2). Then:
