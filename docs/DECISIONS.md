@@ -1973,3 +1973,70 @@ those norms. Gemma 4's removals are unreadable by the D29/D35 rule
 (the window reaches the hypersensitive deep half). Test B is
 answered: the control substitutes for the heads' delivery, and the
 MLPs of the same blocks perform the transformation in both runs.
+
+### D39. The k-th word family: a parameterised task whose parameter is a position
+
+Context: every task run so far is a fixed map from one word to one
+token, so the control is a selector of a fixed relation, and the one
+parameterised family, add-k (D30), has only head-mean vectors, which
+carry nothing about the operand; its learned vector exists for one
+operand (add_3, D31). The next question of `docs/POSITIONING.md`
+(whether a control is a value on a dial or a choice among programs)
+needs a family whose parameter is ordered and whose vectors can be
+compared and mixed. Add-k alone cannot answer it: its five vectors
+share a numeric-format direction (cosines 0.87–0.99 between the
+head means), so any structure across k would be confounded with the
+format. A second family whose parameter is a position rather than a
+number, and whose outputs are words rather than digits, controls that
+confound, and selecting a position is an attention operation where
+adding k is arithmetic in the MLPs, so a parameter that behaves the
+same way in both families is a property of the control rather than of
+one circuit. Written before any run of the family.
+
+Decision:
+
+* **The task** (`kth_word`; `src/directions/tasks.py`): a list of five
+  distinct words drawn from the union of the single-word lists with a
+  fixed items seed, the target its k-th word, k = 1..5 as five labels
+  `kth_1`..`kth_5` of one registry task. The lists are the same for
+  every k (the family shares its inputs and differs only in the
+  target), the inputs are unique by construction and independent of
+  the run seed, and 500 lists fill the three pools without reduced
+  splits. Scoring is the protocol's (all target tokens; 47 of the 1209
+  words are two tokens on the Qwen3 tokeniser and are kept). Nothing
+  else in the protocol changes.
+* **Family-only configs, as for add-k** (`configs/kth_<model>.yaml`
+  with the head-mean control, `configs/kth_learned_<model>.yaml` with
+  the learned vector; identical to the pilot and learned configs but
+  for `name` and `tasks`, enforced by `tests/test_configs.py`). The
+  universal heads, the other-task controls and the common direction
+  are taken within the family. No other task is re-run: every later
+  stage reads tasks from a run directory, so the family's runs stand
+  beside the existing ones.
+* **The full chain on the family**: the head-mean run and the learned
+  run (seed 20260916 on Qwen3, as the runs of D37–D38; 20260907 on
+  OLMo 3), then the comparison (`configs/trajectories.yaml`), the
+  landmark comparison and readout (`scripts/landmarks.py`) and the
+  source test (`configs/source.yaml`), each with the criteria of
+  D32–D38 unchanged. Gemma 4 is configured but not run until the
+  budget allows; its removals are unreadable in the deep half (D35,
+  D38) in any case.
+* **What is read, preregistered**: (i) qualification per k under
+  both controls, and the head-support gate per k (D30's question for
+  a position: does the mean output of any head set carry *which*
+  position?); (ii) the hand-over read point, its landmarks and the
+  sublayer shares per k, read by the D37/D38 rules (are they the
+  lexical tasks' or add-k's?); (iii) the within-family structure of
+  the learned vectors at the primary layer: the pairwise cosines
+  across k against the seed-to-seed spread the learned run records
+  (three fits per layer), and whether the cosine falls with |k − k′|
+  (Spearman over the ten pairs, one-sided, permutation p ≤ 0.05
+  reads "ordered"); and (iv) the other-task rows of the comparison's
+  subspace test (a k control's effect kept along the other k′ pools'
+  directions), which say whether the family's carriers are one
+  direction or five.
+* **Not in this decision**: the mixing test (a control interpolated
+  between two k's, read as a distribution over positions) and the
+  learned add-k run it is compared with; they are the geometry test
+  proper and get their own decision once the family's backbone
+  exists.

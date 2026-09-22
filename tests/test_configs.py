@@ -179,3 +179,36 @@ def test_arith_configs_are_the_pilot_with_the_add_k_family():
     for key in ("model", "prompt", "data", "qualification", "extraction", "calibration", "evaluation", "commitment",
                 "exploratory", "analysis", "figures", "seed"):
         assert a[key] == pilot[key], key
+
+
+KTH_CONFIGS = {
+    "kth_qwen3_0.6b.yaml": "Qwen/Qwen3-0.6B-Base",
+    "kth_qwen3_1.7b.yaml": "Qwen/Qwen3-1.7B-Base",
+    "kth_qwen3_4b.yaml": "Qwen/Qwen3-4B-Base",
+    "kth_qwen3_8b.yaml": "Qwen/Qwen3-8B-Base",
+    "kth_olmo3_7b.yaml": "allenai/Olmo-3-1025-7B",
+    "kth_gemma4_12b.yaml": "google/gemma-4-12B",
+}
+
+
+def _kth_tasks(cfg: dict) -> None:
+    assert [t["label"] for t in cfg["tasks"]] == [f"kth_{k}" for k in range(1, 6)]
+    assert all(t["name"] == "kth_word" for t in cfg["tasks"])
+    assert [t["params"] for t in cfg["tasks"]] == [{"n_words": 5, "k": k, "n_items": 500, "items_seed": 20260908} for k in range(1, 6)]
+
+
+def test_kth_configs_are_the_pilot_and_the_learned_config_with_the_kth_word_family():
+    """The k-th word configs (D39) differ from the pilot (head mean) and the learned config only in the tasks and
+    the run name; the files of a family differ only in `model.name`."""
+    for base, prefix in (("pilot_qwen3_0.6b.yaml", "kth_"), ("learned_qwen3_0.6b.yaml", "kth_learned_")):
+        ref = config_to_dict(load_config(CONFIGS / base))
+        a = config_to_dict(load_config(CONFIGS / (prefix + "qwen3_0.6b.yaml")))
+        for fname, model_name in KTH_CONFIGS.items():
+            b = config_to_dict(load_config(CONFIGS / (prefix + fname[len("kth_"):])))
+            assert b["model"]["name"] == model_name, fname
+            _normalise_model(a, b, fname)
+            assert a == b, fname
+        _kth_tasks(a)
+        for key in ("model", "prompt", "data", "qualification", "extraction", "calibration", "evaluation", "commitment",
+                    "exploratory", "analysis", "figures", "seed"):
+            assert a[key] == ref[key], (base, key)

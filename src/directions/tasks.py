@@ -192,6 +192,32 @@ def _alphabetically_first(params: dict[str, Any]) -> Task:
     return Task("alphabetically_first", items, params=p)
 
 
+def _kth_word(params: dict[str, Any]) -> Task:
+    """Positional selection family (docs/DECISIONS.md D39): a list of ``n_words``
+    distinct words -> the ``k``-th one (1-based). The lists are sampled from the
+    union of the single-word lists with a fixed generator seed and are the same
+    for every ``k`` (the family shares its inputs and differs only in the target),
+    so the inputs are unique and independent of the run seed."""
+    p = _check_params("kth_word", params, {"n_words": 5, "k": 1, "n_items": 500, "items_seed": 20260908})
+    n_words, k, n_items = int(p["n_words"]), int(p["k"]), int(p["n_items"])
+    if n_words < 2 or n_items < 1:
+        raise ValueError("kth_word needs n_words >= 2 and n_items >= 1")
+    if not 1 <= k <= n_words:
+        raise ValueError(f"kth_word needs 1 <= k <= n_words, got k={k} with n_words={n_words}")
+    words = _single_words()
+    rng = np.random.default_rng(derive_seed(int(p["items_seed"]), "task_items", "kth_word", n_words))
+    seen: set[str] = set()
+    items: list[Item] = []
+    while len(items) < n_items:
+        chosen = [words[i] for i in rng.choice(len(words), size=n_words, replace=False)]
+        key = LIST_SEPARATOR.join(chosen)
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append(Item(key, chosen[k - 1]))
+    return Task("kth_word", items, params=p)
+
+
 def _arithmetic_words(params: dict[str, Any]) -> Task:
     """Composite numeric->lexical task: ``n -> number_to_words(op(n))``, i.e. the
     ``arithmetic`` mapping followed by ``number_to_words`` (two of the single-step
@@ -216,6 +242,7 @@ TASK_BUILDERS: dict[str, Callable[[dict[str, Any]], Task]] = {
     "last_antonym": _last_antonym,
     "alphabetically_first": _alphabetically_first,
     "arithmetic_words": _arithmetic_words,
+    "kth_word": _kth_word,
 }
 
 

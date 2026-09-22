@@ -103,12 +103,23 @@ def test_composite_and_extractive_tasks():
         assert len(words) == 3 and len(set(words)) == 3 and it.output == sorted(words)[0]
     assert build_task("alphabetically_first").items == af.items
     assert len(build_task("alphabetically_first", {"n_items": 40, "n_words": 5}).items) == 40
+    kw = {k: build_task("kth_word", {"k": k}) for k in (1, 3, 5)}
+    assert len(kw[1].items) == 500 and len({i.input for i in kw[1].items}) == 500
+    assert [i.input for i in kw[3].items] == [i.input for i in kw[1].items]  # the family shares its inputs
+    for k, t in kw.items():
+        for it in t.items:
+            words = it.input.split(LIST_SEPARATOR)
+            assert len(words) == 5 and len(set(words)) == 5 and it.output == words[k - 1]
+    assert build_task("kth_word", {"k": 1}).items == kw[1].items
+    assert build_task("kth_word", {"k": 2, "n_words": 3}).items[0].input.count(LIST_SEPARATOR) == 2
+    assert build_task("kth_word", {"items_seed": 1}).items != kw[1].items
     aw = build_task("arithmetic_words")
     assert len(aw.items) == 997 and aw.items[0].input == "0" and aw.items[0].output == "three"
     assert aw.items[-1].input == "996" and aw.items[-1].output == "nine hundred ninety-nine"
     assert len(build_task("arithmetic_words", {"max": 999}).items) == 997  # outputs above 999 are dropped
     for name, bad in (("last_antonym", {"n_words": 1}), ("alphabetically_first", {"n_words": 1}),
-                      ("alphabetically_first", {"foo": 1})):
+                      ("alphabetically_first", {"foo": 1}), ("kth_word", {"k": 0}), ("kth_word", {"k": 6}),
+                      ("kth_word", {"n_words": 1})):
         with pytest.raises(ValueError):
             build_task(name, bad)
 

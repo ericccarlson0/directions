@@ -38,6 +38,7 @@ Tasks must admit automatic scoring.
 * present → past, present participle
 * upper-casing, number → words, simple arithmetic mappings
 * composite tasks (third iteration): antonym of the last word of a list; arithmetic followed by number → words
+* the k-th word of a five-word list, k = 1..5 (docs/DECISIONS.md D39; `configs/kth_*.yaml`): a parameterised family whose parameter is a position, run family-only like add-k
 
 Tasks the models solve zero-shot (two-operand addition) or whose direction never calibrates (English → French on the smallest model) were dropped in the third iteration (docs/DECISIONS.md D19).
 
