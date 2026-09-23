@@ -1,8 +1,8 @@
 # Request a GPU run: change this file, commit, push. The run-gpu workflow triggers on every push that changes
 # this file and runs `command` at the repository root on a RunPod worker. To re-request an identical command,
 # there needs to be a new `request` label. A manual workflow_dispatch ignores this file.
-request: probe_volume_ci-b # note that a new label re-requests the same command
-command: python3 -c "import os; r='/runpod-volume'; print('volume:', sorted(os.listdir(r))); print('wheels:', os.path.isdir(r+'/wheels'), 'runs:', len(os.listdir(r+'/results')) if os.path.isdir(r+'/results') else None)"
+request: serial_0.6b_and_comp_olmo3_7b # note that a new label re-requests the same command
+command: uv run python scripts/stages.py 'uv run directions serial --config configs/serial.yaml --fv-run /runpod-volume/results/run-35888689011/comp_qwen3_0.6b_seed20260916 --learned-run /runpod-volume/results/run-35889529426/comp_learned_qwen3_0.6b_seed20260916 --run-id serial_qwen3_0.6b_seed20260916' 'uv run directions pilot --config configs/comp_olmo3_7b.yaml --run-id comp_olmo3_7b_seed20260907'
 gpu_tier: ADA_24         # memory class ("tier")
 gpu_type: ""              # exact device name to pin instead of the tier, e.g. "NVIDIA RTX A4500"
 datacenter: EUR-NO-1       # data center of the `directions` network volume
