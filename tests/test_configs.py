@@ -25,6 +25,12 @@ def test_all_configs_load():
             cfg = load_mixing_config(p)
             assert cfg.pairs and {pp.family for pp in cfg.pairs} == {"kth_word", "add_k", "lexical"}, p
             continue
+        if p.name in ("serial.yaml", "smoke_toy_serial.yaml"):  # the serial injection test's own config (D41)
+            from directions.config import load_serial_config
+
+            cfg = load_serial_config(p)
+            assert cfg.compositions and all(len(c.steps) == 2 for c in cfg.compositions), p
+            continue
         cfg = load_config(p)
         assert cfg.tasks, p
 
