@@ -1,0 +1,14 @@
+# Smoke test of `directions serial` (docs/DECISIONS.md D41) on the toy model: reads finished smoke_toy_fv.yaml and
+# smoke_toy_learned.yaml runs (tests/test_trajectories.py); the toy composes nothing. Nothing here is a result.
+name: smoke_toy_serial
+seed: 1234
+output_dir: results
+second_layer_fractions: [0.25, 0.5, 0.75]
+n_null: 2
+n_prompts: 6
+n_boot: 100
+ci_alpha: 0.05
+constructions: [fv, learned]
+determinism_check: true
+compositions:
+  - {task: add_3, steps: [antonym, number_to_words]}

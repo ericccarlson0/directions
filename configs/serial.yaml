@@ -1,0 +1,26 @@
+# The serial injection test (docs/DECISIONS.md D41; `directions serial`): for each composition f∘g of the composition
+# family, the first component's control u_g at its own selected layer and strength and the second's u_f at a grid
+# of deeper layers, read as the composed task's held-out effect against u_f replaced by random directions at the
+# same layer and norm; each control alone, the two added at the first layer (superposition) and the composed
+# task's own control beside it. The head mean first (D40: two learned controls added are a switch or destructive),
+# the learned vector as the secondary.
+#
+#   uv run directions serial --config configs/serial.yaml --fv-run <comp run> --learned-run <comp_learned run> --run-id serial_<model>
+name: serial
+seed: 20260907
+output_dir: results
+
+second_layer_fractions: [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]   # the head mean's second layers (fractions of the stack, at or past the first layer)
+n_null: 4                      # random unit directions replacing the second control at each layer
+n_prompts: 96                  # the first n held-out prompts of the composed task
+n_boot: 1000
+ci_alpha: 0.05
+constructions: [fv, learned]
+determinism_check: true        # one serial pass repeated, bit identity required (D23)
+
+compositions:                  # the two-step compositions; the three-step one as its two-step prefix then uppercase
+  - {task: upper_antonym, steps: [antonym, uppercase]}
+  - {task: upper_plural, steps: [plural, uppercase]}
+  - {task: last_antonym, steps: [kth_3, antonym]}
+  - {task: upper_last, steps: [kth_3, uppercase]}
+  - {task: upper_last_antonym, steps: [last_antonym, uppercase]}

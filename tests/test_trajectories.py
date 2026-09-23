@@ -427,3 +427,41 @@ def test_smoke_trajectories(smoke_runs):
     with pytest.raises(ValueError, match="control"):
         main(["trajectories", "--config", str(cfg_path), "--fv-run", str(runs["learned"]), "--learned-run",
               str(runs["learned"]), "--output-dir", str(out), "--run-id", "traj_bad"])
+
+
+def test_smoke_serial(smoke_runs):
+    """D41: the serial injection test on the toy runs (add_3 read as number_to_words after antonym, which composes
+    nothing; the mechanics only): the grid, the null, the superposition and the composed control's ceiling."""
+    from directions.config import load_serial_config
+
+    out, runs = smoke_runs
+    cfg_path = CONFIGS / "smoke_toy_serial.yaml"
+    cfg = load_serial_config(cfg_path)
+    assert main(["serial", "--config", str(cfg_path), "--fv-run", str(runs["fv"]), "--learned-run", str(runs["learned"]),
+                 "--output-dir", str(out), "--run-id", "serial"]) == 0
+    root = out / "serial"
+    meta = json.loads((root / "metadata.json").read_text())
+    assert meta["determinism_check"]["identical"] and meta["runs"]["fv"]["run_id"] == "fv"
+    summary = json.loads((root / "core" / "summary.json").read_text())
+    assert {c["construction"] for c in summary["compositions"]} == {"fv", "learned"} and not summary["skipped"]
+    for c in summary["compositions"]:
+        assert c["task"] == "add_3" and c["steps"] == ["antonym", "number_to_words"] and c["n_items"] == cfg.n_prompts
+        assert c["first"]["label"] == "antonym" and c["second"]["label"] == "number_to_words"
+        assert "composed_control" in c and c["composed_control"]["alpha"] > 0
+        assert 0 <= c["superposition_at_first_layer"]["angle_deg"] <= 180
+        L, l_g = c["n_layers"], c["first"]["layer"]
+        layers = [r["layer"] for r in c["grid"]]
+        assert layers == sorted(set(layers)) and all(l_g <= l <= L for l in layers)
+        if c["construction"] == "fv":
+            assert layers == sorted({max(l_g, min(L, round(fr * L))) for fr in cfg.second_layer_fractions})
+        else:
+            cand = sorted(int(l) for l in np.load(runs["learned"] / "core" / "tasks" / "number_to_words" / "directions.npz")["layers"])
+            assert layers == [l for l in cand if l >= l_g]
+        for r in c["grid"]:
+            assert r["serial_over_null"]["n_controls"] == cfg.n_null and 0 < r["serial_over_null"]["p_value"] <= 1
+            assert set(r) >= {"serial", "second_alone", "null_mean", "serial_over_first_alone", "serial_test"}
+        assert c["reading"] in ("nowhere", "partial", "everywhere") and set(c["bright_layers"]) <= set(layers)
+    # without a head-mean run the fv construction is skipped and noted
+    assert main(["serial", "--config", str(cfg_path), "--learned-run", str(runs["learned"]), "--output-dir", str(out), "--run-id", "serial2"]) == 0
+    summary = json.loads((out / "serial2" / "core" / "summary.json").read_text())
+    assert [c["construction"] for c in summary["compositions"]] == ["learned"] and summary["skipped"][0]["construction"] == "fv"

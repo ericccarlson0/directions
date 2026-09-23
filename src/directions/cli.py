@@ -151,6 +151,21 @@ def _cmd_mixing(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_serial(args: argparse.Namespace) -> int:
+    """The serial injection test (docs/DECISIONS.md D41): the components' controls injected one after the other."""
+    from .config import load_serial_config
+    from .serial import run_serial
+
+    cfg = load_serial_config(args.config)
+    if args.output_dir:
+        cfg.output_dir = args.output_dir
+    if args.seed is not None:
+        cfg.seed = int(args.seed)
+    root = run_serial(cfg, args.fv_run, args.learned_run, run_id=args.run_id, config_path=str(args.config))
+    print(root)
+    return 0
+
+
 def _cmd_source(args: argparse.Namespace) -> int:
     """The source test (docs/DECISIONS.md D38): attention against MLP writes of the aligning increments."""
     from .config import load_source_config
@@ -217,6 +232,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--output-dir", default=None, help="override output_dir from the config")
     p.add_argument("--run-id", default=None, help="explicit run directory name")
     p.add_argument("--seed", type=int, default=None, help="override the test's own seed from the config")
+    p = sub.add_parser("serial", help="the serial injection test (D41): the first component's control at its layer, the second's "
+                                      "at deeper layers, read as the composed task's effect against random second directions")
+    p.add_argument("--config", required=True, help="YAML config of the test (configs/serial.yaml)")
+    p.add_argument("--learned-run", required=True, help="the family's learned run")
+    p.add_argument("--fv-run", default=None, help="the family's head-mean run (the fv construction is skipped without it)")
+    p.add_argument("--output-dir", default=None, help="override output_dir from the config")
+    p.add_argument("--run-id", default=None, help="explicit run directory name")
+    p.add_argument("--seed", type=int, default=None, help="override the test's own seed from the config")
     args = parser.parse_args(argv)
     if args.command in ("validate", "pilot"):
         return _cmd_run(args, args.command)
@@ -232,6 +255,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_source(args)
     if args.command == "mixing":
         return _cmd_mixing(args)
+    if args.command == "serial":
+        return _cmd_serial(args)
     parser.error("unknown command")
     return 2
 

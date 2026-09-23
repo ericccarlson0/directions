@@ -762,3 +762,65 @@ def validate_config(cfg: Config) -> None:
         for n in needed:
             if n not in tmpl:
                 raise ValueError(f"prompt template {tmpl!r} must contain {n}")
+
+
+@dataclass
+class SerialComposition:
+    """One composition for the serial injection test (docs/DECISIONS.md D41).
+
+    task    the composed task's key in the runs (its held-out prompts and target are what is read)
+    steps   the two component tasks' keys, the first step first (a three-step composition names its two-step
+            prefix, itself a task of the family, as the first step)
+    """
+
+    task: str
+    steps: list[str] = field(default_factory=list)
+
+
+@dataclass
+class SerialConfig:
+    """The serial injection test (docs/DECISIONS.md D41): the first component's control at its own selected layer
+    and strength, the second component's at a grid of deeper layers, read as the composed task's held-out effect
+    (the change in the composed target's log-probability per token) against the second control replaced by random
+    unit directions at the same layer and strength; beside it each control alone, the two added at the first
+    layer (superposition) and the composed task's own control.
+
+    second_layer_fractions  the second injection's layers as fractions of the stack for the head mean (one vector
+                            regardless of layer); the learned vector is injected at its own candidate layers only
+    n_null                  random unit directions replacing the second control at each layer
+    n_prompts               the first n held-out prompts of the composed task
+    determinism_check       one serial pass repeated, bit identity required (D23)
+    """
+
+    name: str = "serial"
+    seed: int = 20260907
+    output_dir: str = "results"
+    second_layer_fractions: list[float] = field(default_factory=lambda: [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8])
+    n_null: int = 4
+    n_prompts: int = 96
+    n_boot: int = 1000
+    ci_alpha: float = 0.05
+    constructions: list[str] = field(default_factory=lambda: ["fv", "learned"])
+    determinism_check: bool = True
+    device: str | None = None
+    compositions: list[SerialComposition] = field(default_factory=list)
+
+
+def load_serial_config(path: str | Path) -> SerialConfig:
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    comps = data.pop("compositions", None) or []
+    cfg = _from_dict(SerialConfig, data)
+    cfg.compositions = [_from_dict(SerialComposition, c, f"compositions[{i}]") for i, c in enumerate(comps)]
+    if not cfg.compositions:
+        raise ValueError("the serial config needs at least one composition")
+    if not cfg.second_layer_fractions or any(not (0 < f < 1) for f in cfg.second_layer_fractions):
+        raise ValueError("second_layer_fractions must lie in (0, 1)")
+    if cfg.n_null < 1 or cfg.n_prompts < 1:
+        raise ValueError("n_null and n_prompts must be at least 1")
+    if any(c not in ("fv", "learned") for c in cfg.constructions) or not cfg.constructions:
+        raise ValueError("constructions must be a non-empty subset of fv, learned")
+    for c in cfg.compositions:
+        if len(c.steps) != 2 or c.steps[0] == c.steps[1] or c.task in c.steps:
+            raise ValueError(f"composition {c.task}: steps must be two distinct component task keys")
+    return cfg
