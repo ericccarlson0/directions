@@ -2297,3 +2297,18 @@ Decision:
   composed target (the few-shot log-probability of COLD under antonym
   demonstrations), the natural-cosine curve's peak, and the
   hand-over offsets between the composition and its components.
+
+Gate probe (the 0.6B on the CPU, few-shot accuracy on the evaluation
+pool; gate 0.5): antonym 0.80, uppercase 0.91, plural 0.98, last
+word 0.96, uppercase∘plural 0.73 and uppercase∘last 0.89 pass;
+uppercase∘antonym 0.44, antonym∘last 0.27 (as in the main runs, where
+`last_antonym` never qualified on the 0.6B) and the three-step
+uppercase∘antonym∘last 0.16 fail. So on the smallest checkpoint the
+family has two two-step compositions and the antonym compositions
+are "the model cannot do it"; the larger checkpoints (where
+`last_antonym` qualified from the 1.7B on) are expected to carry all
+five, which the runs decide. The family runs as configured (the gate
+excludes per checkpoint); the stages are the two family runs and the
+landmark comparison with references (the all-to-all trajectories
+comparison of D32 is not run: the reference readout is the
+composition's version of it), the source stage as stated.
