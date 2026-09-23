@@ -154,6 +154,15 @@ def main() -> None:
         n = s["n_tasks"][k]
         off = s["offset_from_handover"].get(k, {})
         print(f"  {k:28s} {v if v is None else round(v, 1)!s:>6} (n={n})" + (f"  offset from hand-over median {off.get('median')} |median| {off.get('median_abs')}" if off else ""), flush=True)
+    for name, t in lm["tasks"].items():  # D41: the composition readings
+        comp = t.get("composition")
+        if not comp:
+            continue
+        for c, entry in comp["constructions"].items():
+            print(f"  composition {name} [{c}] hand-over {entry.get('handover')}: " + "; ".join(
+                f"{r}: {v['verdict']} (first + {v.get('first_positive')}, first - after {v.get('first_negative_after')}, "
+                f"e peak {v.get('excess_peak') if v.get('excess_peak') is None else round(v['excess_peak'], 3)} at {v.get('excess_peak_read_point')})"
+                for r, v in entry["per_reference"].items()), flush=True)
     print("wrote", out_dir, flush=True)
 
 

@@ -38,7 +38,8 @@ Tasks must admit automatic scoring.
 * present → past, present participle
 * upper-casing, number → words, simple arithmetic mappings
 * composite tasks (third iteration): antonym of the last word of a list; arithmetic followed by number → words
-* the k-th word of a five-word list, k = 1..5 (docs/DECISIONS.md D39; `configs/kth_*.yaml`): a parameterised family whose parameter is a position, run family-only like add-k
+* the k-th word of a three-word list, k = 1..3 (docs/DECISIONS.md D39; `configs/kth_*.yaml`): a parameterised family whose parameter is a position, run family-only like add-k
+* the composition family (docs/DECISIONS.md D41; `configs/comp_*.yaml`, the `compose` registry task): antonym, uppercase, plural and the last word, with uppercase∘antonym, uppercase∘plural, antonym∘last, uppercase∘last and uppercase∘antonym∘last, run family-only and read against the components' natural differences (`configs/trajectories_composition.yaml`)
 
 Tasks the models solve zero-shot (two-operand addition) or whose direction never calibrates (English → French on the smallest model) were dropped in the third iteration (docs/DECISIONS.md D19).
 

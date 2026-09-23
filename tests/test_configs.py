@@ -243,3 +243,45 @@ def test_arith_learned_configs_are_the_learned_config_with_the_add_k_family():
     for key in ("model", "prompt", "data", "qualification", "extraction", "calibration", "evaluation", "commitment",
                 "exploratory", "analysis", "figures", "seed"):
         assert a[key] == ref[key], key
+
+
+COMP_CONFIGS = {
+    "comp_qwen3_0.6b.yaml": "Qwen/Qwen3-0.6B-Base",
+    "comp_qwen3_1.7b.yaml": "Qwen/Qwen3-1.7B-Base",
+    "comp_qwen3_4b.yaml": "Qwen/Qwen3-4B-Base",
+    "comp_qwen3_8b.yaml": "Qwen/Qwen3-8B-Base",
+    "comp_olmo3_7b.yaml": "allenai/Olmo-3-1025-7B",
+    "comp_gemma4_12b.yaml": "google/gemma-4-12B",
+}
+
+
+def test_comp_configs_are_the_pilot_and_the_learned_config_with_the_composition_family():
+    """The composition configs (D41) differ from the pilot (head mean) and the learned config only in the tasks and
+    the run name; the files of a family differ only in `model.name`; every composed task's references in the
+    landmark config are tasks of the family, in step order."""
+    from directions.config import load_trajectories_config
+    from directions.tasks import build_task
+
+    refs = load_trajectories_config(CONFIGS / "trajectories_composition.yaml").patch.references
+    for base, prefix in (("pilot_qwen3_0.6b.yaml", "comp_"), ("learned_qwen3_0.6b.yaml", "comp_learned_")):
+        ref = config_to_dict(load_config(CONFIGS / base))
+        a = config_to_dict(load_config(CONFIGS / (prefix + "qwen3_0.6b.yaml")))
+        for fname, model_name in COMP_CONFIGS.items():
+            b = config_to_dict(load_config(CONFIGS / (prefix + fname[len("comp_"):])))
+            assert b["model"]["name"] == model_name, fname
+            _normalise_model(a, b, fname)
+            assert a == b, fname
+        keys = [t["label"] or t["name"] for t in a["tasks"]]
+        assert keys == ["antonym", "uppercase", "plural", "kth_3", "upper_antonym", "upper_plural", "last_antonym", "upper_last",
+                        "upper_last_antonym"]
+        assert set(refs) == {"upper_antonym", "upper_plural", "last_antonym", "upper_last", "upper_last_antonym"}
+        for task, components in refs.items():
+            assert all(c in keys for c in components) and task in keys
+            spec = next(t for t in a["tasks"] if (t["label"] or t["name"]) == task)
+            steps = spec["params"]["steps"] if spec["name"] == "compose" else ["last_antonym"]
+            n_steps = sum(2 if s == "last_antonym" else 1 for s in steps)  # last_antonym is itself two steps
+            assert len(components) == n_steps  # one reference per step, the innermost first
+            build_task(spec["name"], spec["params"])
+        for key in ("model", "prompt", "data", "qualification", "extraction", "calibration", "evaluation", "commitment",
+                    "exploratory", "analysis", "figures", "seed"):
+            assert a[key] == ref[key], (base, key)

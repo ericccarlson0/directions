@@ -316,6 +316,15 @@ class PatchConfig:
     n_controls       random per-example directions matched to each edit
     reference        the natural trajectory the shared component is taken along: "icl" (demos minus none)
                      or "task" (demos minus deranged demos)
+    references       the composition test (docs/DECISIONS.md D41): per task (by its key in the runs), the keys of
+                     its component tasks in step order. Each component's natural difference is captured on the
+                     composed task's own held-out prompts (the component's demonstrations before the composed
+                     query), and at every read point of the patch grid the composed control's perturbation is
+                     read against it: its cosine with the component's difference minus its cosine with the
+                     composed task's own, paired over prompts and against the matched isotropic control, plus
+                     (``reference_edits``) the keep and remove edits along the component's difference
+    reference_edits  run the keep/remove edits along each reference (the causal reading; costs 2 edits x
+                     (1 + n_controls) passes per reference and read point)
     """
 
     enabled: bool = True
@@ -324,6 +333,8 @@ class PatchConfig:
     depth_fractions: list[float] = field(default_factory=lambda: [0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0])
     n_controls: int = 3
     reference: str = "icl"
+    references: dict[str, list[str]] = field(default_factory=dict)
+    reference_edits: bool = True
 
 
 @dataclass
@@ -455,6 +466,11 @@ def load_trajectories_config(path: str | Path) -> TrajectoriesConfig:
         raise ValueError("patch.layers must be 'primary' or 'all'")
     if any(not (0 < f <= 1) for f in p.depth_fractions) or p.n_controls < 1:
         raise ValueError("patch.depth_fractions must lie in (0, 1] and patch.n_controls be at least 1")
+    for task, refs in (p.references or {}).items():
+        if not isinstance(refs, list) or not refs or any(not isinstance(r, str) for r in refs):
+            raise ValueError(f"patch.references[{task!r}] must be a non-empty list of task keys")
+        if task in refs or len(set(refs)) != len(refs):
+            raise ValueError(f"patch.references[{task!r}] must name other tasks, each once")
     q = cfg.subspace
     if any(c not in ("pca", "fv", "learned") for c in q.constructions):
         raise ValueError("subspace.constructions must be among pca, fv, learned")

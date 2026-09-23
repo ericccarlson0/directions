@@ -14,7 +14,8 @@ strength_factors: [1.0, 0.5, 0.25]
 generic_diagnostics: true
 diagnostic_top_k: [1, 4, 16]
 logit_lens_top: 5
-patch: {enabled: true, constructions: [learned, fv], layers: all, depth_fractions: [0.25, 0.5, 0.75, 1.0], n_controls: 2, reference: icl}
+patch: {enabled: true, constructions: [learned, fv], layers: all, depth_fractions: [0.25, 0.5, 0.75, 1.0], n_controls: 2, reference: icl,
+        references: {add_3: [antonym, number_to_words]}, reference_edits: true}   # D41 mechanics (the toy composes nothing)
 subspace: {enabled: true, constructions: [learned], k_grid: [1, 2, 4], depth_fractions: [0.5, 1.0], at_handover: true, handover_share: 0.9,
            n_controls: 1, other_tasks: true, background: true, pools: [extraction, calibration]}
 n_boot: 100

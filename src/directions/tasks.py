@@ -228,6 +228,40 @@ def _arithmetic_words(params: dict[str, Any]) -> Task:
     return Task("arithmetic_words", items, params=p)
 
 
+# Steps a composition applies as a function of the previous step's output rather than through a task's item
+# list (the item lists cover their own inputs only; upper-casing is defined on any word).
+_STEP_FUNCTIONS: dict[str, Callable[[str], str]] = {"uppercase": str.upper}
+
+
+def _compose(params: dict[str, Any]) -> Task:
+    """Composed task (docs/DECISIONS.md D41): the items of the first step, their outputs mapped through the later
+    steps in order, so that ``steps: [antonym, uppercase]`` is ``hot -> COLD`` on the antonym items. A later step
+    is applied through its own item list (an item whose output the step does not cover is dropped) or, for the
+    steps in ``_STEP_FUNCTIONS``, as a function of the word. ``step_params`` carries a step's registry params by
+    step name (``{kth_word: {n_words: 3, k: 3}}``)."""
+    p = _check_params("compose", params, {"steps": ["antonym", "uppercase"], "step_params": {}})
+    steps = [str(s) for s in (p["steps"] or [])]
+    step_params = dict(p["step_params"] or {})
+    if len(steps) < 2:
+        raise ValueError("compose needs at least two steps")
+    if any(s == "compose" for s in steps):
+        raise ValueError("compose steps must be registry tasks other than compose")
+    unknown = set(step_params) - set(steps)
+    if unknown:
+        raise ValueError(f"compose step_params for steps not composed: {sorted(unknown)}")
+    items = list(build_task(steps[0], step_params.get(steps[0])).items)
+    for s in steps[1:]:
+        if s in _STEP_FUNCTIONS:
+            fn = _STEP_FUNCTIONS[s]
+            items = [Item(it.input, fn(it.output)) for it in items]
+        else:
+            mapping = {it.input: it.output for it in build_task(s, step_params.get(s)).items}
+            items = [Item(it.input, mapping[it.output]) for it in items if it.output in mapping]
+    if not items:
+        raise ValueError(f"compose {steps} leaves no items")
+    return Task("compose", [Item(i, o) for i, o in data.dedupe([(it.input, it.output) for it in items])], params=p)
+
+
 TASK_BUILDERS: dict[str, Callable[[dict[str, Any]], Task]] = {
     "antonym": _from_pairs("antonym", data.ANTONYM),
     "plural": _from_pairs("plural", data.PLURAL),
@@ -243,6 +277,7 @@ TASK_BUILDERS: dict[str, Callable[[dict[str, Any]], Task]] = {
     "alphabetically_first": _alphabetically_first,
     "arithmetic_words": _arithmetic_words,
     "kth_word": _kth_word,
+    "compose": _compose,
 }
 
 

@@ -2186,3 +2186,114 @@ the middle word never above 0.10), and add-k never produces an
 intermediate operand (masses 0.00–0.05). The lexical baseline is a
 switch on every row. So: the optimiser's control is a choice; the
 heads' control can be a value, when it is a control at all.
+
+### D41. The composition test: is a control converted once, or once per step? Composed tasks read against their components
+
+Context: every task so far is one step (a fixed map from one word to
+one token), so the transition the project studies, a control
+converted by the MLPs before the heads' write depth into the task's
+own direction (D37, D38), has only been seen as one event. The
+positioning's first test asks what happens when the function has an
+intermediate: whether the control is converted into the model's own
+state for step one and that state into the composition's (two
+hand-offs), or whether the model holds the composed relation as one
+relation that the control selects (one hand-off). The two composed
+tasks of the registry hand over at or after the later of their
+components on every checkpoint (D37; up to nine read points after),
+which says the question is measurable and nothing more. D39 and D40
+showed the two constructions to be different objects (the learned
+vector a fitted switch, the head mean the model's own write with a
+geometry), so the test runs under both and states its prediction per
+construction. Written before any composed control was read against
+its components.
+
+Decision:
+
+* **The family.** One family-only config per model in the D39
+  pattern (`configs/comp_<model>.yaml`, the pilot protocol; `comp_learned_<model>.yaml`,
+  the learned protocol; the D39 stages on top): four single-step
+  components, antonym, uppercase, plural and the last word of a
+  three-word list (`kth_word`, k = 3), and five compositions of them
+  through the `compose` registry task (the first step's items with
+  their outputs mapped through the later steps): uppercase∘antonym
+  (hot → COLD), uppercase∘plural (cat → CATS), antonym∘last (the
+  registry's `last_antonym`: "a, b, hot" → cold), uppercase∘last
+  ("a, b, c" → C) and the three-step uppercase∘antonym∘last
+  ("a, b, hot" → COLD). Components and compositions sit in one run so
+  that the references below share the seed, the pools and the read
+  points. Qwen3 0.6B, 1.7B, 4B and 8B Base and OLMo 3 7B; Gemma 4 is
+  configured and not run (its deep half is unreadable under the
+  patch edits, D35 and D38, and the composed hand-over comes late).
+* **The gate probe.** Before any run is requested, the family's
+  few-shot gate is probed on the CPU on the 0.6B (D39 lost the
+  middle positions of five-word lists to the gate after a run was
+  requested). A composition that fails the few-shot gate on a
+  checkpoint is excluded there and recorded as "the model cannot do
+  it", which is a different finding from "no control exists", and
+  the two are never pooled.
+* **The measurement (the landmark comparison with references,
+  `configs/trajectories_composition.yaml`).** For each composition
+  and each of its components in step order, the component's natural
+  difference is captured on the composition's own held-out prompts:
+  the component's demonstrations (its evaluation items) before the
+  composed query, minus the zero-shot run, at every read point
+  ("what the model writes for antonym alone on this input"). At every
+  read point of the patch grid (every downstream read point, D37) the
+  composed control's perturbation is read against it: e(m), its
+  cosine with the component's difference minus its cosine with the
+  composition's own natural difference, paired over prompts, and the
+  same difference for the matched isotropic control (the generic
+  response aligns every perturbation with every natural difference
+  late in the stack, D32, and the difference of two cosines does not
+  remove it). Beside it, causally, the keep and remove edits of the
+  patch test along the component's difference (D33 mechanics, the
+  same random controls), and the cosine between the two natural
+  differences themselves (the model's own computation read the same
+  way).
+* **Readings, per composition, component and construction.** A read
+  point is positive when e(m) > 0 by the one-sided paired bootstrap
+  and the paired excess over the isotropic control (both p ≤ 0.05),
+  negative when the same holds for e(m) < 0; a window is two
+  consecutive grid read points (the project's sustained rule, against
+  the multiplicity of read points). *Staircase* (two hand-offs): a
+  positive window before the composition's hand-over (the learned or
+  head-mean hand-over of D37, on the composed task), then a negative
+  window after it: the perturbation is closer to the component's
+  write than to the composition's first, and to the composition's
+  after. *Composed only* (one hand-off): no positive window. *Component
+  only*: a positive window and no negative window after it: the
+  control never becomes the composition's own. For the three-step
+  case the two inner components are read separately and the order of
+  their excess peaks is recorded. A verdict holds for a construction
+  when at least three of the four Qwen3 sizes with a qualifying
+  composed control read so (D40's rule); OLMo 3 is the out-of-family
+  check.
+* **Predictions, per construction.** The learned vector, a fitted
+  switch that selects its label (D39, D40), is expected to read as
+  composed only, and its hand-over is expected to come later than the
+  components' (D37's hint). The head mean, the heads' own write, is
+  the construction under which a staircase can appear; no direction
+  is predicted for it. The lexical two-step compositions with the
+  same inputs as their component (uppercase∘antonym, uppercase∘plural)
+  are the cleanest reads; the list compositions carry the
+  extractive step first.
+* **Serial injection (a second job, after the reading above).** The
+  first component's control at its own layer and strength, the second
+  component's at a grid of deeper layers, read as the composed task's
+  effect on its held-out prompts against the second control's
+  matched random directions at the same layer; and the two controls
+  added at one layer (superposition). Under the head mean first (D40:
+  two learned controls added are a switch or destructive), the
+  learned vector as the secondary. Bright only past the first
+  control's hand-over: the second stage reads a finished
+  intermediate; bright everywhere: the controls add; nowhere: the
+  composed relation is not assembled from its parts as controls.
+  Its design is fixed when the first reading is in, and recorded as
+  an amendment here.
+* **Source stage.** `directions source` runs on a composition only
+  where a staircase is read, with the window split at the first
+  positive window; there is nothing for it to split otherwise.
+* **Exploratory**: the components' demonstrations scored on the
+  composed target (the few-shot log-probability of COLD under antonym
+  demonstrations), the natural-cosine curve's peak, and the
+  hand-over offsets between the composition and its components.

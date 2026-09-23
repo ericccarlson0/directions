@@ -223,6 +223,8 @@ def collect_task_landmarks(task_json: dict[str, Any], readout: dict[str, Any] | 
                 out["verbal"][lk] = {"best_rank": ranks, "task_mass": masses, "window": verbal_window(ranks, rank_threshold)}
     if fv_heads is not None:
         out["heads"] = head_write_points(fv_heads)
+    if (info.get("patch") or {}).get("references"):
+        out["composition"] = composition_readout(task_json, share)  # D41
     return out
 
 
@@ -336,4 +338,87 @@ def across_models(models: dict[str, dict[str, Any]], landmarks: Sequence[str] = 
         corr = spearman_permutation([p["handover_frac"] for p in pts], [p["landmark_frac"] for p in pts], n_perm=n_perm) if len(pts) >= 3 else {"rho": None, "p": None, "n": len(pts)}
         out[lm] = {"points": pts, "spearman": corr, "median_abs_offset_read_points": _median([abs(p["offset_read_points"]) for p in pts]),
                    "coincides": bool(corr.get("p") is not None and corr["p"] <= 0.05 and (_median([abs(p["offset_read_points"]) for p in pts]) or 99) <= 2)}
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# The composition test (docs/DECISIONS.md D41): one hand-off or two?
+# --------------------------------------------------------------------------- #
+
+
+def _sustained_pairs(flags: Sequence[bool], read_points: Sequence[int]) -> list[int]:
+    """The read points that start a run of two consecutive grid read points whose flag is set."""
+    return [int(read_points[i]) for i in range(len(flags) - 1) if flags[i] and flags[i + 1]]
+
+
+def composition_verdict(rows: Sequence[dict[str, Any]], handover: int | None, alpha: float = 0.05) -> dict[str, Any]:
+    """The reading of one composed control against one component (D41). ``rows`` are the reference rows of the
+    patch test in read-point order; at each read point ``e`` is the perturbation's cosine with the component's
+    natural difference minus its cosine with the composed task's own. A read point is *positive* when ``e``'s
+    one-sided paired bootstrap says ``e > 0`` and the excess over the matched isotropic control does too (both
+    ``p <= alpha``), *negative* when the same holds for ``e < 0``; a window is two consecutive positive (negative)
+    grid read points. The verdicts:
+
+    * ``staircase``: a positive window before the composed hand-over (or anywhere when no hand-over is
+      recorded), then a negative window after it — the control is converted into the component's state first
+      and into the composition's after;
+    * ``composed_only``: no positive window — the perturbation is never closer to the component's write than to
+      the composition's own;
+    * ``component_only``: a positive window and no negative window after it;
+    * ``undefined``: no rows.
+    """
+    rows = sorted(rows, key=lambda r: r["read_point"])
+    if not rows:
+        return {"verdict": "undefined"}
+    pts = [int(r["read_point"]) for r in rows]
+
+    def flag(r: dict[str, Any], side: str) -> bool:
+        ex = r.get("excess") or {}
+        own = (ex.get(side) or {}).get("p_value")
+        iso = (ex.get(f"over_isotropic_{side}") or {}).get("p_value")
+        return own is not None and own <= alpha and (iso is None or iso <= alpha)
+
+    pos = _sustained_pairs([flag(r, "positive") for r in rows], pts)
+    neg = _sustained_pairs([flag(r, "negative") for r in rows], pts)
+    e = [float((r.get("excess") or {}).get("mean", float("nan"))) for r in rows]
+    peak = int(np.nanargmax(e)) if any(np.isfinite(e)) else None
+    first_pos = next((m for m in pos if handover is None or m < handover), None)
+    first_neg_after = next((m for m in neg if first_pos is not None and m > first_pos), None)
+    if first_pos is None:
+        verdict = "composed_only"
+    elif first_neg_after is None:
+        verdict = "component_only"
+    else:
+        verdict = "staircase"
+    nat = [r.get("natural_cos") for r in rows]
+    nat_peak = int(np.nanargmax([np.nan if v is None else v for v in nat])) if any(v is not None for v in nat) else None
+    keep = [((r.get("keep") or {}).get("retained")) for r in rows]
+    return {"verdict": verdict, "handover": handover, "positive_windows": pos, "negative_windows": neg,
+            "first_positive": first_pos, "first_negative_after": first_neg_after,
+            "excess_peak_read_point": None if peak is None else pts[peak], "excess_peak": None if peak is None else e[peak],
+            "excess_at_handover": next((e[i] for i, m in enumerate(pts) if handover is not None and m >= handover), None),
+            "natural_cos_peak_read_point": None if nat_peak is None else pts[nat_peak],
+            "natural_cos_peak": None if nat_peak is None else nat[nat_peak],
+            "keep_along_component_max": max((k for k in keep if k is not None), default=None),
+            "keep_along_component_max_read_point": next((pts[i] for i, k in enumerate(keep) if k is not None and k == max(x for x in keep if x is not None)), None)}
+
+
+def composition_readout(task_json: dict[str, Any], share: float = 0.9, alpha: float = 0.05) -> dict[str, Any]:
+    """Every construction's reading against every reference of a task (its ``trajectories.json``): the verdict per
+    (construction, reference), in step order, and, with more than one reference, whether the excess peaks come in
+    step order (the innermost component first)."""
+    layer = int(task_json["primary_layer"])
+    info = task_json["per_layer"][str(layer)]
+    patch = info.get("patch") or {}
+    refs = patch.get("references") or {}
+    order = task_json.get("references") or list(refs)
+    out: dict[str, Any] = {"references": order, "constructions": {}}
+    for c, rows in (patch.get("constructions") or {}).items():
+        handover = handover_read_point(rows.get("rows", []), share)
+        per_ref = {r: composition_verdict((refs.get(r) or {}).get(c, {}).get("rows", []), handover, alpha) for r in order if r in refs}
+        entry: dict[str, Any] = {"handover": handover, "per_reference": per_ref}
+        peaks = [per_ref[r].get("excess_peak_read_point") for r in order if r in per_ref]
+        if len(peaks) > 1 and all(p is not None for p in peaks):
+            entry["peaks_in_step_order"] = all(a <= b for a, b in zip(peaks, peaks[1:]))
+        out["constructions"][c] = entry
     return out

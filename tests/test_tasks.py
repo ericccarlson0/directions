@@ -117,7 +117,24 @@ def test_composite_and_extractive_tasks():
     assert len(aw.items) == 997 and aw.items[0].input == "0" and aw.items[0].output == "three"
     assert aw.items[-1].input == "996" and aw.items[-1].output == "nine hundred ninety-nine"
     assert len(build_task("arithmetic_words", {"max": 999}).items) == 997  # outputs above 999 are dropped
+    # D41: compositions map the first step's items through the later steps; uppercase is a function of the word,
+    # a pair task drops the items its list does not cover
+    ua = build_task("compose", {"steps": ["antonym", "uppercase"]})
+    an = build_task("antonym")
+    assert ua.name == "compose" and len(ua.items) == len(an.items)
+    assert all(c.input == a.input and c.output == a.output.upper() for c, a in zip(ua.items, an.items))
+    ul = build_task("compose", {"steps": ["kth_word", "uppercase"], "step_params": {"kth_word": {"n_words": 3, "k": 3}}})
+    assert len(ul.items) == 500 and all(it.output == it.input.split(LIST_SEPARATOR)[-1].upper() for it in ul.items)
+    ula = build_task("compose", {"steps": ["last_antonym", "uppercase"]})
+    la = build_task("last_antonym")
+    assert [(c.input, c.output) for c in ula.items] == [(a.input, a.output.upper()) for a in la.items]
+    pa = build_task("compose", {"steps": ["antonym", "plural"]})
+    plural = {it.input: it.output for it in build_task("plural").items}
+    assert 0 < len(pa.items) < len(an.items) and all(plural[a.output] == c.output for c in pa.items for a in an.items if a.input == c.input)
     for name, bad in (("last_antonym", {"n_words": 1}), ("alphabetically_first", {"n_words": 1}),
+                      ("compose", {"steps": ["antonym"]}), ("compose", {"steps": ["antonym", "compose"]}),
+                      ("compose", {"steps": ["antonym", "uppercase"], "step_params": {"plural": {}}}),
+                      ("compose", {"steps": ["arithmetic", "antonym"]}),
                       ("alphabetically_first", {"foo": 1}), ("kth_word", {"k": 0}), ("kth_word", {"k": 6}),
                       ("kth_word", {"n_words": 1})):
         with pytest.raises(ValueError):

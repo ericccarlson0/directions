@@ -728,6 +728,23 @@ class Trajectories:
         conditions: dict[str, Any] = {"base": base.metrics_dict(), "icl": icl.metrics_dict(), "deranged": deranged.metrics_dict()}
         if icl2 is not None:
             conditions["icl2"] = icl2.metrics_dict()
+        # D41: the components' natural differences on these very prompts (the component's demonstrations before
+        # the composed query), the references the composed control's perturbation is read against
+        references: list[str] = []
+        for r in cfg.patch.references.get(name, []):
+            pool_r = self._reference_pool(r)
+            if pool_r is None:
+                inputs.notes.append(f"reference task {r} absent from the learned run: not read")
+                continue
+            rrng = rng_for(cfg.seed, "trajectories_reference_fewshot", name, r)
+            fs_r = [few_shot_prompt(pc, pool_r, x, rrng) for x in ev]
+            with self.prof.section("reference", name, r):
+                icl_r = self.backend.run(fs_r, capture=True)
+            assert icl_r.residuals is not None
+            natural[f"ref_{r}"] = self.geo.tensor(icl_r.residuals) - base_t
+            conditions[f"ref_{r}"] = icl_r.metrics_dict()  # the component's demonstrations scored on the composed target
+            references.append(r)
+            del icl_r
         gap = float(np.mean(icl.logprob_per_token) - np.mean(base.logprob_per_token))
         U = None
         if cfg.remove_answer_direction:
@@ -745,7 +762,7 @@ class Trajectories:
         result: dict[str, Any] = {"task": name, "registry_task": inputs.learned_qual.get("registry_task"),
                                   "n_examples": len(ev), "n_read_points": self.backend.n_layers + 1,
                                   "layers": layers, "primary_layer": primary, "layer_roles": {str(l): r for l, r in roles.items()},
-                                  "notes": inputs.notes,
+                                  "notes": inputs.notes, "references": references,
                                   "conditions": conditions, "fewshot_gap_per_token": gap,
                                   "answer_direction_removed": cfg.remove_answer_direction,
                                   "strength_factors": list(cfg.strength_factors), "per_layer": {}}
@@ -768,6 +785,14 @@ class Trajectories:
             strength_figures(self.root / "figures", result)
             subspace_figures(self.root / "figures", result)
         return _task_summary(result)
+
+    def _reference_pool(self, name: str) -> list[Item] | None:
+        """A reference task's evaluation items of the learned run (its demonstration pool, as the pipeline's
+        few-shot prompts draw from), whether or not the task qualified there."""
+        path = self.learned_root / "core" / "tasks" / name / "splits.json"
+        if not path.exists():
+            return None
+        return _items(read_json(path)["evaluation"])
 
     # ------------------------------------------------------------------ #
 
@@ -918,7 +943,6 @@ class Trajectories:
                         rem = loo if tag == "generic_removed" else R
                         floors[tag][c].setdefault(other, []).append(geo.pair_cosines(d_iso, deltas[other], layer, rem))
                 del loo
-        del all_iso, iso_deltas, total
         for tag in variants:
             for c in present:
                 floors[tag][c] = {o: np.concatenate(v, axis=1) for o, v in floors[tag][c].items()}  # (L+1, k*n)
@@ -994,6 +1018,10 @@ class Trajectories:
                      ceilings.get("icl~icl2", {"median": [float("nan")]})["median"][-1],
                      f"{ceilings['icl~icl2_generic_removed']['median'][-1]:.2f}" if "icl~icl2_generic_removed" in ceilings else "n/a")
         kept = {c: deltas[c] for c in present}
+        if cfg.patch.references:
+            for c in present:  # the first isotropic control's trajectory: the floor of the reference readout (D41)
+                kept[f"isotropic_{c}"] = iso_deltas[c][0]
+        del all_iso, iso_deltas, total
         info["_first_token_logprob"] = first_token  # consumed by the patch test, not written
         return info, arrays, kept, gmean
 
@@ -1105,7 +1133,12 @@ class Trajectories:
         At read points at fixed fractions of the downstream depth, the steered perturbation is edited on the
         query token before the remaining blocks run (its component along the prompt's natural difference
         removed, or kept alone), and, in the unsteered run, the natural difference itself is patched in. Each
-        edit is matched against the same edit along random per-example directions (D29 mechanics)."""
+        edit is matched against the same edit along random per-example directions (D29 mechanics).
+
+        With references (D41), the same perturbation is read at every read point against each component's
+        natural difference on the same prompts: its cosine with the component's difference minus its cosine
+        with the task's own (paired over prompts, and the same difference for the matched isotropic control),
+        the cosine between the two natural differences, and the keep/remove edits along the component's."""
         cfg, geo, t, name, seed = self.cfg, self.geo, self.geo.torch, inputs.name, self.cfg.seed
         L = base_t.shape[0] - 1
         ref = natural[cfg.patch.reference]
@@ -1115,8 +1148,59 @@ class Trajectories:
         assert base.first_token_logprob is not None
         base_first = base.first_token_logprob
         brng = rng_for(seed, "trajectories_patch_bootstrap", name, layer)
+        references = [r for r in cfg.patch.references.get(name, []) if f"ref_{r}" in natural]
         out: dict[str, Any] = {"reference": cfg.patch.reference, "read_points": read_points, "n_controls": cfg.patch.n_controls,
-                               "constructions": {}}
+                               "constructions": {}, "references": {}}
+
+        def rowwise_cos(A: Any, B: Any) -> Any:
+            return (A * B).sum(1) / (A.norm(dim=1) * B.norm(dim=1)).clamp_min(1e-30)
+
+        def edit_rows(c: str, m: int, d_m: Any, refv: Any, inject: Intervention, full: float, full_first: float,
+                      edits_wanted: tuple[str, ...], tag: str) -> dict[str, Any]:
+            """The edits of ``d_m`` along ``refv`` (per prompt) at read point ``m``, each against ``n_controls``
+            random per-example directions: the retained share of the effect and the paired excess test."""
+            u = geo.unit_rows(refv)
+            along = (d_m * u).sum(1, keepdim=True) * u
+            edits = {"remove": (-along).float().cpu().numpy(), "keep": (along - d_m).float().cpu().numpy(),
+                     "patch": refv.float().cpu().numpy()}
+            real: dict[str, np.ndarray] = {}
+            real_first: dict[str, np.ndarray] = {}
+            ctl: dict[str, list[np.ndarray]] = {e: [] for e in edits_wanted}
+            ctl_first: dict[str, list[np.ndarray]] = {e: [] for e in edits_wanted}
+            for e in edits_wanted:
+                ivs = [Intervention(m, edits[e], 1.0)] if e == "patch" else [inject, Intervention(m, edits[e], 1.0)]
+                r = self.backend.run(zs, interventions=ivs)
+                real[e] = r.logprob_per_token - base_lp
+                real_first[e] = r.first_token_logprob - base_first
+            ref_norm = refv.norm(dim=1, keepdim=True)
+            for k in range(cfg.patch.n_controls):
+                R = geo.unit_rows(geo.tensor(unit_vectors(rng_for(seed, "trajectories_patch", name, layer, c, m, k, *tag.split()), len(zs),
+                                                          self.backend.hidden_size), t.float64))
+                along_r = (d_m * R).sum(1, keepdim=True) * R
+                cedits = {"remove": (-along_r).float().cpu().numpy(), "keep": (along_r - d_m).float().cpu().numpy(),
+                          "patch": (R * ref_norm).float().cpu().numpy()}
+                for e in edits_wanted:
+                    ivs = [Intervention(m, cedits[e], 1.0)] if e == "patch" else [inject, Intervention(m, cedits[e], 1.0)]
+                    r = self.backend.run(zs, interventions=ivs)
+                    ctl[e].append(r.logprob_per_token - base_lp)
+                    ctl_first[e].append(r.first_token_logprob - base_first)
+            row: dict[str, Any] = {}
+            for e in edits_wanted:
+                r_e, c_e = real[e], np.stack(ctl[e])
+                sign = -1.0 if e == "remove" else 1.0  # remove: the real edit should cost more; keep/patch: retain more
+                # An edit at the last read point reaches only the query position's own prediction (no block
+                # follows to carry it to later target positions), so the first-token effect is kept beside
+                # the per-token one; they coincide for one-token targets.
+                row[e] = {"effect": float(np.mean(r_e)), "retained": None if full == 0 else float(np.mean(r_e) / full),
+                          "random_effect_mean": float(np.mean(c_e)),
+                          "random_retained_mean": None if full == 0 else float(np.mean(c_e) / full),
+                          "excess_vs_random": paired_excess_test(sign * r_e, sign * c_e, brng, n_boot=cfg.n_boot).__dict__,
+                          "effect_test": paired_bootstrap_test(r_e + base_lp, base_lp, brng, n_boot=cfg.n_boot).__dict__,
+                          "first_token_effect": float(np.mean(real_first[e])),
+                          "first_token_retained": None if full_first == 0 else float(np.mean(real_first[e]) / full_first),
+                          "first_token_random_retained_mean": None if full_first == 0 else float(np.mean(np.stack(ctl_first[e])) / full_first)}
+            return row
+
         for c in cfg.patch.constructions:
             if c not in deltas:
                 continue
@@ -1127,48 +1211,10 @@ class Trajectories:
             rows = []
             for m in read_points:
                 d_m = deltas[c][m].to(t.float64)
-                u = geo.unit_rows(ref[m])  # the natural difference's direction, per prompt
-                along = (d_m * u).sum(1, keepdim=True) * u
-                edits = {"remove": (-along).float().cpu().numpy(), "keep": (along - d_m).float().cpu().numpy(),
-                         "patch": ref[m].float().cpu().numpy()}
-                real: dict[str, np.ndarray] = {}
-                real_first: dict[str, np.ndarray] = {}
-                ctl: dict[str, list[np.ndarray]] = {e: [] for e in PATCH_EDITS}
-                ctl_first: dict[str, list[np.ndarray]] = {e: [] for e in PATCH_EDITS}
-                for e, vec in edits.items():
-                    ivs = [Intervention(m, vec, 1.0)] if e == "patch" else [inject, Intervention(m, vec, 1.0)]
-                    r = self.backend.run(zs, interventions=ivs)
-                    real[e] = r.logprob_per_token - base_lp
-                    real_first[e] = r.first_token_logprob - base_first
-                ref_norm = ref[m].to(t.float64).norm(dim=1, keepdim=True)
-                for k in range(cfg.patch.n_controls):
-                    R = geo.unit_rows(geo.tensor(unit_vectors(rng_for(seed, "trajectories_patch", name, layer, c, m, k), len(zs),
-                                                              self.backend.hidden_size), t.float64))
-                    along_r = (d_m * R).sum(1, keepdim=True) * R
-                    cedits = {"remove": (-along_r).float().cpu().numpy(), "keep": (along_r - d_m).float().cpu().numpy(),
-                              "patch": (R * ref_norm).float().cpu().numpy()}
-                    for e, vec in cedits.items():
-                        ivs = [Intervention(m, vec, 1.0)] if e == "patch" else [inject, Intervention(m, vec, 1.0)]
-                        r = self.backend.run(zs, interventions=ivs)
-                        ctl[e].append(r.logprob_per_token - base_lp)
-                        ctl_first[e].append(r.first_token_logprob - base_first)
                 align = info["summaries"].get(f"{c}->{cfg.patch.reference}", {}).get("generic_removed", {}).get("curve", {}).get("median")
                 row: dict[str, Any] = {"read_point": m, "depth_fraction": (m - layer) / (L - layer) if L > layer else 1.0,
                                        "alignment_generic_removed": None if not align else align[m]}
-                for e in PATCH_EDITS:
-                    r_e, c_e = real[e], np.stack(ctl[e])
-                    sign = -1.0 if e == "remove" else 1.0  # remove: the real edit should cost more; keep/patch: retain more
-                    # An edit at the last read point reaches only the query position's own prediction (no block
-                    # follows to carry it to later target positions), so the first-token effect is kept beside
-                    # the per-token one; they coincide for one-token targets.
-                    row[e] = {"effect": float(np.mean(r_e)), "retained": None if full == 0 else float(np.mean(r_e) / full),
-                              "random_effect_mean": float(np.mean(c_e)),
-                              "random_retained_mean": None if full == 0 else float(np.mean(c_e) / full),
-                              "excess_vs_random": paired_excess_test(sign * r_e, sign * c_e, brng, n_boot=cfg.n_boot).__dict__,
-                              "effect_test": paired_bootstrap_test(r_e + base_lp, base_lp, brng, n_boot=cfg.n_boot).__dict__,
-                              "first_token_effect": float(np.mean(real_first[e])),
-                              "first_token_retained": None if full_first == 0 else float(np.mean(real_first[e]) / full_first),
-                              "first_token_random_retained_mean": None if full_first == 0 else float(np.mean(np.stack(ctl_first[e])) / full_first)}
+                row.update(edit_rows(c, m, d_m, ref[m], inject, full, full_first, PATCH_EDITS, ""))
                 rows.append(row)
                 self.log.info("[%s] L%d patch %s at m=%d (%.2f of the depth, alignment %s): remove keeps %.2f (random %.2f, p %.3f); "
                               "keep retains %.2f (random %.2f, p %.3f); natural patch alone gives %.2f of the effect (random %.2f, p %.3f)",
@@ -1181,6 +1227,41 @@ class Trajectories:
                               row["patch"]["retained"] or float("nan"), row["patch"]["random_retained_mean"] or float("nan"),
                               row["patch"]["excess_vs_random"]["p_value"])
             out["constructions"][c] = {"full_effect": full, "alpha": spec["alpha"], "rows": rows}
+            # D41: the reference readout of this construction's perturbation
+            iso = deltas.get(f"isotropic_{c}")
+            for r in references:
+                nat_r = natural[f"ref_{r}"]
+                rrows = []
+                for m in read_points:
+                    d_m = deltas[c][m].to(t.float64)
+                    own_m, ref_m = ref[m].to(t.float64), nat_r[m].to(t.float64)
+                    cos_own = rowwise_cos(d_m, own_m).cpu().numpy()
+                    cos_ref = rowwise_cos(d_m, ref_m).cpu().numpy()
+                    e = cos_ref - cos_own
+                    row = {"read_point": m, "depth_fraction": (m - layer) / (L - layer) if L > layer else 1.0,
+                           "cos_own": {"mean": float(np.mean(cos_own)), "median": float(np.median(cos_own))},
+                           "cos_ref": {"mean": float(np.mean(cos_ref)), "median": float(np.median(cos_ref))},
+                           "natural_cos": float(np.median(rowwise_cos(own_m, ref_m).cpu().numpy())),
+                           # e = cos(perturbation, component) - cos(perturbation, own): its one-sided tests both ways
+                           "excess": {"mean": float(np.mean(e)), "median": float(np.median(e)),
+                                      "positive": paired_bootstrap_test(cos_ref, cos_own, brng, n_boot=cfg.n_boot).__dict__,
+                                      "negative": paired_bootstrap_test(cos_own, cos_ref, brng, n_boot=cfg.n_boot).__dict__}}
+                    if iso is not None:
+                        i_m = iso[m].to(t.float64)
+                        e_iso = (rowwise_cos(i_m, ref_m) - rowwise_cos(i_m, own_m)).cpu().numpy()
+                        row["excess"]["isotropic_mean"] = float(np.mean(e_iso))
+                        row["excess"]["over_isotropic_positive"] = paired_excess_test(e, e_iso[None, :], brng, n_boot=cfg.n_boot).__dict__
+                        row["excess"]["over_isotropic_negative"] = paired_excess_test(-e, -e_iso[None, :], brng, n_boot=cfg.n_boot).__dict__
+                    if cfg.patch.reference_edits:
+                        row.update(edit_rows(c, m, d_m, ref_m, inject, full, full_first, ("remove", "keep"), f"ref {r}"))
+                    rrows.append(row)
+                    self.log.info("[%s] L%d ref %s of %s at m=%d: cos own %.2f ref %.2f (e %+.3f, p+ %.3f p- %.3f%s); natural cos %.2f%s",
+                                  name, layer, r, c, m, row["cos_own"]["median"], row["cos_ref"]["median"], row["excess"]["mean"],
+                                  row["excess"]["positive"]["p_value"], row["excess"]["negative"]["p_value"],
+                                  f", iso e {row['excess']['isotropic_mean']:+.3f}" if iso is not None else "", row["natural_cos"],
+                                  f"; keep along ref retains {row['keep']['retained'] or float('nan'):.2f} (random {row['keep']['random_retained_mean'] or float('nan'):.2f}), "
+                                  f"remove keeps {row['remove']['retained'] or float('nan'):.2f}" if cfg.patch.reference_edits else "")
+                out["references"].setdefault(r, {})[c] = {"rows": rrows}
         return out
 
 

@@ -94,3 +94,50 @@ def test_spearman_permutation():
     r = spearman_permutation([1, 2, 3, 4, 5, 6, 7], [7, 6, 5, 4, 3, 2, 1], n_perm=2000, seed=1)
     assert r["rho"] == -1.0 and r["p"] < 0.01
     assert spearman_permutation([1, 2], [1, 2])["rho"] is None
+
+
+def _ref_rows(read_points, e_sign, iso_ok=True, keep=None):
+    """Synthetic reference rows (D41): ``e_sign[m]`` is +1 (positive), -1 (negative) or 0 at each read point."""
+    rows = []
+    for i, m in enumerate(read_points):
+        s = e_sign[i]
+        pos = {"p_value": 0.001 if s > 0 else 0.6}
+        neg = {"p_value": 0.001 if s < 0 else 0.6}
+        row = {"read_point": m, "excess": {"mean": 0.2 * s, "positive": pos, "negative": neg,
+                                           "over_isotropic_positive": {"p_value": 0.001 if (s > 0 and iso_ok) else 0.5},
+                                           "over_isotropic_negative": {"p_value": 0.001 if (s < 0 and iso_ok) else 0.5}},
+               "natural_cos": 0.5 - 0.05 * i}
+        if keep is not None:
+            row["keep"] = {"retained": keep[i]}
+        rows.append(row)
+    return rows
+
+
+def test_composition_verdict_staircase_composed_only_component_only():
+    from directions.landmarks import composition_readout, composition_verdict
+
+    pts = list(range(4, 12))
+    # positive at 5-6, negative from 9 on: the component's state first, the composition's after
+    v = composition_verdict(_ref_rows(pts, [0, 1, 1, 0, 0, -1, -1, -1], keep=[0.1, 0.5, 0.6, 0.3, 0.2, 0.1, 0.1, 0.1]), handover=9)
+    assert v["verdict"] == "staircase" and v["first_positive"] == 5 and v["first_negative_after"] == 9
+    assert v["positive_windows"] == [5] and v["negative_windows"] == [9, 10] and v["excess_peak_read_point"] in (5, 6)
+    assert v["keep_along_component_max"] == 0.6 and v["keep_along_component_max_read_point"] == 6 and v["natural_cos_peak_read_point"] == 4
+    # one positive read point is not a window; never closer to the component: composed only
+    assert composition_verdict(_ref_rows(pts, [0, 1, 0, 0, 0, -1, -1, -1]), handover=9)["verdict"] == "composed_only"
+    assert composition_verdict(_ref_rows(pts, [0, 0, 0, 0, 0, -1, -1, -1]), handover=9)["verdict"] == "composed_only"
+    # a positive window that the isotropic control matches does not count
+    assert composition_verdict(_ref_rows(pts, [0, 1, 1, 0, 0, -1, -1, -1], iso_ok=False), handover=9)["verdict"] == "composed_only"
+    # positive and never negative after: component only; a positive window only after the hand-over does not count
+    assert composition_verdict(_ref_rows(pts, [0, 1, 1, 1, 1, 1, 0, 0]), handover=9)["verdict"] == "component_only"
+    assert composition_verdict(_ref_rows(pts, [0, 0, 0, 0, 0, 0, 1, 1]), handover=9)["verdict"] == "composed_only"
+    assert composition_verdict(_ref_rows(pts, [0, 0, 0, 0, 0, 0, 1, 1]), handover=None)["verdict"] == "component_only"
+    assert composition_verdict([], handover=3)["verdict"] == "undefined"
+    # the readout over a task's json: per construction and reference, with the peaks' order for several references
+    tj = {"primary_layer": 3, "references": ["g", "f"],
+          "per_layer": {"3": {"patch": {"constructions": {"learned": {"rows": [{"read_point": m, "keep": {"retained": 0.95 if m >= 9 else 0.2}} for m in pts]}},
+                                        "references": {"g": {"learned": {"rows": _ref_rows(pts, [0, 1, 1, 0, 0, -1, -1, -1])}},
+                                                       "f": {"learned": {"rows": _ref_rows(pts, [0, 0, 0, 1, 1, -1, -1, -1])}}}}}}}
+    r = composition_readout(tj)
+    assert r["references"] == ["g", "f"] and r["constructions"]["learned"]["handover"] == 9
+    assert r["constructions"]["learned"]["per_reference"]["g"]["verdict"] == "staircase"
+    assert r["constructions"]["learned"]["per_reference"]["f"]["verdict"] == "staircase" and r["constructions"]["learned"]["peaks_in_step_order"]

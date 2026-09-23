@@ -389,6 +389,40 @@ def test_smoke_trajectories(smoke_runs):
             assert (root / "figures" / f"{task}_trajectories_L{layer}.png").exists()
         assert arrays["mean_delta_icl"].shape == (L1, meta["model"]["hidden_size"])
     assert meta["linalg_device"] == "cpu"
+    # D41: the references of add_3 (antonym and number_to_words in the toy config) are captured on add_3's own
+    # prompts and read at every patch read point of every patched layer, with the keep/remove edits along them
+    from directions.landmarks import collect_task_landmarks
+
+    res = json.loads((root / "core" / "tasks" / "add_3" / "trajectories.json").read_text())
+    assert res["references"] == ["antonym", "number_to_words"]
+    assert all(f"ref_{r}" in res["conditions"] for r in res["references"])
+    arrays = np.load(root / "core" / "tasks" / "add_3" / "trajectories_arrays.npz")
+    for layer in res["layers"]:
+        patch = res["per_layer"][str(layer)]["patch"]
+        assert set(patch["references"]) == {"antonym", "number_to_words"}
+        for r, per_c in patch["references"].items():
+            assert arrays[f"mean_delta_ref_{r}"].shape == (res["n_read_points"], meta["model"]["hidden_size"])
+            assert set(per_c) == {"learned", "fv"}
+            for c, entry in per_c.items():
+                rows = entry["rows"]
+                assert [row["read_point"] for row in rows] == patch["read_points"]
+                for row in rows:
+                    assert -1 <= row["cos_own"]["median"] <= 1 and -1 <= row["cos_ref"]["median"] <= 1 and -1 <= row["natural_cos"] <= 1
+                    ex = row["excess"]
+                    assert abs(ex["mean"] - (row["cos_ref"]["mean"] - row["cos_own"]["mean"])) < 1e-9
+                    assert 0 < ex["positive"]["p_value"] <= 1 and 0 < ex["negative"]["p_value"] <= 1
+                    assert "isotropic_mean" in ex and 0 < ex["over_isotropic_positive"]["p_value"] <= 1
+                    assert set(row) >= {"keep", "remove"} and "patch" not in row
+                    assert row["keep"]["excess_vs_random"]["n_controls"] == cfg.patch.n_controls
+    lm = collect_task_landmarks(res, None, None)
+    comp = lm["composition"]
+    assert comp["references"] == ["antonym", "number_to_words"] and set(comp["constructions"]) == {"learned", "fv"}
+    for entry in comp["constructions"].values():
+        assert set(entry["per_reference"]) == {"antonym", "number_to_words"}
+        assert all(v["verdict"] in ("staircase", "composed_only", "component_only") for v in entry["per_reference"].values())
+    res_a = json.loads((root / "core" / "tasks" / "antonym" / "trajectories.json").read_text())
+    assert res_a["references"] == [] and res_a["per_layer"][str(res_a["primary_layer"])]["patch"]["references"] == {}
+    assert "composition" not in collect_task_landmarks(res_a, None, None)
     # the two runs must be the two controls of one model with one seed
     with pytest.raises(ValueError, match="control"):
         main(["trajectories", "--config", str(cfg_path), "--fv-run", str(runs["learned"]), "--learned-run",
