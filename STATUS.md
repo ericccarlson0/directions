@@ -3471,6 +3471,8 @@ uv run directions source --config configs/source.yaml --fv-run /runpod-volume/re
 # a task family (D39; the k-th word family): the same five stages on the family-only configs, e.g. kth_<model>.yaml and kth_learned_<model>.yaml,
 # then the within-family geometry on the downloads:
 uv run python scripts/family_geometry.py --learned-run <learned family run> --fv-run <head-mean family run> --labels kth_1,kth_2,kth_3 --params 1,2,3
+# the geometry test (D40; workflow runs in the D40 entry): one job per model, the families' learned and head-mean runs on the command line
+uv run directions mixing --config configs/mixing.yaml --runs kth_word=<learned family run>:<head-mean family run> add_k=<learned add-k run>: lexical=<learned run>:<pilot run> --run-id mixing_<model>
 ```
 
 **The lens readout** (2 min; the Neuronpedia lens for `Qwen/Qwen3-8B`,
@@ -3958,6 +3960,106 @@ a distribution over the list's words) the head-mean construction is
 the one whose vectors carry a geometry to interpolate; the learned
 vectors are unique only in their effect.
 
+### D40: the geometry test (mixing two labels' controls)
+
+```
+# the learned add-k family (configs/arith_learned_<model>.yaml; seed 20260916): workflow runs 35796998014 (0.6B), 35797090248
+# (1.7B; every operand's stages completed and its results are on the volume; the job's final step failed on "Failed to create
+# virtual environment" after the run had written them), RTX 4090, EUR-NO-1; 35797021233 (8B Base), 35797856748 (4B), H100, US-CA-2.
+uv run directions pilot --config configs/arith_learned_qwen3_0.6b.yaml --seed 20260916 --run-id arith_learned_qwen3_0.6b_seed20260916
+# the mixing jobs (configs/mixing.yaml; one per model; the families' learned and head-mean runs on the command line): 35802682856
+# (0.6B), 35802971564 (1.7B), 35803451882 (OLMo 3 7B; kth_word and lexical), RTX 4090; 35802280049 (8B Base), 35802312816 (4B;
+# kth_word and add_k, its lexical runs being on the other volume), H100. The first requests 35799968077 (8B) and 35801857022 (4B)
+# crashed on the add-k head-mean construction (no head-mean run given: a path built before the skip) and are superseded; the
+# 0.6B request 35799761795 was cancelled before it started.
+uv run directions mixing --config configs/mixing.yaml --run-id mixing_qwen3_0.6b_seed20260916 --runs kth_word=/runpod-volume/results/run-35759981863/kth3_learned_qwen3_0.6b_seed20260916:/runpod-volume/results/run-35758124343/kth3_qwen3_0.6b_seed20260916 add_k=/runpod-volume/results/run-35796998014/arith_learned_qwen3_0.6b_seed20260916: lexical=/runpod-volume/results/run-35414652608/learned_qwen3_0.6b_seed20260916:/runpod-volume/results/run-35050574186/pilot6_qwen3_0.6b_seed20260916
+# the same per model with its run directories (the D39 and iteration-10 run ids above)
+```
+
+**The geometry test** (D40; five checkpoints, four learned add-k runs
+and five mixing jobs, determinism checks passed on every distribution
+readout; about 9 USD including the two crashed jobs). Two end labels'
+controls are mixed, v(t) = α · normalise((1 − t) u_a + t u_b), at
+label a's layer and strength, and the family's candidate continuations
+are read as masses at every t against the dilution null (each endpoint
+mixed with four random directions along the same path). The k-th word
+family (positions 1 and 3, the middle read as the intermediate) under
+both constructions, add-k (operands 1 and 5, 2 and 10) under the learned
+vector, and antonym / plural as the switch baseline.
+
+| model | k-th word, head mean: middle mass t = 0 / interior maximum (null there) / t = 1; verdict | k-th word, learned: the same | add-k, learned: best intermediate mass (null); verdicts of the two pairs | lexical baseline |
+|---|---|---|---|---|
+| Qwen3 0.6B | 0.10 / 0.30 at 0.6 (0.19) / 0.25; parameter, p 0.001 | 0.00 / 0.04 at 0.5 (0.05) / 0.01; switch | 0.05 (0.08); switch, parameter (add_5 0.04 vs 0.02, p 0.004) | switch, switch |
+| Qwen3 1.7B | 0.11 / 0.22 at 1.0 (0.19) / 0.22; switch | 0.00 / 0.07 at 0.5 (0.01) / 0.00; parameter, p 0.001 | 0.01 (0.06); switch, switch | switch, switch |
+| Qwen3 4B | 0.17 / 0.24 at 0.9 (0.20) / 0.24; switch | 0.00 / 0.10 at 0.6 (0.02) / 0.00; parameter, p 0.001 | 0.04 (0.01); parameter (add_3, p 0.001), switch | – |
+| Qwen3 8B Base | 0.23 / 0.26 at 0.5 (0.23) / 0.24; parameter, p 0.001 | 0.00 / 0.01 at 0.6 (0.00) / 0.00; switch | 0.03 (0.04); switch, switch | switch, switch |
+| OLMo 3 7B | 0.02 / 0.25 at 0.6 (0.09) / 0.10; parameter, p 0.001 | 0.00 / 0.05 at 0.3 (0.12) / 0.00; switch | – | switch, switch |
+
+The endpoints select their own label on every row (the position's
+mass at its own end: head mean 0.48–0.97 at t = 0 and 0.41–0.87 at
+t = 1; learned 1.00 and 0.99–1.00), and the two end masses cross on
+every k-th word and add-k row; the lexical baseline's two effects
+cross on every model under both constructions (head mean: antonym
++4.3 to +7.2 → −3.4 to +0.7 nats, plural −2.6 to −0.3 → +2.3 to
++5.8; learned: the far endpoint destructive, −7.8 to −21.1, as D39
+found for another position's learned vector).
+
+- **By the preregistered rule neither family is a parameter under
+  either construction.** The k-th word family reads as a parameter
+  under the head mean on the 0.6B and 8B (and OLMo 3) and under the
+  learned vector on the 1.7B and 4B: two of four Qwen3 sizes each,
+  short of three; add-k reads as a parameter on one pair each of the
+  0.6B and 4B, none on the 1.7B and 8B. Every other row is a switch.
+- **Where the head-mean control is strong, its mix produces the
+  middle word.** On the 0.6B and OLMo 3 the head means of the ends
+  carry their positions strongly (own masses 0.87–0.97 at their own
+  end) and the mix of the two puts 0.30 and 0.25 of the mass on the
+  middle word at t = 0.6, against 0.19 and 0.09 under dilution and
+  0.10–0.25 at the ends (excess 0.10 and 0.16, p 0.001). On the 8B the
+  reading is marginal (0.26 against a null of 0.23) and on the 4B and
+  1.7B absent, and there the head means are weak controls at the
+  canonical strength (own masses 0.48–0.78 at their own end, 0.41–0.57
+  at the other's), so their path has little range to read.
+- **The learned mix is a near-deterministic switch on every model.**
+  The endpoints' own masses go 1.00 → 0.00 and 0.00 → 1.00, the
+  middle word's mass never exceeds 0.10 (the interior bumps of 0.07
+  on the 1.7B and 0.10 on the 4B pass the rule against nulls of 0.01–
+  0.02 but are a third of what the head mean moves on the 0.6B), and
+  on the neighbouring pair (1, 2) the learned mix hands the mass to
+  neither position at t = 1 on three models (the middle control's own
+  mass 0.00 at its own end: its effect is a suppression of the other
+  words rather than a mass on the middle one, D39's destructive
+  cross-position effects seen from inside).
+- **Add-k never produces an intermediate operand.** The intermediate
+  masses stay at 0.00–0.05 at every weight on every size; the two
+  "parameter" rows are statistically real (0.04 against 0.01–0.02)
+  but a twentieth of an endpoint's mass. The learned add-k vectors are
+  near-orthogonal across operands (cosines 0.08–0.21, at or below the
+  seed spread, order test p 0.38–0.91 on the 0.6B), as the k-th word
+  learned vectors were (D39).
+- **The neighbouring pairs read as switches or neither**, never as
+  parameters (they have no intermediate to read); the head-mean pair
+  (2, 3) does not even select its own label at t = 0 on any model
+  (the middle position's head mean, at its own layer and strength,
+  leaves position 3's mass above position 2's), so the middle
+  position's head mean is the weakest control of the family.
+
+**Reading of the geometry test.** A control is a choice, not a
+value, under the construction that optimisation produces: the
+learned vectors of both families switch between their labels with
+nothing in between, on every size. The heads' mean output behaves
+differently: where it is a strong control of its own position (the
+smallest Qwen3 and OLMo 3) its mix with a neighbour's produces the
+position between them, at the weight the geometry predicts, above
+the dilution null. That is the parameter reading, and it is the
+head-mean construction's alone; it does not reach the preregistered
+three of four sizes because on the 1.7B, 4B and 8B the head means are
+weak controls at the canonical strength and their mixes have no
+range. The statement the test supports is therefore conditional: a
+control that is the model's own (the heads' write) can be a value on
+a dial; a control fitted to the output is a switch; and add-k is a
+switch under the only construction that carries it.
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
@@ -4090,7 +4192,7 @@ vectors are unique only in their effect.
 ## Next commands
 
 ```bash
-uv run pytest                                                           # 234 tests (the trajectories smoke run covers D32–D34; the backend tests run on the three toy families, D35)
+uv run pytest                                                           # 238 tests (the trajectories smoke run covers D32–D34; the backend tests run on the three toy families, D35)
 # GPU runs: edit .github/gpu-run.yaml (command + a new `request` label), commit, push; the run-gpu
 # workflow triggers on the push (README, "Run on GPUs"). One run per push; the ci environment runs
 # them one at a time (8B goes through the ci-8b environment in US-CA-2). Then:

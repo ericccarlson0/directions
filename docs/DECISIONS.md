@@ -2164,3 +2164,25 @@ Decision:
 * **Exploratory**: the same curves for the position pair (1, 2) and
   (2, 3) where the middle qualifies; the pair's path length (the angle
   between u_a and u_b) beside the curves.
+
+Amendment made while running: the first 8B and 4B jobs crashed on the
+add-k head-mean construction, for which no head-mean run is given
+(a path was built before the skip); fixed, the constructions without
+a run are skipped and noted, and the jobs re-run.
+
+Result (`STATUS.md`, D40; five checkpoints): by the preregistered
+rule neither family is a parameter under either construction. The
+k-th word family reads as a parameter under the head mean on the
+0.6B and 8B (and OLMo 3) and under the learned vector on the 1.7B
+and 4B, two of four Qwen3 sizes each; add-k on one pair each of the
+0.6B and 4B. The magnitudes decide the reading: where the head means
+are strong controls of their positions (the 0.6B and OLMo 3, own
+masses 0.87–0.97), their mix puts 0.30 and 0.25 of the mass on the
+middle word at t = 0.6 against 0.19 and 0.09 under dilution
+(p 0.001); where they are weak (the 1.7B, 4B and 8B, own masses
+0.48–0.78) the path has no range. The learned mix is a
+near-deterministic switch on every model (own masses 1.00 → 0.00,
+the middle word never above 0.10), and add-k never produces an
+intermediate operand (masses 0.00–0.05). The lexical baseline is a
+switch on every row. So: the optimiser's control is a choice; the
+heads' control can be a value, when it is a control at all.

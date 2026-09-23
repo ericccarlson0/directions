@@ -260,3 +260,24 @@ learned control's hand-over drifts above the heads' write depth on
 the larger models, where the lexical tasks' sat at it. The mixing
 test of the add-k geometry now has its second family and its
 construction: interpolate head means, read the position.
+
+*After the geometry test* (D40): the second test's answer is split by
+construction, and the split is the finding. Mixing two positions'
+learned vectors switches between them with nothing in between on
+every model, and mixing two operands' learned vectors likewise; the
+optimiser's control is a choice among programs. Mixing two positions'
+head means produces the position between them, at the weight the
+geometry predicts, on the models where the head means are strong
+controls (the smallest Qwen3 and OLMo 3), marginally on the 8B, and
+not where they are weak (1.7B, 4B), so it misses the preregistered
+three of four; but where it can be read, the heads' control is a
+value on a dial. Together with D39 (the head means ordered, the
+learned vectors not) and D38 (the same MLPs finish both), the picture
+of the transition is: the model's own control signal, what the heads
+deliver, is a parameter of the downstream computation; a control
+fitted from outside to produce the same output is admitted into the
+same computation but as a switch, and the computation that finishes
+it does not tell the difference. What would sharpen it is a head-mean
+control that is strong on every size (a strength sweep of the mix, or
+the mix of the heads' own outputs rather than their mean), and a
+second seed.
