@@ -175,9 +175,9 @@ class Mixing:
 
     def _endpoint(self, family: str, label: str, construction: str) -> tuple[Path, dict, dict]:
         learned_root, fv_root = self.runs[family]
-        root = Path(fv_root) if construction == "fv" else Path(learned_root)
         if construction == "fv" and fv_root is None:
             raise _Skip("no head-mean run given")
+        root = Path(fv_root) if construction == "fv" else Path(learned_root)
         td = root / "core" / "tasks" / label
         q = read_json(td / "qualification.json") if (td / "qualification.json").exists() else None
         if not q or not q.get("selection") or not (td / "directions.npz").exists():
