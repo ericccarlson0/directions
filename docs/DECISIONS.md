@@ -2312,3 +2312,20 @@ excludes per checkpoint); the stages are the two family runs and the
 landmark comparison with references (the all-to-all trajectories
 comparison of D32 is not run: the reference readout is the
 composition's version of it), the source stage as stated.
+
+Amendment on reading the first checkpoint (the 0.6B, before any other
+checkpoint's readout): the composed target shares tokens with the
+*second* step's own output on two compositions: uppercase∘plural's
+target starts with the uppercase of its input (" CATS" is the tokens
+" CAT" + "S"; " BOXES" is " BOX" + "ES") and uppercase∘last's target is
+the uppercase of a word in the prompt, so the uppercase reference on
+those two carries part of the composed answer by construction (on the
+0.6B, keeping the perturbation along the uppercase reference retains
+0.9 of uppercase∘plural's effect from the hand-over on). The verdict
+was always defined on the *first* step's reference (the one whose
+state is the intermediate), which is unaffected; the second step's
+reference is reported as the second-stage curve and, on these two
+compositions, is not read as evidence. uppercase∘antonym (" COLD" is
+" C" + "OLD", nothing of " HOT") and antonym∘last are free of the
+overlap and are the clean reads of both stages; the three-step case's
+inner references (last, antonym) are clean as well.
