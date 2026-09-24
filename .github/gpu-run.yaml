@@ -1,8 +1,8 @@
 # Request a GPU run: change this file, commit, push. The run-gpu workflow triggers on every push that changes
 # this file and runs `command` at the repository root on a RunPod worker. To re-request an identical command,
 # there needs to be a new `request` label. A manual workflow_dispatch ignores this file.
-request: mixing_gemma4_12b_seed20260907 # note that a new label re-requests the same command
-command: uv run directions mixing --config configs/mixing.yaml --run-id mixing_gemma4_12b_seed20260907 --runs kth_word=/runpod-volume/results/run-36062272090/kth3_learned_gemma4_12b_seed20260907:/runpod-volume/results/run-36062193752/kth3_gemma4_12b_seed20260907 lexical=/runpod-volume/results/run-35533914927/learned_gemma4_12b_seed20260907:/runpod-volume/results/run-35529659262/pilot6_gemma4_12b_seed20260907
+request: kth3_trajectories_gemma4_12b_seed20260907 # note that a new label re-requests the same command
+command: uv run directions trajectories --config configs/trajectories.yaml --fv-run /runpod-volume/results/run-36062193752/kth3_gemma4_12b_seed20260907 --learned-run /runpod-volume/results/run-36062272090/kth3_learned_gemma4_12b_seed20260907 --run-id kth3_trajectories_gemma4_12b_seed20260907
 gpu_tier: ADA_80_PRO         # memory class ("tier")
 gpu_type: ""              # exact device name to pin instead of the tier, e.g. "NVIDIA RTX A4500"
 datacenter: US-CA-2       # data center of the `directions` network volume
