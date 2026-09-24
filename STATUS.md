@@ -4044,12 +4044,13 @@ found for another position's learned vector).
   learned vectors were (D39).
 - **The neighbouring pairs read as switches or neither**, never as
   parameters (they have no intermediate to read): under the learned
-  vector both pairs are switches on every checkpoint; under the head
-  mean the pair (1, 2) is a switch on the 0.6B, 8B and OLMo 3 and
-  neither on the 1.7B, 4B and Gemma 4, and the pair (2, 3) is a
-  switch on OLMo 3 only, because the middle position's head mean, at
-  its own layer and strength, leaves position 3's mass above position
-  2's at t = 0 on the Qwen3 sizes (0.31–0.34 against 0.36–0.51): the
+  vector both pairs are switches on every checkpoint that has a
+  middle-position control (the 4B has none); under the head mean the
+  pair (1, 2) is a switch on the 0.6B, 8B and OLMo 3 and neither on
+  the 1.7B and Gemma 4, and the pair (2, 3) is a switch on OLMo 3
+  only, because the middle position's head mean, at its own layer and
+  strength, leaves position 3's mass above position 2's at t = 0 on
+  the Qwen3 sizes (0.31–0.34 against 0.36–0.51): the
   middle position's head mean is the weakest control of the family.
   (The verdicts of these pairs are the ones re-read at their own
   candidates, above.)
