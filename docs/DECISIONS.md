@@ -2329,3 +2329,38 @@ compositions, is not read as evidence. uppercase∘antonym (" COLD" is
 " C" + "OLD", nothing of " HOT") and antonym∘last are free of the
 overlap and are the clean reads of both stages; the three-step case's
 inner references (last, antonym) are clean as well.
+
+Result (`STATUS.md`, D41; five checkpoints): one hand-off, under
+both constructions, on every composition the checkpoints carry. By
+the preregistered rule the first component's reference reads
+composed only under the learned vector on every composition with
+three qualifying Qwen3 sizes and under the head mean on three of
+four (uppercase∘antonym undecided: two composed only, one staircase
+of 0.006 in cosine); the two staircases found are 0.014 and 0.006
+in cosine, real at n = 192 and nothing in size, and OLMo 3 reads
+composed only on 9 of 10 rows (the tenth a staircase of
+0.003). The composed control's perturbation is never closer
+to the model's state for step one than to its state for the
+composition by more than a hundredth of a cosine, at any read
+point before the hand-over; the components' own natural differences
+are themselves 0.85–0.98 aligned with the composition's at the
+injection read point (the shared component of D34), the first
+component's direction carries at most half of the composed effect
+and its removal costs more than 70 % of it on only 9 of 32 rows, and
+the composition hands over at its later component's read point
+(within one read point on 14 of 16 learned rows; median offset 0
+under the head mean), not after it. The serial test says how the
+composition is built: under the head mean the two components'
+vectors injected one after the other, at any depth of the grid,
+give the composed effect above the null and above the first alone
+on every row and size (0.74–1.06 of the composed task's own
+control, best at the shallowest layer), and their plain sum at the
+first layer does the same, so the model's own control for a
+composition is the sum of its components' controls in any order;
+under the learned vector the first component's vector alone
+suppresses the composed target (−4.5 to −13.8 nats/tok) and the
+sum recovers the composition on the 8B (four of five within 0.3
+nats/tok) but not below it. OLMo 3 reads as the 8B does (three of five sums within 0.3). So the transition happens
+once: these compositions are one relation to the model, the control
+selects it, and composition is superposition of selectors, not a
+second stage reading a finished intermediate.

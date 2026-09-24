@@ -3473,6 +3473,9 @@ uv run directions source --config configs/source.yaml --fv-run /runpod-volume/re
 uv run python scripts/family_geometry.py --learned-run <learned family run> --fv-run <head-mean family run> --labels kth_1,kth_2,kth_3 --params 1,2,3
 # the geometry test (D40; workflow runs in the D40 entry): one job per model, the families' learned and head-mean runs on the command line
 uv run directions mixing --config configs/mixing.yaml --runs kth_word=<learned family run>:<head-mean family run> add_k=<learned add-k run>: lexical=<learned run>:<pilot run> --run-id mixing_<model>
+# the composition test (D41; workflow runs in the D41 entry): the family's two runs, then the landmark comparison with references, then the serial injection, per model
+uv run python scripts/landmarks.py --config configs/trajectories_composition.yaml --fv-run <comp run> --learned-run <comp_learned run> --run-id comp_landmarks_<model>
+uv run directions serial --config configs/serial.yaml --fv-run <comp run> --learned-run <comp_learned run> --run-id serial_<model>
 ```
 
 **The lens readout** (2 min; the Neuronpedia lens for `Qwen/Qwen3-8B`,
@@ -4060,6 +4063,166 @@ control that is the model's own (the heads' write) can be a value on
 a dial; a control fitted to the output is a switch; and add-k is a
 switch under the only construction that carries it.
 
+### D41: the composition test (composed tasks read against their components; the serial injection)
+
+```
+# the composition family (configs/comp_<model>.yaml, head mean; comp_learned_<model>.yaml, learned; seed 20260916 on Qwen3, 20260907
+# on OLMo 3): workflow runs 0.6B 35888689011, 35889529426 (RTX 4090, EUR-NO-1); 1.7B 35892153522, 35902598859; 4B 35898154597,
+# 35910561291 (H100, US-CA-2); 8B Base 35889526573, 35897912271 (H100); OLMo 3 7B 35907267011 (stage 2 of that job), 35907370093
+# (stage 1; RTX 4090, EUR-NO-1, the second environment ci-b).
+uv run directions pilot --config configs/comp_qwen3_0.6b.yaml --seed 20260916 --run-id comp_qwen3_0.6b_seed20260916
+uv run directions pilot --config configs/comp_learned_qwen3_0.6b.yaml --seed 20260916 --run-id comp_learned_qwen3_0.6b_seed20260916
+# the landmark comparison with the components as references (configs/trajectories_composition.yaml): 0.6B 35897471298, 1.7B
+# 35903921179 (RTX 4090); 4B 35917241779, 8B 35904341597 (H100); OLMo 3 35907370093 (stage 2)
+uv run python scripts/landmarks.py --config configs/trajectories_composition.yaml --fv-run /runpod-volume/results/run-35888689011/comp_qwen3_0.6b_seed20260916 --learned-run /runpod-volume/results/run-35889529426/comp_learned_qwen3_0.6b_seed20260916 --run-id comp_landmarks_qwen3_0.6b_seed20260916
+# the serial injection test (configs/serial.yaml): 0.6B 35907267011 (stage 1), 1.7B 35911444328 (RTX 4090); 4B 35917457366, 8B
+# 35912349331 (H100); OLMo 3 35907370093 (stage 3)
+uv run directions serial --config configs/serial.yaml --fv-run /runpod-volume/results/run-35888689011/comp_qwen3_0.6b_seed20260916 --learned-run /runpod-volume/results/run-35889529426/comp_learned_qwen3_0.6b_seed20260916 --run-id serial_qwen3_0.6b_seed20260916
+# the same per model with its run directories; the OLMo 3 stages ran as two jobs of scripts/stages.py (docs/INFRA.md); then, on the downloads:
+uv run python scripts/composition_summary.py qwen3_0.6b=<landmark run> ... olmo3_7b=<landmark run> --out results/composition_summary.json
+uv run python scripts/serial_summary.py qwen3_0.6b=<serial run> ... olmo3_7b=<serial run> --out results/serial_summary.json
+```
+
+**The composition test** (D41; five checkpoints, four stages each,
+determinism checks passed on every run; about 32 USD, of which 20 on
+the H100). Four single-step components (antonym, uppercase, plural,
+the last word of a three-word list) and five compositions of them
+(uppercase∘antonym, uppercase∘plural, antonym∘last, uppercase∘last,
+uppercase∘antonym∘last) in one family-only run per construction;
+each composed control's perturbation read at every downstream read
+point against its components' natural differences on the same
+prompts (the component's demonstrations before the composed query);
+then the components' controls injected one after the other.
+
+*The gate.* The model itself cannot do the antonym compositions on the
+smallest checkpoints: on the 0.6B uppercase∘antonym (few-shot 0.37),
+antonym∘last (0.32) and the three-step case (0.14) fail the gate, on
+the 1.7B the three-step case (0.46); the 4B, 8B and OLMo 3 carry all
+five (three-step 0.60, 0.67, 0.62). Every gate-passing task qualified
+under both constructions on every checkpoint; the compositions'
+head-mean controls sit at the components' layers (every task of the
+family at layer 18 on the 4B, at 18 on the 8B but plural at 7) and
+their learned controls at the candidate layers of their components.
+
+| model | compositions in play | reference verdicts, head mean (first component) | learned | hand-over: composition − later component (head mean; learned) | serial, head mean: bright layers / grid; best serial as a share of the composed control | serial, learned: the same; the sum of the two vectors vs the composed control |
+|---|---|---|---|---|---|---|
+| Qwen3 0.6B | uppercase∘plural, uppercase∘last | composed only, composed only | composed only, composed only | 0, +1; 0, 0 | 4/4, 4/4; sum 3.7 vs 3.4, 5.2 vs 5.3 | 4/4, 4/4; 0.3 vs 4.7, 5.3 vs 5.9 |
+| Qwen3 1.7B | + uppercase∘antonym, antonym∘last | composed only ×4 | composed only ×3, staircase (uppercase∘plural, e 0.014) | −3 … −1; 0 ×3, +7 (antonym∘last) | 4/4 ×4, 5/5; 0.82, 0.89, 1.06, 0.87 | 0/3, 2/2, 1/1, 1/1, 2/4; −1.2 vs 6.0, −1.6 vs 4.4, −9.5 vs 5.8, −8.3 vs 5.2 |
+| Qwen3 4B | all five | composed only ×5 | composed only ×5 | −8, +5, 0, −4, +3; −1, 0, −1, 0, +1 | 4/4 ×5; 0.83, 0.94, 0.75, 1.05, 0.88 | 1/1, 3/3, 0/2, 2/2, 1/4; −1.5 vs 5.5, 0.1 vs 4.3, 2.1 vs 5.7, 5.2 vs 5.2, 3.2 vs 6.3 |
+| Qwen3 8B Base | all five | composed only ×4, staircase (uppercase∘antonym, e 0.006) | composed only ×5 | −4, +3, +1, 0, 0; −2, 0, −1, −1, 0 | 4/4 ×4, 7/7; 0.97, 0.91, 0.79, 0.96, 1.04 | 1/1, 3/3, 2/2, 2/2, 3/3; 6.8 vs 6.5, 4.5 vs 4.7, −0.5 vs 5.5, 6.1 vs 6.1, 6.9 vs 6.8 |
+| OLMo 3 7B | all five | composed only ×4, staircase (uppercase∘antonym, e 0.003) | composed only ×5 | 0, +3, +1, +1, +1; +3, 0, 0, 0, −1 | 6/6, 5/5, 6/6, 7/7, 5/5; 0.42, 0.82, 0.95, 0.92, 0.92 | 4/4, 2/2, 4/4, 4/4, 2/3; 9.5 vs 9.5, 6.7 vs 7.0, 1.6 vs 4.3, 6.1 vs 6.1, 4.0 vs 6.9 |
+
+Columns list the compositions in the order antonym∘last, uppercase∘antonym,
+uppercase∘last, uppercase∘antonym∘last, uppercase∘plural where a size
+carries all five (the 0.6B and 1.7B rows in the order of their second
+column). Run times: head-mean runs 26, 41, 48, 69 and 202 min (OLMo 3
+at batch 32 with four list tasks, D35), learned runs 45, 64, 43, 52 and
+153 min, landmark comparisons 9–15 min on Qwen3 and 46 on OLMo 3, the
+serial tests about a minute each; determinism checks passed on all 20
+runs.
+
+- **One hand-off, under both constructions, on every composition and
+  size.** By the preregistered rule the first component's reference
+  reads *composed only* under the learned vector on every composition
+  with three qualifying Qwen3 sizes (uppercase∘last 4 of 4,
+  uppercase∘plural 3 of 4, antonym∘last 3 of 3, uppercase∘antonym 3 of
+  3) and under the head mean on three of them (4/4, 4/4, 3/3;
+  uppercase∘antonym 2 composed only and 1 staircase, undecided); the
+  three-step case is composed only on both sizes that carry it, and
+  OLMo 3, the out-of-family check, reads composed only on 9 of its 10
+  rows (uppercase∘antonym under the head mean a staircase of 0.003
+  in cosine). The
+  two staircases the rule found on Qwen3 (uppercase∘plural, learned, 1.7B;
+  uppercase∘antonym, head mean, 8B) have excesses of 0.014 and 0.006
+  in cosine: statistically real at n = 192 and nothing in size.
+  Every positive excess before the hand-over on the 32 rows is at
+  most 0.015 in cosine (12 rows have one; none but the two above
+  lasts two read points), the largest after the hand-over is 0.05,
+  and the sign turns only at the final read point (after the last
+  block, on the 1.7B's and 8B's lexical rows, 0.15–0.26); the excess
+  is negative on the rest of the grid, by up to 0.27 before the
+  hand-over and up to 0.5 at the end. The composed control is never
+  closer to the model's state for step one than to its state for the
+  composition by more than a hundredth of a cosine.
+- **The components' own states are nearly the composition's.** The
+  cosine between the composition's natural difference and the first
+  component's on the same prompt is 0.85–0.98 at the injection read
+  point and still 0.5–0.94 at the hand-over: in the
+  model's own in-context computation "antonym" and
+  "uppercase∘antonym" are one direction until late, which is D34's
+  shared component seen between tasks, with the answer-side content
+  separating them at the end.
+- **The first component's direction is neither sufficient nor, in
+  general, necessary.** Keeping only the perturbation's component
+  along the first step's difference retains at most 0.07–0.54 of the
+  composed effect (0.72 on the 4B's two head-mean list rows);
+  removing it costs more than 70 % of the effect on 9 of the 32 rows
+  (uppercase∘antonym under the learned vector on the 8B, 0.03
+  retained; the 1.7B's head-mean lexical rows; the 4B's list rows)
+  and less than 30 % on 10.
+- **No systematic delay of the composed hand-over.** Under the learned
+  vector the composition hands over at the later component's read
+  point (within one read point on 14 of 16 rows; antonym∘last +7 on
+  the 1.7B and −2 on the 8B); under the head mean the offset runs
+  from −8 to +5 read points over 16 rows with a median of 0. D37's hint (the registry's two composed tasks handing over
+  after their components in the main runs) does not hold in the
+  family-only runs.
+- **Under the head mean the composition is the sum of its parts, at
+  any depth.** The first component's head mean at its own layer and
+  the second's at any later layer of the grid give the composed
+  effect above the null and above the first alone at every grid
+  layer on every composition and size (every layer of the grid on
+  all 24 head-mean rows of the five checkpoints), best at the
+  shallowest layer on Qwen3 and fading with depth (on OLMo 3 the best
+  layer is often the deepest); the best serial value is 0.74–1.06 of
+  the composed task's own control on Qwen3 and 0.42–0.95 on OLMo 3, and the plain sum of the two vectors at the
+  first layer is the same (within 1.6 nats/tok of the composed
+  control on every row, within 0.6 on 12 of 15). The first
+  component's head mean alone does little for the composed target
+  (−0.8 to +1.6 nats/tok), the second's alone more (+2.2 to +5.5,
+  the token overlap of the amendment included), and the pair is more
+  than their sum on the clean case: uppercase∘antonym +0.9 and +2.2
+  alone, +4.6 together on the 1.7B; +0.9, +2.3, +3.5 on the 4B;
+  +1.6, +3.5, +5.6 on the 8B.
+- **Under the learned vector the parts do not add, except on the 8B.**
+  The first component's learned vector alone suppresses the composed
+  target on every row (−4.5 to −13.8 nats/tok, D39's destructive
+  cross-task effect on Qwen3), and the sum of the two components' vectors
+  recovers the composed control on the 8B (four of five compositions
+  within 0.3 nats/tok; antonym∘last not) but on the 4B only for
+  uppercase∘last, on the 1.7B for none, and the 0.6B for
+  uppercase∘last only; OLMo 3 behaves like the 8B (three of five
+  within 0.3 nats/tok: uppercase∘antonym, antonym∘last,
+  uppercase∘last; its first vectors alone are less destructive,
+  −2.4 to −5.7). The serial grid (the second vector fitted at
+  the deeper layer) gives 0.8–1.0 of the composed control for
+  uppercase∘plural and uppercase∘last on every checkpoint, at the first
+  vector's own layer or one candidate deeper, and 0.2–0.3 for
+  uppercase∘antonym on every Qwen3 size (on the 8B the sum of the
+  two selected-layer vectors does compose it, +6.8 against +6.5) and
+  0.83 on OLMo 3.
+
+**Reading of the composition test.** The transition happens once. A
+composed task's control, whether the heads' mean output or a fitted
+vector, is converted into the composition's own state from the first
+read point after the injection and never passes through the
+component's; the model holds uppercase∘antonym as one relation, and
+the control selects it as it selects antonym. The serial test says
+how that relation is built: under the model's own construction the
+composed control *is* the sum of the components' controls, in any
+order and at any depth, so composition here is superposition of two
+selectors that the same MLPs convert together (Todd et al.'s
+composition by vector addition, reproduced on five checkpoints), not a
+second stage that reads a finished intermediate. The fitted vectors
+compose the same way only where the model is large (the 8B and OLMo
+3 7B): on the smaller checkpoints each fitted vector is a switch that shuts the
+other's target off (D39, D40), and the optimiser finds the composed
+switch directly. The staircase the positioning asked for would have
+needed a task whose intermediate is a state the model must hold and
+then transform; these lexical compositions, and the list
+compositions with them, are done by the model as one map, and the
+control follows the model.
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907
@@ -4192,7 +4355,7 @@ switch under the only construction that carries it.
 ## Next commands
 
 ```bash
-uv run pytest                                                           # 238 tests (the trajectories smoke run covers D32–D34; the backend tests run on the three toy families, D35)
+uv run pytest                                                           # 246 tests (the trajectories smoke run covers D32–D34; the backend tests run on the three toy families, D35)
 # GPU runs: edit .github/gpu-run.yaml (command + a new `request` label), commit, push; the run-gpu
 # workflow triggers on the push (README, "Run on GPUs"). One run per push; the ci environment runs
 # them one at a time (8B goes through the ci-8b environment in US-CA-2). Then:

@@ -281,3 +281,38 @@ it does not tell the difference. What would sharpen it is a head-mean
 control that is strong on every size (a strength sweep of the mix, or
 the mix of the heads' own outputs rather than their mean), and a
 second seed.
+
+*After the composition test* (D41): the first test's answer is one
+hand-off, not two, and it holds under both constructions and on every
+checkpoint. A composed task's control (uppercase∘antonym,
+uppercase∘plural, antonym∘last, uppercase∘last, the three-step
+uppercase∘antonym∘last) is converted into the composition's own state
+from the first read point after the injection; at no read point
+before the hand-over is its perturbation closer to the model's state
+for step one than to its state for the composition by more than a
+hundredth of a cosine, the first component's direction carries at
+most half of the composed effect, and the composition hands over at
+its later component's read point, not after it. The serial injection
+says what the composed control is: under the model's own construction
+the two components' head means, injected one after the other at any
+depth, or simply added, give the composed effect on every row and
+size, so the heads' control for a composition is the superposition of
+its components' controls, Todd et al.'s vector composition reproduced
+on five checkpoints; the fitted vectors add the same way only on
+the 8B, and below it each is a switch that shuts the other's target
+off. The intermediate the positioning asked for is therefore not a
+state the model holds and then transforms in these compositions: the
+model does uppercase∘antonym as one map (the components' own natural
+differences are 0.85–0.98 aligned with the composition's at the
+injection), the control selects that map, and the second step is
+carried by the same conversion, as a second selector added to the
+first. What it leaves open is the case the theory of depth is about
+(Merrill and Sabharwal 2023): a composition the model can only do
+with an intermediate it cannot verbalise in one step, where the
+serial injection would have to be bright only past the first
+control's hand-over. None of the five lexical compositions is such a
+case, and the smallest checkpoints fail the gate on the antonym
+compositions rather than doing them in two stages. The time axis
+(the control released at a chosen generated token, the thinking
+mode of the post-trained checkpoint) is now the test that can reach
+a computation the control does not select in one hand-off.
