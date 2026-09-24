@@ -4027,12 +4027,14 @@ found for another position's learned vector).
   The endpoints' own masses go 1.00 → 0.00 and 0.00 → 1.00, the
   middle word's mass never exceeds 0.10 (the interior bumps of 0.07
   on the 1.7B and 0.10 on the 4B pass the rule against nulls of 0.01–
-  0.02 but are a third of what the head mean moves on the 0.6B), and
-  on the neighbouring pair (1, 2) the learned mix hands the mass to
-  neither position at t = 1 on three models (the middle control's own
-  mass 0.00 at its own end: its effect is a suppression of the other
-  words rather than a mass on the middle one, D39's destructive
-  cross-position effects seen from inside).
+  0.02 but are a third of what the head mean moves on the 0.6B).
+  (Corrected after the Gemma 4 run: the exploratory pairs' end
+  labels were read at the candidates of positions 1 and 3 whatever
+  the pair, so an earlier sentence here read the learned pair (1, 2)
+  as handing its mass to neither position; re-read at their own
+  candidates from the stored masses, the learned neighbouring pairs
+  are switches on every checkpoint, the middle position taking 1.00
+  of the mass at its own end.)
 - **Add-k never produces an intermediate operand.** The intermediate
   masses stay at 0.00–0.05 at every weight on every size; the two
   "parameter" rows are statistically real (0.04 against 0.01–0.02)
@@ -4041,11 +4043,16 @@ found for another position's learned vector).
   seed spread, order test p 0.38–0.91 on the 0.6B), as the k-th word
   learned vectors were (D39).
 - **The neighbouring pairs read as switches or neither**, never as
-  parameters (they have no intermediate to read); the head-mean pair
-  (2, 3) does not even select its own label at t = 0 on any model
-  (the middle position's head mean, at its own layer and strength,
-  leaves position 3's mass above position 2's), so the middle
-  position's head mean is the weakest control of the family.
+  parameters (they have no intermediate to read): under the learned
+  vector both pairs are switches on every checkpoint; under the head
+  mean the pair (1, 2) is a switch on the 0.6B, 8B and OLMo 3 and
+  neither on the 1.7B, 4B and Gemma 4, and the pair (2, 3) is a
+  switch on OLMo 3 only, because the middle position's head mean, at
+  its own layer and strength, leaves position 3's mass above position
+  2's at t = 0 on the Qwen3 sizes (0.31–0.34 against 0.36–0.51): the
+  middle position's head mean is the weakest control of the family.
+  (The verdicts of these pairs are the ones re-read at their own
+  candidates, above.)
 
 **Reading of the geometry test.** A control is a choice, not a
 value, under the construction that optimisation produces: the

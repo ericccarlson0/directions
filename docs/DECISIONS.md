@@ -2170,6 +2170,16 @@ add-k head-mean construction, for which no head-mean run is given
 (a path was built before the skip); fixed, the constructions without
 a run are skipped and noted, and the jobs re-run.
 
+Amendment found on the Gemma 4 run (after the five-checkpoint
+result below): the exploratory pairs (1, 2) and (2, 3) were read
+with the end candidates of positions 1 and 3 whatever the pair, so
+their endpoint and crossing readings were wrong (the preregistered
+pair (1, 3) and the intermediate readings were not affected); fixed
+in `directions.mixing` (a label kth_k reads at pos_k), and the
+stored masses re-read: the learned neighbouring pairs are switches
+on every checkpoint, the head-mean ones switches or neither as
+`STATUS.md` now states.
+
 Result (`STATUS.md`, D40; five checkpoints): by the preregistered
 rule neither family is a parameter under either construction. The
 k-th word family reads as a parameter under the head mean on the

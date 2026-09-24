@@ -235,12 +235,16 @@ class Mixing:
         null_curves = [np.stack([_masses(self.backend, per_item, layer, alpha, mix(u_a, r, t)) for t in weights]) for r in r_a]
         null_curves += [np.stack([_masses(self.backend, per_item, layer, alpha, mix(r, u_b, t)) for t in weights]) for r in r_b]
         null_stack = np.stack(null_curves) if null_curves else np.empty((0, len(weights), len(items), real.shape[2]))
-        a_key = "pos_1" if pair.readout == "list_words" else a
-        b_key = "pos_3" if pair.readout == "list_words" else b
-        # list_words end labels kth_1/kth_3 read as pos_1/pos_3; intermediates kth_2 -> pos_2
-        inter_keys = [("pos_" + k.split("_")[1]) if pair.readout == "list_words" else k for k in pair.intermediates]
+        # list_words labels kth_<k> read as the candidate pos_<k> (the end labels and the intermediates alike)
+        a_key, b_key = _candidate_key(a, pair.readout), _candidate_key(b, pair.readout)
+        inter_keys = [_candidate_key(k, pair.readout) for k in pair.intermediates]
         v = verdict(weights, real, null_stack, keys, a_key, b_key, inter_keys, tuple(self.cfg.interior), rng, self.cfg.n_boot)
         return {**base, "n_items": len(items), **v}
+
+
+def _candidate_key(label: str, readout: str) -> str:
+    """The candidate key a label is read at: ``kth_<k>`` -> ``pos_<k>`` for the list-words readout, else the label."""
+    return f"pos_{label.rsplit('_', 1)[1]}" if readout == "list_words" else label
 
 
 def _prompt_cfg_for(cfg: Config, readout: str) -> PromptConfig:

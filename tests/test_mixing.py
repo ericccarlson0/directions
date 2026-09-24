@@ -3,7 +3,7 @@
 import numpy as np
 
 from directions.config import PromptConfig
-from directions.mixing import _candidate_prompts, mix, verdict
+from directions.mixing import _candidate_key, _candidate_prompts, mix, verdict
 from directions.tasks import Item
 
 
@@ -60,3 +60,9 @@ def test_verdict_neither_when_endpoints_do_not_cross():
     null = real[None].repeat(2, axis=0)
     v = verdict(W, real, null, ["pos_1", "pos_2", "pos_3"], "pos_1", "pos_3", ["pos_2"], (0.2, 0.8), rng, n_boot=200)
     assert not v["endpoints_cross"] and v["verdict"] == "neither"
+
+
+def test_candidate_key_maps_every_position_label_to_its_candidate():
+    """The end labels of the exploratory pairs (1, 2) and (2, 3) read at their own candidates, not at pos_1/pos_3."""
+    assert [_candidate_key(f"kth_{k}", "list_words") for k in (1, 2, 3)] == ["pos_1", "pos_2", "pos_3"]
+    assert _candidate_key("add_5", "operands") == "add_5" and _candidate_key("antonym", "own_targets") == "antonym"
