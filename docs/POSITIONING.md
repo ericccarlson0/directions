@@ -316,3 +316,16 @@ compositions rather than doing them in two stages. The time axis
 (the control released at a chosen generated token, the thinking
 mode of the post-trained checkpoint) is now the test that can reach
 a computation the control does not select in one hand-off.
+
+*Gemma 4 12B, added afterwards to D39–D41*: it agrees with the five
+checkpoints on the family's geometry and on one hand-off for the
+lexical-first compositions, and departs on two counts that point the
+same way: its fitted vectors mix through the middle position (the
+largest parameter reading of the geometry test), and on the list-first
+compositions its composed control passes closer to the last-word state
+than to the composition's own for an early window before the
+hand-over. On the one checkpoint whose head means are weak controls, the
+extractive step (which word) is the one that shows as a state of its own
+before the map is applied to it; that is the intermediate the
+positioning asked for, at cosine 0.1, on one model, and it is what the
+time axis should be built to amplify.

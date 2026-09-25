@@ -3886,6 +3886,7 @@ controls, the comparison, the landmarks and the source test.
 | Qwen3 4B | 0.99 / 0.47 / 0.96 (position 2 rejected) | 1.00 / – / 0.99 | 18, –, 18; +2.9, –, +3.3 | 14, –, 14; +3.5, –, +4.4 | +2.1 to +2.3 / −20.1 to −21.8 | – / – / 0.91 | 0.04 (0.13) |
 | Qwen3 8B Base | 1.00 / 0.70 / 0.96 | 0.96 / 0.75 / 0.93 | 18, 18, 18; +1.8, +2.6, +3.0 | 18, 14, 14; +2.8, +4.0, +3.9 | +0.9 to +2.5 / −17.6 to −22.6 | 0.89 / 0.94 / 0.86 | 0.06 (0.12) |
 | OLMo 3 7B | 1.00 / 0.66 / 0.94 (position 1 zero-shot 0.76) | 0.94 / 0.96 / 0.89 | 10, 16, 6; +1.0, +5.4, +6.6 | 10, 13, 6; +1.0, +6.6, +6.8 | −2.5 to +3.0 / −12.5 to −17.9 | 0.84 / 0.94 / 0.76 | 0.11 (0.36–0.46) |
+| Gemma 4 12B (run later, below) | 0.96 / 0.76 / 0.96 | 0.82 / 0.81 / 0.82 | 24, 24, 24; +0.7, +2.5, +3.4 | 14, 19, 19; +4.9, +7.3, +7.4 | +1.5 to +2.5 / −14.2 to −17.6 | 0.89 / 0.94 / 0.85 | 0.02–0.12 (0.04–0.23) |
 
 Every qualifying position passes every gate under both controls
 (held-out steering above the 48 matched random controls, p = 0.0005
@@ -3963,6 +3964,26 @@ a distribution over the list's words) the head-mean construction is
 the one whose vectors carry a geometry to interpolate; the learned
 vectors are unique only in their effect.
 
+**Gemma 4 12B, run later** (the five stages of the family; workflow
+runs 36062193752 (head mean, 31 min, the model re-downloaded to the
+US-CA-2 volume after the D39 clean-up; the Qwen3-4B cache was removed
+to make room), 36062272090 (learned, 36 min), 36069152885
+(trajectories, 13 min), 36069790952 (landmarks, 7 min), 36071687999
+(source, 2 min); H100, US-CA-2; determinism checks passed). The
+sixth checkpoint reads as the five did: every position passes the
+gate and qualifies under both constructions, the head means sit at
+one layer (24) with cross-label cosines 0.85–0.94 and are ordered by
+position (ρ +0.87, the most three labels can give), the learned
+vectors are near-orthogonal (0.02–0.12 at the candidate layers, at
+or below the seed spread; order test p ≥ 0.33) and destructive as
+other positions' controls (−14 to −18 nats/tok); the learned
+hand-overs are at read points 33, 39 and 33 of 48, at the heads'
+write depth (32.5), the head-mean ones at 21 (position 1's never
+reaches 0.9); the source stage's necessity removals are unreadable
+on Gemma 4 as in D38 (the random removals lose the effect too), the
+aligning increments MLP-written (attention share 0.16–0.21 steered,
+0.23–0.26 natural).
+
 ### D40: the geometry test (mixing two labels' controls)
 
 ```
@@ -3997,6 +4018,7 @@ vector, and antonym / plural as the switch baseline.
 | Qwen3 4B | 0.17 / 0.24 at 0.9 (0.20) / 0.24; switch | 0.00 / 0.10 at 0.6 (0.02) / 0.00; parameter, p 0.001 | 0.04 (0.01); parameter (add_3, p 0.001), switch | – |
 | Qwen3 8B Base | 0.23 / 0.26 at 0.5 (0.23) / 0.24; parameter, p 0.001 | 0.00 / 0.01 at 0.6 (0.00) / 0.00; switch | 0.03 (0.04); switch, switch | switch, switch |
 | OLMo 3 7B | 0.02 / 0.25 at 0.6 (0.09) / 0.10; parameter, p 0.001 | 0.00 / 0.05 at 0.3 (0.12) / 0.00; switch | – | switch, switch |
+| Gemma 4 12B (run later, below) | 0.23 / 0.28 at 0.7 (0.23) / 0.27; the intermediate rises (p 0.03) but position 1 keeps 0.54 of the mass at t = 1: the endpoints do not cross | 0.00 / 0.36 at 0.5 (0.22) / 0.00; parameter, p 0.009 | – | neither (the head-mean effects do not cross), switch |
 
 The endpoints select their own label on every row (the position's
 mass at its own end: head mean 0.48–0.97 at t = 0 and 0.41–0.87 at
@@ -4071,6 +4093,23 @@ control that is the model's own (the heads' write) can be a value on
 a dial; a control fitted to the output is a switch; and add-k is a
 switch under the only construction that carries it.
 
+**Gemma 4 12B, run later** (workflow run 36065649300, H100; the
+k-th word family and the lexical baseline; determinism check
+passed). The one clear parameter reading under the *learned* vector:
+mixing positions 1 and 3 puts 0.36 of the mass on the middle word at
+t = 0.5 against 0.22 under dilution (excess 0.14, p 0.009), with the
+endpoints crossing 1.00 → 0.00 and 0.00 → 1.00; on the Qwen3 sizes
+the learned middle mass never exceeded 0.10. Under the head mean the
+verdict function also says parameter (0.28 against 0.23, p 0.03) but
+the endpoints do not select their own labels (position 1 keeps 0.54
+at t = 1; Gemma 4's head means are weak controls, 0.23 × the
+residual norm at the canonical strength), so that row is an
+intermediate rise without a mix, a case D40's rule did not
+anticipate and which is not counted as a parameter reading here.
+The lexical baseline's head-mean effects do not cross either. The
+neighbouring pairs, re-read at their own candidates: learned
+switches, head mean neither (the amendment above).
+
 ### D41: the composition test (composed tasks read against their components; the serial injection)
 
 ```
@@ -4119,6 +4158,7 @@ their learned controls at the candidate layers of their components.
 | Qwen3 4B | all five | composed only ×5 | composed only ×5 | −8, +5, 0, −4, +3; −1, 0, −1, 0, +1 | 4/4 ×5; 0.83, 0.94, 0.75, 1.05, 0.88 | 1/1, 3/3, 0/2, 2/2, 1/4; −1.5 vs 5.5, 0.1 vs 4.3, 2.1 vs 5.7, 5.2 vs 5.2, 3.2 vs 6.3 |
 | Qwen3 8B Base | all five | composed only ×4, staircase (uppercase∘antonym, e 0.006) | composed only ×5 | −4, +3, +1, 0, 0; −2, 0, −1, −1, 0 | 4/4 ×4, 7/7; 0.97, 0.91, 0.79, 0.96, 1.04 | 1/1, 3/3, 2/2, 2/2, 3/3; 6.8 vs 6.5, 4.5 vs 4.7, −0.5 vs 5.5, 6.1 vs 6.1, 6.9 vs 6.8 |
 | OLMo 3 7B | all five | composed only ×4, staircase (uppercase∘antonym, e 0.003) | composed only ×5 | 0, +3, +1, +1, +1; +3, 0, 0, 0, −1 | 6/6, 5/5, 6/6, 7/7, 5/5; 0.42, 0.82, 0.95, 0.92, 0.92 | 4/4, 2/2, 4/4, 4/4, 2/3; 9.5 vs 9.5, 6.7 vs 7.0, 1.6 vs 4.3, 6.1 vs 6.1, 4.0 vs 6.9 |
+| Gemma 4 12B (run later, below) | all five | composed only ×3, staircase (uppercase∘last, e 0.03–0.05 at 20–27), component only (antonym∘last, e 0.10–0.15 at 21–28; no composed hand-over) | composed only ×4, staircase (uppercase∘last, e 0.04 at 22–23) | –, −1, −1, −1, −6; +4, 0, 0, 0, 0 | 1/4, 0/4, 1/4, 0/4, 1/5; 0.71, 0.64, 0.72, 1.38, 0.65 | 1/2, 1/1, 2/2, 0/4, 1/3; 1.0 vs 8.2, 3.5 vs 7.2, 3.9 vs 7.2, −0.8 vs 5.9, 3.4 vs 5.5 |
 
 Columns list the compositions in the order antonym∘last, uppercase∘antonym,
 uppercase∘last, uppercase∘antonym∘last, uppercase∘plural where a size
@@ -4209,6 +4249,32 @@ runs.
   uppercase∘antonym on every Qwen3 size (on the 8B the sum of the
   two selected-layer vectors does compose it, +6.8 against +6.5) and
   0.83 on OLMo 3.
+
+**Gemma 4 12B, run later** (workflow runs 36071091005 (head mean,
+88 min), 36079044960 (learned, 101 min), 36079186300 (landmarks with
+references, 34 min), 36086640733 (serial); H100; determinism checks
+passed; the six Gemma 4 jobs of D39–D41 about 25 USD). All nine
+tasks pass the gate (the three-step case 0.78) and qualify under
+both constructions. The reference readout is the one place the
+sixth checkpoint departs from the five: on the two list-first
+compositions the perturbation is closer to the last-word state than
+to the composition's own in an early window, uppercase∘last at read
+points 20–27 under the head mean (e 0.03–0.05) and 22–23 under the
+learned vector (0.04), then closer to the composition's after the
+hand-over (a staircase by the rule, the only ones of any size found
+here), and antonym∘last under the head mean at 21–28 with e
+0.10–0.15, larger than anything on Qwen3, with no negative window
+after it (its head-mean composed control never retains 0.9 of the
+effect, so it is *component only*); the three lexical-first
+compositions and the three-step case read composed only under both
+constructions. The causal edits are not read on Gemma 4 (the
+keep-along shares exceed 1 on its head-mean rows, the deep-half
+hypersensitivity of D35), and its serial test is weak under the head
+mean because its head-mean controls are (the composed controls
++0.5 to +3.9 nats/tok; the first component's head mean alone often
+does as much), while under the learned vector the sum of the
+components recovers about half of the composed control (3.4–3.9
+against 5.5–7.2 on three compositions).
 
 **Reading of the composition test.** The transition happens once. A
 composed task's control, whether the heads' mean output or a fitted

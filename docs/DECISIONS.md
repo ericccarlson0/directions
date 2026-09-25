@@ -2089,6 +2089,10 @@ all but two rows). The mixing test of the geometry test proper
 therefore has a construction with a geometry to interpolate, the
 head mean, and one without, the learned vector.
 
+Gemma 4 12B, run later (`STATUS.md`, D39): the sixth checkpoint reads as the
+five did (head means at one layer, ordered; learned vectors near-orthogonal
+and destructive across positions; learned hand-overs at the heads' write depth).
+
 ### D40. The geometry test: is a control a value or a choice? Mixing two labels' controls and reading the intermediate
 
 Context: D39 gives a parameterised family whose head means are
@@ -2196,6 +2200,13 @@ the middle word never above 0.10), and add-k never produces an
 intermediate operand (masses 0.00–0.05). The lexical baseline is a
 switch on every row. So: the optimiser's control is a choice; the
 heads' control can be a value, when it is a control at all.
+
+Gemma 4 12B, run later (`STATUS.md`, D40): under the learned vector the
+k-th word pair reads as a parameter with the largest middle mass of any
+checkpoint (0.36 at t = 0.5 against 0.22, p 0.009, endpoints crossing); under
+the head mean the intermediate rises (p 0.03) but the endpoints do not
+cross, a case the rule above did not anticipate and not counted as a
+parameter reading.
 
 ### D41. The composition test: is a control converted once, or once per step? Composed tasks read against their components
 
@@ -2374,3 +2385,13 @@ nats/tok) but not below it. OLMo 3 reads as the 8B does (three of five sums with
 once: these compositions are one relation to the model, the control
 selects it, and composition is superposition of selectors, not a
 second stage reading a finished intermediate.
+
+Gemma 4 12B, run later (`STATUS.md`, D41): all nine tasks qualify; the
+list-first compositions are the one departure from the five checkpoints
+above, with an early window in which the perturbation is closer to the
+last-word state than to the composition's own (uppercase∘last a
+staircase under both constructions, e 0.03–0.05; antonym∘last component
+only under the head mean, e 0.10–0.15); the lexical-first and three-step
+compositions composed only. Its causal edits are unreadable (D35) and its
+head-mean controls too weak for the serial test; the learned sum recovers
+about half of the composed control.
