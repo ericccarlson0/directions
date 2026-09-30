@@ -2547,3 +2547,19 @@ past the last block is bit-identical to no masking, masking from block
 k leaves read points up to k untouched, and masking every block makes
 the query's residuals bit-identical between prompts that differ only in
 their demonstrations.
+
+Amendment on the CPU trial (Qwen3 0.6B, not a checkpoint of this test,
+16 prompts of uppercase∘antonym, a composition the 0.6B fails at the
+gate; before any checkpoint was run): the natural lens readout, as
+written, has no null. On the trial it read "lens-staged" from windows
+starting at read points 2 and 5, where the lens of the few-shot run
+moves every token the demonstrations contain, and the final token's
+own window came only at the last read point, so any early movement of
+the intermediate satisfies the rule. The natural readout gets the null
+the controls already have: the composition's demonstrations with their
+outputs deranged (the trajectories stage's derangement, D32, same
+seed), which carry the same words and no mapping. The intermediate's
+gain under the composition's demonstrations must exceed its gain under
+the deranged ones (paired excess test, p ≤ 0.05) in the window. The
+power check on the first component's demonstrations is unchanged
+(λ_int > 0), and nothing else changes.

@@ -31,7 +31,7 @@ from ._version import __version__
 from .config import StagingComposition, StagingConfig
 from .determinism import compare_arrays, forward_arrays
 from .model import ContextMask, ForwardResult, Intervention, ModelBackend, environment_metadata, set_torch_determinism
-from .prompts import Prompt, few_shot_prompt, zero_shot_prompt
+from .prompts import Prompt, deranged_prompt, few_shot_prompt, zero_shot_prompt
 from .runinfo import git_info, read_json, setup_logging, write_json
 from .seeds import derive_seed, rng_for
 from .serial import _Skip, load_control
@@ -205,16 +205,17 @@ class Staging:
         L1, N, _ = H.shape
         out = {f"lp_{k}": np.full((L1, N), np.nan) for k in token_sets}
         out.update({f"rank_{k}": np.full((L1, N), np.nan) for k in token_sets})
-        idx = {k: torch.as_tensor(v, device=self.backend.device) for k, v in token_sets.items()}
-        for m in range(1, L1):
-            for s in range(0, N, 64):
-                logits = self.backend.logits_from_residual(H[m, s : s + 64])
-                lps = torch.log_softmax(logits, dim=-1)
-                for k, ids in idx.items():
-                    sel = ids[s : s + 64, None]
-                    g = torch.gather(lps, 1, sel)
-                    out[f"lp_{k}"][m, s : s + 64] = g[:, 0].double().cpu().numpy()
-                    out[f"rank_{k}"][m, s : s + 64] = (lps > g).sum(1).double().cpu().numpy()
+        flat = H[1:].reshape(-1, H.shape[-1])  # (L * N, d): read point m = 1 + row // N, prompt row % N
+        ids = {k: torch.as_tensor(np.tile(v, L1 - 1), device=self.backend.device) for k, v in token_sets.items()}
+        chunk = 256
+        for s in range(0, flat.shape[0], chunk):
+            lps = torch.log_softmax(self.backend.logits_from_residual(flat[s : s + chunk]), dim=-1)
+            rows = np.arange(s, min(s + chunk, flat.shape[0]))
+            m, n = 1 + rows // N, rows % N
+            for k, v in ids.items():
+                g = torch.gather(lps, 1, v[s : s + chunk, None])
+                out[f"lp_{k}"][m, n] = g[:, 0].double().cpu().numpy()
+                out[f"rank_{k}"][m, n] = (lps > g).sum(1).double().cpu().numpy()
         return out
 
     def _composition(self, comp: StagingComposition) -> dict[str, Any]:
@@ -263,10 +264,14 @@ class Staging:
         # natural captures
         base = self._capture(zs)
         icl = self._capture(fs)
-        H: dict[str, np.ndarray] = {"base": base.residuals, "icl": icl.residuals}
+        # the natural lens readout's null: the same demonstrations with their outputs deranged (the trajectories
+        # stage's derangement, the same seed), which carry the same words and no mapping (D42 amendment)
+        drng = rng_for(cfg.seed, "trajectories_derangement", name)
+        deranged = self._capture([deranged_prompt(pc, p, drng) for p in fs])
+        H: dict[str, np.ndarray] = {"base": base.residuals, "icl": icl.residuals, "deranged": deranged.residuals}
         for r in comp.references:
             H[f"ref_{r}"] = self._capture(ref_prompts[r]).residuals
-        out["conditions"] = {"base": base.metrics_dict(), "icl": icl.metrics_dict()}
+        out["conditions"] = {"base": base.metrics_dict(), "icl": icl.metrics_dict(), "deranged": deranged.metrics_dict()}
         d_c = H["icl"] - H["base"]
         d_ref = {r: H[f"ref_{r}"] - H["base"] for r in comp.references}
 
@@ -423,7 +428,8 @@ class Staging:
                       arrays: dict[str, np.ndarray]) -> dict[str, Any]:
         cfg, L = self.cfg, self.backend.n_layers
         first_ref = f"ref_{comp.references[0]}"
-        sources = {"base": H["base"], "icl": H["icl"], first_ref: H[first_ref], **{k: v["H"] for k, v in conds.items()}}
+        sources = {"base": H["base"], "icl": H["icl"], "deranged": H["deranged"], first_ref: H[first_ref],
+                   **{k: v["H"] for k, v in conds.items()}}
         lens = {k: self._lens(h, token_sets) for k, h in sources.items()}
         for k, v in lens.items():
             for kk, arr in v.items():
@@ -440,7 +446,7 @@ class Staging:
                 continue
             for key in ["icl", first_ref, *[k for k in conds if not conds[k].get("null")]]:
                 start = conds[key]["layer"] + 1 if key in conds else 1
-                iso_keys = conds[key]["iso"] if key in conds else []
+                iso_keys = conds[key]["iso"] if key in conds else (["deranged"] if key == "icl" else [])
                 pts = list(range(start, L + 1))
                 gi = lens[key][f"lp_{ik}"][:, sel] - lens["base"][f"lp_{ik}"][:, sel]
                 gf = lens[key]["lp_fin"][:, sel] - lens["base"]["lp_fin"][:, sel]
