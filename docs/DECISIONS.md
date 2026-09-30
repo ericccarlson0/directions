@@ -2395,3 +2395,141 @@ only under the head mean, e 0.10–0.15); the lexical-first and three-step
 compositions composed only. Its causal edits are unreadable (D35) and its
 head-mean controls too weak for the serial test; the learned sum recovers
 about half of the composed control.
+
+## 2026-09-30 — The composition test with readouts that can see an intermediate
+
+### D42. The composition test re-run: component-specific references, the logit lens, and context masking
+
+Context: D41 read "one hand-off" from a readout that had little room to
+read anything else. Its statistic compared the composed control's
+perturbation against two natural differences, the first component's
+and the composition's, that are themselves 0.85–0.98 aligned at the
+injection read point (D41's own result): the difference of two cosines
+against nearly the same direction is small whatever the perturbation
+does. The one checkpoint whose references separate most (Gemma 4) is
+also the one that read an intermediate. And D41's reading conflicts with
+published work on the same kind of task: Yang et al., "Internal
+Chain-of-Thought" (EMNLP 2025, arXiv 2505.14530) find staged execution
+of composite in-context tasks (antonym–uppercase, choose_last–…) in 3–8B
+models, with the intermediate answer decodable by the logit lens in the
+middle layers and an X-shaped pattern under layer-wise context masking.
+Neither readout was run here. This test asks D41's question again with
+readouts that can see an intermediate, and asks it of the model's own
+in-context computation as well as of the injected control, because the
+contrast between the two is the project's question: does a control skip
+a step the model's own computation takes?
+
+Written before any readout of this test was run. D41's results
+(including Gemma's list-first departure) were known when it was
+written; no new data was looked at.
+
+Decision:
+
+* **Inputs.** The D41 family runs, unchanged (their controls, layers,
+  strengths and splits): Qwen3 4B and 8B Base (seed 20260916), OLMo 3
+  7B and Gemma 4 12B (seed 20260907). The 0.6B and 1.7B are not run: the
+  antonym compositions fail the gate there, and the lens is weakest on
+  small models. A new stage, `directions staging` (`src/directions/staging.py`,
+  `configs/staging.yaml`), reads each composition's held-out prompts
+  (all 192) with the prompts D41 used: the zero-shot query, the
+  composition's own demonstrations (the pipeline's few-shot prompts),
+  and each component's demonstrations before the composed query (D41's
+  reference prompts, the same seeds).
+* **The intermediate and the final token.** Per item, the intermediate
+  is the first step's output on the item's input (hot → cold for
+  uppercase∘antonym; the last word for the list-first compositions; for
+  the three-step case both the last word and its antonym), rendered with
+  the target template; the final token is the composed target's. The
+  lens readouts use the first token of each, and drop the items where
+  the two first tokens coincide (recorded per composition).
+* **Readout 1, component-specific references (the injected control;
+  D41's statistic with the shared part removed).** At every read point m
+  after the injection layer and per prompt, the first component's
+  natural difference d_g and the composition's d_c are each
+  residualised against the other: g⊥ = d_g minus its projection on d_c,
+  c⊥ = d_c minus its projection on d_g. The statistic is
+  e⊥(m) = cos(Δ, g⊥) − cos(Δ, c⊥), Δ the composed control's
+  perturbation (steered minus zero-shot). The signs of the two cosines
+  are the signs of Δ's coefficients on d_g and d_c in the least-squares
+  fit of Δ on both, so e⊥ reads which of the two *specific* directions
+  the perturbation takes, and not the shared one. The same statistic is
+  computed for the matched isotropic control (a random direction at the
+  composed control's layer and strength). The room the test has,
+  |g⊥|/|d_g| per read point, is reported beside it. A read point is
+  positive when e⊥ > 0 by the one-sided paired bootstrap and by the
+  paired excess over the isotropic control (both p ≤ 0.05), negative
+  when the same holds for e⊥ < 0; a window is two consecutive read
+  points. *Staircase*: a positive window followed, at a deeper read
+  point, by a negative window. *Composed only*: no positive window.
+  *Component only*: a positive window and no negative window after it.
+  (D41's split at the hand-over is dropped: the hand-over is a readout
+  of the same D41 statistic this test replaces.) For the three-step
+  case each inner component is read separately.
+* **Readout 2, the logit lens (the injected control and the model's
+  own computation).** At every read point m ≥ 1, the query-token
+  residual is read through the final norm and the unembedding (the
+  backend's `logits_from_residual`), and the log-probabilities of the
+  intermediate's and the final's first tokens are taken, as gains over
+  the zero-shot run at the same read point: λ_int(X, m) and λ_fin(X, m)
+  for each condition X. The conditions: the composition's
+  demonstrations (the model's own computation), the composed control
+  under each construction, its matched isotropic control, and the
+  first component's demonstrations (the lens's positive control: its
+  answer is the intermediate). *Lens-staged* for X: a window in which
+  λ_int(X) > λ_fin(X) (one-sided paired bootstrap, p ≤ 0.05) and
+  λ_int(X) > 0 (paired bootstrap against the zero-shot run; for a
+  control, also the paired excess over the isotropic control's
+  λ_int, p ≤ 0.05), which begins before the first window in which
+  λ_fin(X) > λ_int(X) by the same test. The median rank of the
+  intermediate is reported beside it.
+* **Readout 3, layer-wise context masking (the model's own computation;
+  Internal CoT's method).** On the composition's few-shot prompts, from
+  block L onwards the query and target positions may not attend to the
+  demonstrations (every token of the prompt before the query; a leading
+  special token stays visible). L runs over every block, 0 (the
+  demonstrations are never read) to n (unmasked). At the query position
+  the first-token log-probabilities of the intermediate and the final
+  are read, with their top-1 rates. *Masking-staged*: a window of two
+  consecutive L in which the intermediate's log-probability exceeds
+  both its value at L = 0 and at L = n (one-sided paired bootstrap,
+  p ≤ 0.05 each). This readout has no steered counterpart: a control
+  injected at one layer has nothing left to be read after that layer.
+* **Power checks, per checkpoint and construction.** The first
+  component's own control alone (its layer and strength, D41's serial
+  "first alone") injected on the composed prompts is a perturbation
+  that carries step one and nothing else. Readout 1 must read it with a
+  positive window and readout 2 with λ_int above the isotropic control
+  in a window; where it does not, that readout has no power on that
+  checkpoint and construction, and its reading of the composed control
+  is reported and not counted. Readout 2 on the first component's
+  demonstrations must show λ_int > 0 in a window, else the lens is
+  without power on that checkpoint (all its readings uncounted).
+* **Readings.** Per checkpoint and composition: the model's own
+  computation is *staged* when readout 2 (composition's demonstrations)
+  or readout 3 says so, *one step* when both are counted and neither
+  does. The injected control is *staged* under a construction when a
+  counted readout 1 reads a staircase or a counted readout 2
+  lens-stages, *one step* when both are counted and neither does. A
+  reading holds across checkpoints when at least three of the four
+  read so with both readouts' power checks passed on those three. The
+  primary compositions are the three free of D41's token overlap:
+  uppercase∘antonym, antonym∘last and the three-step case;
+  uppercase∘plural and uppercase∘last are read and reported (their
+  first-step references are clean, their second-step ones are not,
+  D41 amendment).
+* **Predictions.** None on the direction: the four combinations of
+  natural and steered readings are each a finding (natural staged and
+  control staged: D41 was a power failure; natural staged and control
+  one step: the control skips a step the model takes; both one step:
+  D41 stands with a test that could have failed and Internal CoT's
+  staging does not hold for these models and tasks; natural one step
+  and control staged would be the surprise).
+* **Exploratory.** The removal edit along g⊥ at every read point
+  against two random directions (D33 mechanics; is the step-one-specific
+  part necessary before the hand-over?); the readouts on the serial
+  construction (the first component's head mean at its layer, the
+  second's 20 % of the stack deeper, D41's serial test), which should
+  read staged by construction; the top-1 rates of the masking readout.
+* **Runs.** One job per checkpoint, on the tier and data center of that
+  checkpoint's D41 runs; the in-run determinism check (D23: one steered
+  capture and one masked pass repeated, bit identity required).
