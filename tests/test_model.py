@@ -184,3 +184,54 @@ def test_sublayer_writes_sum_to_the_residual_increments(backend, prompts):
             for b in backend.blocks:
                 b.layer_scalar.fill_(1.0)
             backend.block_scalars = [1.0] * 4
+
+
+def _spans(backend, prompts, cfg):
+    return np.array([backend.context_span(p, len(p.prompt) - len(cfg.query_template.format(input=p.query.input))) for p in prompts])
+
+
+def test_context_span_covers_the_demonstrations(backend, prompts):
+    """D42: the span ends where the query's tokens begin (the char tokenizer splits nowhere else)."""
+    cfg = PromptConfig(n_shots=3)
+    for p, (start, end) in zip(prompts, _spans(backend, prompts, cfg)):
+        query = cfg.query_template.format(input=p.query.input)
+        assert start == 0 and end == len(backend.tokenizer.encode(p.prompt[: len(p.prompt) - len(query)]))
+
+
+def test_context_mask(backend, prompts):
+    """D42: layer-wise context masking. Masking from past the last block changes nothing; masking from block k leaves
+    the residuals up to read point k untouched and changes them after; masking every block makes the query blind to
+    the demonstrations' content (two prompts that differ only in their demonstrations, at equal length, give
+    bit-identical query residuals and scores); a batch with padding equals the prompts run one at a time."""
+    from dataclasses import replace
+
+    from directions.model import ContextMask
+
+    cfg = PromptConfig(n_shots=3)
+    spans = _spans(backend, prompts, cfg)
+    L = backend.n_layers
+    full = backend.run(prompts, capture=True)
+    none = backend.run(prompts, capture=True, context_mask=ContextMask(L, spans))
+    assert np.array_equal(full.residuals, none.residuals) and np.array_equal(full.logprob_sum, none.logprob_sum)
+    k = 2
+    part = backend.run(prompts, capture=True, context_mask=ContextMask(k, spans))
+    assert np.array_equal(part.residuals[: k + 1], full.residuals[: k + 1])
+    assert not np.allclose(part.residuals[k + 1], full.residuals[k + 1])
+    # blind to the demonstrations' content: swap each demonstration's output for another of the same length
+    p = prompts[0]
+    items = build_task("antonym").items
+    swapped = []
+    for d in p.demos:
+        other = next(it for it in items if len(it.output) == len(d.output) and it.output != d.output)
+        swapped.append(type(d)(d.input, other.output))
+    q = replace(p, prompt=p.prompt.replace(p.demos[0].output, swapped[0].output, 1), demos=tuple(swapped))
+    assert q.prompt != p.prompt and len(q.prompt) == len(p.prompt)
+    both = [p, q]
+    sp = _spans(backend, both, cfg)
+    blind = backend.run(both, capture=True, context_mask=ContextMask(0, sp))
+    assert np.array_equal(blind.residuals[:, 0], blind.residuals[:, 1]) and blind.logprob_sum[0] == blind.logprob_sum[1]
+    seeing = backend.run(both, capture=True)
+    assert not np.allclose(seeing.residuals[-1, 0], seeing.residuals[-1, 1])
+    # batched (padded, the model's own mask edited) against one at a time (no padding: the mask rebuilt)
+    one = np.concatenate([backend.run([pp], capture=True, context_mask=ContextMask(1, s[None])).residuals for pp, s in zip(prompts, spans)], axis=1)
+    np.testing.assert_allclose(backend.run(prompts, capture=True, context_mask=ContextMask(1, spans)).residuals, one, rtol=1e-5, atol=1e-5)

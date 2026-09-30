@@ -1,0 +1,19 @@
+# Smoke test of `directions staging` (docs/DECISIONS.md D42) on the toy model: reads finished smoke_toy_fv.yaml and
+# smoke_toy_learned.yaml runs (tests/test_trajectories.py); the toy composes nothing. Nothing here is a result.
+name: smoke_toy_staging
+seed: 1234
+output_dir: results
+n_prompts: 6
+n_boot: 100
+alpha: 0.05
+constructions: [fv, learned]
+n_isotropic: 1
+masking: true
+removal_edits: true
+n_edit_controls: 1
+serial_offset_fraction: 0.25
+determinism_check: true
+compositions:
+  - task: add_3
+    references: [antonym, number_to_words]
+    intermediates: [{label: same, steps: [uppercase]}]

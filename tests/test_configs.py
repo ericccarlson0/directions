@@ -31,6 +31,12 @@ def test_all_configs_load():
             cfg = load_serial_config(p)
             assert cfg.compositions and all(len(c.steps) == 2 for c in cfg.compositions), p
             continue
+        if p.name in ("staging.yaml", "smoke_toy_staging.yaml"):  # the composition test re-run's own config (D42)
+            from directions.config import load_staging_config
+
+            cfg = load_staging_config(p)
+            assert cfg.compositions and all(c.references and c.intermediates for c in cfg.compositions), p
+            continue
         cfg = load_config(p)
         assert cfg.tasks, p
 

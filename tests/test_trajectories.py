@@ -465,3 +465,47 @@ def test_smoke_serial(smoke_runs):
     assert main(["serial", "--config", str(cfg_path), "--learned-run", str(runs["learned"]), "--output-dir", str(out), "--run-id", "serial2"]) == 0
     summary = json.loads((out / "serial2" / "core" / "summary.json").read_text())
     assert [c["construction"] for c in summary["compositions"]] == ["learned"] and summary["skipped"][0]["construction"] == "fv"
+
+
+def test_smoke_staging(smoke_runs, monkeypatch):
+    """D42: the staging test on the toy runs (add_3 read with antonym as step one, which composes nothing; the
+    mechanics only): every readout written, the determinism checks passed, the verdicts well formed. The toy's
+    character tokenizer starts every target with the space, so the lens reads each word's last character here."""
+    from directions.config import load_staging_config
+    from directions.staging import Staging
+
+    monkeypatch.setattr(Staging, "_first_token", lambda self, text: int(self.backend.tokenizer.encode(text)[-1]))
+    out, runs = smoke_runs
+    cfg_path = CONFIGS / "smoke_toy_staging.yaml"
+    cfg = load_staging_config(cfg_path)
+    assert main(["staging", "--config", str(cfg_path), "--fv-run", str(runs["fv"]), "--learned-run", str(runs["learned"]),
+                 "--output-dir", str(out), "--run-id", "staging"]) == 0
+    root = out / "staging"
+    meta = json.loads((root / "metadata.json").read_text())
+    assert meta["determinism_check"]["steered"]["identical"] and meta["determinism_check"]["masked"]["identical"]
+    summary = json.loads((root / "core" / "summary.json").read_text())
+    assert not summary["skipped"] and summary["compositions"][0]["task"] == "add_3"
+    res = json.loads((root / "core" / "add_3" / "staging.json").read_text())
+    L = res["n_layers"]
+    assert res["n_items"] == cfg.n_prompts and res["intermediates"]["same"]["n_lens_items"] > 1
+    m = res["masking"]["per_intermediate"]["same"]
+    assert len(m["lp_int_mean"]) == L + 1 and len(m["p_above_masked"]) == L + 1
+    assert set(res["controls"]) == {"fv", "learned"}
+    ref = res["references_perp"]["antonym"]
+    assert len(ref["room"]) == L + 1
+    for key in ("fv:composed", "fv:first_alone", "fv:serial", "learned:composed", "learned:first_alone"):
+        assert ref[key]["verdict"]["verdict"] in ("staircase", "composed_only", "component_only"), key
+        assert res["lens"]["same"][key]["verdict"]["staged"] in (True, False)
+    layer = res["controls"]["fv"]["layer"]
+    assert [r["read_point"] for r in ref["fv:composed"]["rows"]] == list(range(layer + 1, L + 1))
+    assert all(r["p_pos_over_iso"] is not None for r in ref["fv:composed"]["rows"])
+    assert [r["read_point"] for r in res["lens"]["same"]["icl"]["rows"]] == list(range(1, L + 1))
+    assert set(res["removal_edits"]) == {"fv:composed", "learned:composed"}
+    v = res["verdicts"]
+    assert set(v["natural"]) >= {"lens_staged", "lens_power", "masking_staged", "staged"}
+    for c in ("fv", "learned"):
+        assert v["controls"][c]["reading"] in ("staged", "one_step", "undecided")
+    arrays = np.load(root / "core" / "add_3" / "staging_arrays.npz")
+    assert arrays["masking_lp_fin"].shape == (L + 1, cfg.n_prompts) and "eperp_antonym_fv_composed" in arrays
+    # the unmasked masking pass is the plain few-shot run
+    assert np.isfinite(arrays["lens_icl_lp_fin"][1:]).all()

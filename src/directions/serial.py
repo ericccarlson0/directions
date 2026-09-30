@@ -79,33 +79,10 @@ class Serial:
     # ------------------------------------------------------------------ #
 
     def _control(self, label: str, construction: str) -> dict[str, Any]:
-        """A task's control under a construction: its unit direction(s), selected layer and strength; the learned
-        vector per candidate layer with the calibration's strength there."""
-        if construction == "fv" and self.fv_root is None:
-            raise _Skip("no head-mean run given")
         root = self.fv_root if construction == "fv" else self.learned_root
-        assert root is not None
-        td = root / "core" / "tasks" / label
-        q = read_json(td / "qualification.json") if (td / "qualification.json").exists() else None
-        if not q or not q.get("selection") or not (td / "directions.npz").exists():
-            raise _Skip(f"{label} not qualified under {construction}")
-        arr = dict(np.load(td / "directions.npz"))
-        layer = int(q["selection"]["layer"])
-        cal = read_json(td / "calibration.json") if (td / "calibration.json").exists() else None
-        if construction == "fv":
-            if "fv_direction" not in arr:
-                raise _Skip(f"{label}: no head-mean vector")
-            u = _unit(arr["fv_direction"])
-            strength = alpha_from_calibration(cal, layer) or {"alpha": float(np.linalg.norm(arr["fv"])), "source": "natural_norm"}
-            return {"label": label, "layer": layer, "alpha": float(strength["alpha"]), "alpha_source": strength.get("source"),
-                    "by_layer": None, "unit": u, "task_dir": td}
-        layers = [int(l) for l in arr["layers"]]
-        by_layer: dict[int, tuple[np.ndarray, float, str]] = {}
-        for i, l in enumerate(layers):
-            s = alpha_from_calibration(cal, l) or {"alpha": float(arr["learned_radii"][i]), "source": "radius"}
-            by_layer[l] = (_unit(arr["learned"][i]), float(s["alpha"]), str(s.get("source")))
-        u, alpha, src = by_layer[layer]
-        return {"label": label, "layer": layer, "alpha": alpha, "alpha_source": src, "by_layer": by_layer, "unit": u, "task_dir": td}
+        if root is None:
+            raise _Skip("no head-mean run given")
+        return load_control(root, label, construction)
 
     def _second(self, ctl: dict[str, Any], layer: int) -> tuple[np.ndarray, float, str] | None:
         """The second control's direction and strength at ``layer``: the head mean is one vector at its selected
@@ -198,6 +175,33 @@ class Serial:
                       comp.task, construction, bright, out["reading"], out["superposition_at_first_layer"]["effect"],
                       "n/a" if cc is None else f"{out['composed_control']['effect']:+.3f}")
         return out
+
+
+def load_control(root: Path, label: str, construction: str) -> dict[str, Any]:
+    """A task's control under a construction from its family run (``root``, the head-mean run for ``fv``, the
+    learned run for ``learned``): its unit direction(s), selected layer and strength; the learned vector per
+    candidate layer with the calibration's strength there. Raises ``_Skip`` when the task has none."""
+    td = root / "core" / "tasks" / label
+    q = read_json(td / "qualification.json") if (td / "qualification.json").exists() else None
+    if not q or not q.get("selection") or not (td / "directions.npz").exists():
+        raise _Skip(f"{label} not qualified under {construction}")
+    arr = dict(np.load(td / "directions.npz"))
+    layer = int(q["selection"]["layer"])
+    cal = read_json(td / "calibration.json") if (td / "calibration.json").exists() else None
+    if construction == "fv":
+        if "fv_direction" not in arr:
+            raise _Skip(f"{label}: no head-mean vector")
+        u = _unit(arr["fv_direction"])
+        strength = alpha_from_calibration(cal, layer) or {"alpha": float(np.linalg.norm(arr["fv"])), "source": "natural_norm"}
+        return {"label": label, "layer": layer, "alpha": float(strength["alpha"]), "alpha_source": strength.get("source"),
+                "by_layer": None, "unit": u, "task_dir": td}
+    layers = [int(l) for l in arr["layers"]]
+    by_layer: dict[int, tuple[np.ndarray, float, str]] = {}
+    for i, l in enumerate(layers):
+        s = alpha_from_calibration(cal, l) or {"alpha": float(arr["learned_radii"][i]), "source": "radius"}
+        by_layer[l] = (_unit(arr["learned"][i]), float(s["alpha"]), str(s.get("source")))
+    u, alpha, src = by_layer[layer]
+    return {"label": label, "layer": layer, "alpha": alpha, "alpha_source": src, "by_layer": by_layer, "unit": u, "task_dir": td}
 
 
 def run_serial(cfg: SerialConfig, fv_run: str | None, learned_run: str, run_id: str | None = None,

@@ -2533,3 +2533,17 @@ Decision:
 * **Runs.** One job per checkpoint, on the tier and data center of that
   checkpoint's D41 runs; the in-run determinism check (D23: one steered
   capture and one masked pass repeated, bit identity required).
+
+Implementation notes (before any run): each injected condition has its
+own matched isotropic control, its last injection replaced by a random
+unit direction at the same layer and strength (the composed control's
+as above; the first component's control alone at its own layer and
+strength, which is what its power check is read against; the serial
+construction's second injection replaced with the first kept). The
+masking is applied to the model's own attention mask (SDPA's boolean
+mask; rebuilt as the causal mask where the batch has no padding), and
+is checked on the toy models of all three architectures: masking from
+past the last block is bit-identical to no masking, masking from block
+k leaves read points up to k untouched, and masking every block makes
+the query's residuals bit-identical between prompts that differ only in
+their demonstrations.

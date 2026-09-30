@@ -1,0 +1,39 @@
+# The composition test re-run with readouts that can see an intermediate (docs/DECISIONS.md D42; `directions staging`),
+# on the D41 composition family runs: per composition, the composed control's perturbation read against the
+# component-specific references (each natural difference residualised against the other), the logit lens on the
+# intermediate's and the final's first tokens (the model's own few-shot run, the controls, the matched isotropic
+# control, the first component's demonstrations and control alone as the power checks), and layer-wise context
+# masking of the model's own few-shot computation.
+#
+#   uv run directions staging --config configs/staging.yaml --fv-run <comp run> --learned-run <comp_learned run> --run-id staging_<model>
+name: staging
+seed: 20260907                 # the landmark stage's seed: the component references' prompts are D41's
+output_dir: results
+
+n_prompts: null                # all 192 held-out prompts
+n_boot: 1000
+alpha: 0.05
+constructions: [fv, learned]
+n_isotropic: 1                 # the matched isotropic control of the composed control (as in D41)
+masking: true
+removal_edits: true            # exploratory
+n_edit_controls: 2
+serial_offset_fraction: 0.2    # exploratory serial construction: the second head mean 20 % of the stack deeper
+determinism_check: true
+
+compositions:                  # references in step order; the first intermediate is step one's output
+  - task: upper_antonym        # hot -> COLD (via cold)
+    references: [antonym, uppercase]
+    intermediates: [{label: antonym, steps: [antonym]}]
+  - task: last_antonym         # "a, b, hot" -> cold (via hot)
+    references: [kth_3, antonym]
+    intermediates: [{label: last, steps: [last_word]}]
+  - task: upper_last_antonym   # "a, b, hot" -> COLD (via hot, then cold)
+    references: [kth_3, antonym, uppercase]
+    intermediates: [{label: last, steps: [last_word]}, {label: last_antonym, steps: [last_word, antonym]}]
+  - task: upper_plural         # cat -> CATS (via cats)
+    references: [plural, uppercase]
+    intermediates: [{label: plural, steps: [plural]}]
+  - task: upper_last           # "a, b, c" -> C (via c)
+    references: [kth_3, uppercase]
+    intermediates: [{label: last, steps: [last_word]}]

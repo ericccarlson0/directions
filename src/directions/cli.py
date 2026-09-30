@@ -166,6 +166,21 @@ def _cmd_serial(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_staging(args: argparse.Namespace) -> int:
+    """The composition test re-run (docs/DECISIONS.md D42): readouts that can see an intermediate step."""
+    from .config import load_staging_config
+    from .staging import run_staging
+
+    cfg = load_staging_config(args.config)
+    if args.output_dir:
+        cfg.output_dir = args.output_dir
+    if args.seed is not None:
+        cfg.seed = args.seed
+    root = run_staging(cfg, args.fv_run, args.learned_run, run_id=args.run_id, config_path=str(args.config))
+    print(root)
+    return 0
+
+
 def _cmd_source(args: argparse.Namespace) -> int:
     """The source test (docs/DECISIONS.md D38): attention against MLP writes of the aligning increments."""
     from .config import load_source_config
@@ -240,6 +255,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--output-dir", default=None, help="override output_dir from the config")
     p.add_argument("--run-id", default=None, help="explicit run directory name")
     p.add_argument("--seed", type=int, default=None, help="override the test's own seed from the config")
+    p = sub.add_parser("staging", help="the composition test re-run (D42): component-specific references, the logit lens and "
+                                       "context masking, read for an intermediate step")
+    p.add_argument("--config", required=True, help="YAML config of the test (configs/staging.yaml)")
+    p.add_argument("--learned-run", required=True, help="the composition family's learned run")
+    p.add_argument("--fv-run", default=None, help="the family's head-mean run (the fv construction is skipped without it)")
+    p.add_argument("--output-dir", default=None, help="override output_dir from the config")
+    p.add_argument("--run-id", default=None, help="explicit run directory name")
+    p.add_argument("--seed", type=int, default=None, help="override the test's own seed from the config")
     args = parser.parse_args(argv)
     if args.command in ("validate", "pilot"):
         return _cmd_run(args, args.command)
@@ -257,6 +280,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_mixing(args)
     if args.command == "serial":
         return _cmd_serial(args)
+    if args.command == "staging":
+        return _cmd_staging(args)
     parser.error("unknown command")
     return 2
 

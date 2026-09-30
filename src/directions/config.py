@@ -824,3 +824,90 @@ def load_serial_config(path: str | Path) -> SerialConfig:
         if len(c.steps) != 2 or c.steps[0] == c.steps[1] or c.task in c.steps:
             raise ValueError(f"composition {c.task}: steps must be two distinct component task keys")
     return cfg
+
+
+@dataclass
+class StagingIntermediate:
+    """An intermediate of a composition (docs/DECISIONS.md D42): the item's input carried through ``steps`` in
+    order. A step is a registry word task (its item list as a lookup), ``uppercase`` or ``last_word`` (the last
+    word of a comma-separated list)."""
+
+    label: str
+    steps: list[str] = field(default_factory=list)
+
+
+@dataclass
+class StagingComposition:
+    """One composition for the staging test (docs/DECISIONS.md D42).
+
+    task           the composed task's key in the runs
+    references     the component tasks' keys in step order (the first is step one, read as the intermediate's
+                   reference; the first two make the exploratory serial construction)
+    intermediates  the intermediates the lens and the masking readouts look for, step one's first
+    """
+
+    task: str
+    references: list[str] = field(default_factory=list)
+    intermediates: list[StagingIntermediate] = field(default_factory=list)
+
+
+@dataclass
+class StagingConfig:
+    """The composition test with readouts that can see an intermediate (docs/DECISIONS.md D42): component-specific
+    references (each natural difference residualised against the other), the logit lens on the intermediate's and
+    the final's first tokens, and layer-wise context masking of the model's own few-shot computation.
+
+    n_prompts               the first n held-out prompts of the composed task (None: all)
+    n_isotropic             matched isotropic controls of the composed control (random directions at its layer
+                            and strength)
+    masking                 run the layer-wise context masking readout
+    removal_edits           the exploratory removal edit along the step-one-specific direction at every read point
+    n_edit_controls         random directions each removal edit is matched against
+    serial_offset_fraction  the exploratory serial construction's second layer, this fraction of the stack
+                            past the first
+    determinism_check       one steered capture and one masked pass repeated, bit identity required (D23)
+    """
+
+    name: str = "staging"
+    seed: int = 20260907
+    output_dir: str = "results"
+    n_prompts: int | None = None
+    n_boot: int = 1000
+    alpha: float = 0.05
+    constructions: list[str] = field(default_factory=lambda: ["fv", "learned"])
+    n_isotropic: int = 1
+    masking: bool = True
+    removal_edits: bool = True
+    n_edit_controls: int = 2
+    serial_offset_fraction: float = 0.2
+    determinism_check: bool = True
+    device: str | None = None
+    compositions: list[StagingComposition] = field(default_factory=list)
+
+
+def load_staging_config(path: str | Path) -> StagingConfig:
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    comps = data.pop("compositions", None) or []
+    cfg = _from_dict(StagingConfig, data)
+    cfg.compositions = []
+    for i, c in enumerate(comps):
+        c = dict(c)
+        inter = c.pop("intermediates", None) or []
+        comp = _from_dict(StagingComposition, c, f"compositions[{i}]")
+        comp.intermediates = [_from_dict(StagingIntermediate, x, f"compositions[{i}].intermediates[{j}]") for j, x in enumerate(inter)]
+        cfg.compositions.append(comp)
+    if not cfg.compositions:
+        raise ValueError("the staging config needs at least one composition")
+    if any(c not in ("fv", "learned") for c in cfg.constructions) or not cfg.constructions:
+        raise ValueError("constructions must be a non-empty subset of fv, learned")
+    if cfg.n_isotropic < 1 or cfg.n_edit_controls < 1 or (cfg.n_prompts is not None and cfg.n_prompts < 2):
+        raise ValueError("n_isotropic and n_edit_controls must be at least 1, n_prompts at least 2")
+    if not 0 < cfg.serial_offset_fraction < 1:
+        raise ValueError("serial_offset_fraction must lie in (0, 1)")
+    for c in cfg.compositions:
+        if not c.references or c.task in c.references or len(set(c.references)) != len(c.references):
+            raise ValueError(f"composition {c.task}: references must be distinct component task keys")
+        if not c.intermediates or any(not x.steps for x in c.intermediates):
+            raise ValueError(f"composition {c.task}: at least one intermediate, each with at least one step")
+    return cfg

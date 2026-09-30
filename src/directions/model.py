@@ -112,6 +112,17 @@ class HeadPatch:
 
 
 @dataclass
+class ContextMask:
+    """From block ``from_layer`` onwards, the query and target positions may not attend to the context tokens
+    ``[start, end)`` of each example (docs/DECISIONS.md D42: layer-wise context masking after Yang et al. 2025,
+    "Internal Chain-of-Thought"). ``spans`` is ``(N, 2)``, indexed like the prompt list; the query starts at
+    ``end``. ``from_layer`` 0 masks every block, ``n_layers`` none."""
+
+    from_layer: int
+    spans: np.ndarray
+
+
+@dataclass
 class ForwardResult:
     logprob_sum: np.ndarray  # (N,) teacher-forced log-probability of the target
     logprob_per_token: np.ndarray  # (N,) logprob_sum / n_target_tokens
@@ -411,6 +422,16 @@ class ModelBackend:
         def hook(module, args, kwargs):
             if self._session is None:
                 return None
+            masked = self._session.masked_attention(layer, kwargs.get("attention_mask"))
+            if masked is not None:
+                kwargs = dict(kwargs)
+                kwargs["attention_mask"] = masked
+                hidden = args[0] if args else kwargs["hidden_states"]
+                new = self._session.process(layer, hidden)
+                if args:
+                    return (new,) + tuple(args[1:]), kwargs
+                kwargs["hidden_states"] = new
+                return args, kwargs
             if args:
                 hidden = args[0]
                 new = self._session.process(layer, hidden)
@@ -460,6 +481,19 @@ class ModelBackend:
     def first_target_token_ids(self, prompts: Sequence[Prompt]) -> np.ndarray:
         """The id of each prompt's first target token (the token scored at the query position), ``(N,)``."""
         return np.array([self._encode_prompt(p)[1][0] for p in prompts], dtype=np.int64)
+
+    def context_span(self, p: Prompt, context_chars: int) -> tuple[int, int]:
+        """The token span ``[start, end)`` of the prompt's first ``context_chars`` characters (the
+        demonstrations and their separator, D42), after the tokenizer's leading special tokens: the longest
+        common prefix of the prompt's tokens and the context's, so a token that merges across the boundary
+        counts as the query's."""
+        ids, _ = self._encode_prompt(p)
+        ctx = self.tokenizer.encode(p.prompt[:context_chars], add_special_tokens=True)
+        start = len(self.tokenizer.encode("", add_special_tokens=True))
+        end = 0
+        while end < min(len(ids), len(ctx)) and ids[end] == ctx[end]:
+            end += 1
+        return start, max(start, end)
 
     def unembedding_directions(self, token_ids: np.ndarray) -> np.ndarray:
         """The residual-stream directions that raise the logits of ``token_ids``, ``(N, d)`` float64.
@@ -521,6 +555,7 @@ class ModelBackend:
         capture_logprobs: bool = False,
         reference_logprobs: Any = None,
         capture_sublayers: bool = False,
+        context_mask: ContextMask | None = None,
     ) -> ForwardResult:
         """Teacher-forced forward over ``prompts`` with optional interventions/patches/capture.
 
@@ -552,7 +587,8 @@ class ModelBackend:
                 for hp in head_patches
             ]
             ref = None if reference_logprobs is None else reference_logprobs[start : start + bs]
-            outs.append(self._run_batch(batch, sliced, capture, patches, capture_heads, capture_logprobs, ref, capture_sublayers))
+            cm = None if context_mask is None else ContextMask(context_mask.from_layer, np.asarray(context_mask.spans)[start : start + bs])
+            outs.append(self._run_batch(batch, sliced, capture, patches, capture_heads, capture_logprobs, ref, capture_sublayers, cm))
         return _concat_results(outs)
 
     def reference_tensor(self, query_logprobs: np.ndarray) -> torch.Tensor:
@@ -701,8 +737,11 @@ class ModelBackend:
         capture_logprobs: bool = False,
         reference: torch.Tensor | None = None,
         capture_sublayers: bool = False,
+        context_mask: ContextMask | None = None,
     ) -> ForwardResult:
         batch = self._prepare_batch(prompts)
+        if context_mask is not None and np.asarray(context_mask.spans).shape != (len(prompts), 2):
+            raise ValueError("context_mask.spans must be (n_prompts, 2)")
         session = _HookSession(
             n_layers=self.n_layers,
             query_pos=batch["query_pos"],
@@ -715,6 +754,8 @@ class ModelBackend:
             head_dim=self.head_dim,
             head_dims=self.head_dims,
             capture_sublayers=capture_sublayers,
+            context_mask=context_mask,
+            key_padding=batch["attn"],
         )
         sc = self._forward_scores(batch, session, capture_logprobs, reference)
         residuals = session.stacked() if capture else None
@@ -770,9 +811,14 @@ class _HookSession:
         head_dim: int = 0,
         head_dims: Sequence[int] | None = None,
         capture_sublayers: bool = False,
+        context_mask: ContextMask | None = None,
+        key_padding: torch.Tensor | None = None,
     ) -> None:
         self.n_layers = n_layers
         self.capture_sublayers = capture_sublayers
+        self.context_mask = context_mask
+        self.key_padding = key_padding
+        self._masked: dict[int, torch.Tensor] = {}
         self.captured_writes: dict[str, dict[int, torch.Tensor]] = {"attn": {}, "mlp": {}}
         # the head width per layer (all equal to head_dim unless the architecture varies it); captured head
         # outputs are padded to head_dim, patch values sliced to the layer's width
@@ -818,6 +864,36 @@ class _HookSession:
                 got = torch.nn.functional.pad(got, (0, self.head_dim - hd))
             self.captured_heads[layer] = got
         return x
+
+    def masked_attention(self, layer: int, mask: Any) -> torch.Tensor | None:
+        """The block's attention mask with the context masked for the query and target positions, when the
+        session masks the context from this block on (D42); None otherwise (the mask is left alone). The models
+        run SDPA, whose mask is a boolean ``(B, 1, T, T)`` (True: attend) or None when no position is padded;
+        None is rebuilt as the causal mask over the batch's keys. The masked tensor is built once per
+        distinct input mask (Gemma's sliding and full layers receive different ones)."""
+        cm = self.context_mask
+        if cm is None or layer < cm.from_layer:
+            return None
+        key = id(mask)
+        if key not in self._masked:
+            if mask is None:
+                assert self.key_padding is not None
+                kp = self.key_padding.to(torch.bool)
+                B, T = kp.shape
+                causal = torch.ones((T, T), dtype=torch.bool, device=kp.device).tril()
+                mask = causal[None, None, :, :] & kp[:, None, None, :]
+            if not isinstance(mask, torch.Tensor) or mask.dim() != 4:
+                raise RuntimeError(f"context masking needs a 4-D attention mask, got {type(mask).__name__}")
+            new = mask.clone()
+            T = new.shape[-1]
+            for b, (start, end) in enumerate(np.asarray(cm.spans, dtype=np.int64)):
+                if end > start:
+                    if new.dtype == torch.bool:
+                        new[b, :, end:T, start:end] = False
+                    else:
+                        new[b, :, end:T, start:end] = torch.finfo(new.dtype).min
+            self._masked[key] = new
+        return self._masked[key]
 
     def capture_write(self, kind: str, layer: int, out: torch.Tensor, scalar: float = 1.0) -> None:
         """Record a sublayer's write at the query token, in the frame it lands in (times the block's scalar)."""
