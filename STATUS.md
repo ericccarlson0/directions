@@ -4297,6 +4297,86 @@ then transform; these lexical compositions, and the list
 compositions with them, are done by the model as one map, and the
 control follows the model.
 
+### D42: the composition test re-run with readouts that can see an intermediate
+
+```
+# configs/staging.yaml on the D41 composition family runs of each checkpoint; workflow runs 4B 36652658047, 8B Base 36653384980
+# (RTX 5090, EUR-NO-1; the 4B and 8B family runs copied from the US-CA-2 volume, no card free there; the Qwen3 0.6B and 1.7B model
+# caches deleted on EUR-NO-1 to make room for the 8B), OLMo 3 7B 36652643515 (RTX 5090, EUR-NO-1, environment ci-b), Gemma 4 12B
+# 36653784723 (H100, US-CA-2). 8-12 min each; determinism checks (steered and masked) identical on every run.
+uv run directions staging --config configs/staging.yaml --fv-run /runpod-volume/results/run-35898154597/comp_qwen3_4b_seed20260916 --learned-run /runpod-volume/results/run-35910561291/comp_learned_qwen3_4b_seed20260916 --run-id staging_qwen3_4b_seed20260916
+uv run directions staging --config configs/staging.yaml --fv-run /runpod-volume/results/run-35889526573/comp_qwen3_8b_seed20260916 --learned-run /runpod-volume/results/run-35897912271/comp_learned_qwen3_8b_seed20260916 --run-id staging_qwen3_8b_seed20260916
+uv run directions staging --config configs/staging.yaml --fv-run /runpod-volume/results/run-35907267011/comp_olmo3_7b_seed20260907 --learned-run /runpod-volume/results/run-35907370093/comp_learned_olmo3_7b_seed20260907 --run-id staging_olmo3_7b_seed20260907
+uv run directions staging --config configs/staging.yaml --fv-run /runpod-volume/results/run-36071091005/comp_gemma4_12b_seed20260907 --learned-run /runpod-volume/results/run-36079044960/comp_learned_gemma4_12b_seed20260907 --run-id staging_gemma4_12b_seed20260907
+# on the downloads (results/remote/run-<id>/staging_<model>):
+uv run python scripts/staging_summary.py qwen3_4b=<run> qwen3_8b=<run> olmo3_7b=<run> gemma4_12b=<run> --out results/staging/staging_summary.json
+```
+
+**The staging test** (D42; four checkpoints, five compositions, the
+readings per checkpoint below; a reading holds at 3 of 4). Power
+passed on 39 of 40 construction checks (the one failure: Gemma 4's
+head mean on uppercase∘antonym, whose first component's control does
+not read in readout 1).
+
+- **The model's own computation is staged** on all five compositions
+  (uppercase∘antonym 3/4, last∘antonym 4/4, the three-step 4/4,
+  uppercase∘plural 3/4, uppercase∘last 4/4), almost entirely on
+  context masking: with the demonstrations hidden from a mid-stack
+  layer on, the query's top-1 is the intermediate's first token at
+  rates of 0.05 to 0.98 (Gemma 4 uppercase∘last 0.98, OLMo 3
+  uppercase∘antonym 0.74, the 4B uppercase∘last 0.78), against about
+  0 at both ends (masking from the embedding, or not at all). The lens
+  rule reads staged on only 3 of 20 natural rows.
+- **The head-mean control reads one step** on all five
+  (uppercase∘antonym 3 with Gemma 4 undecided, last∘antonym 3/4, the
+  three-step 4/4, uppercase∘plural 3/4, uppercase∘last 4/4): readout
+  1's component-specific excess of the composed control is at noise
+  (median over rows of its largest window 0.0055, against 0.52 for
+  the first component's control alone at the same layer).
+- **The learned control reads one step** on uppercase∘antonym, the
+  three-step and uppercase∘plural (3/4 each) and is undecided on
+  last∘antonym and uppercase∘last (2/2): OLMo 3's learned vectors read
+  lens-staged on four of five, and Gemma 4's read a readout-1
+  staircase on two.
+
+| model | composition | own computation (masking; lens) | intermediate top-1 at the masking peak (L) | head mean: e_perp; lens | learned: e_perp; lens |
+|---|---|---|---|---|---|
+| qwen3_4b | upper_antonym | staged: staged; staged | 0.30 (22; ends 0.01, 0.01) | one_step: composed_only; not staged | one_step: composed_only; not staged |
+| qwen3_4b | last_antonym | staged: staged; not staged | 0.56 (24; ends 0.00, 0.01) | one_step: composed_only; not staged | one_step: composed_only; not staged |
+| qwen3_4b | upper_last_antonym | staged: staged; staged | 0.46 (21; ends 0.00, 0.00) | one_step: composed_only; not staged | one_step: composed_only; not staged |
+| qwen3_4b | upper_plural | one_step: not staged; not staged | 0.06 (22; ends 0.02, 0.00) | one_step: composed_only; not staged | one_step: composed_only; not staged |
+| qwen3_4b | upper_last | staged: staged; not staged | 0.78 (22; ends 0.01, 0.00) | one_step: composed_only; not staged | one_step: composed_only; not staged |
+| qwen3_8b | upper_antonym | one_step: not staged; not staged | 0.31 (21; ends 0.00, 0.02) | one_step: composed_only; not staged | one_step: composed_only; not staged |
+| qwen3_8b | last_antonym | staged: staged; not staged | 0.39 (21; ends 0.04, 0.00) | one_step: composed_only; not staged | staged: composed_only; staged |
+| qwen3_8b | upper_last_antonym | staged: staged; staged | 0.24 (21; ends 0.04, 0.00) | one_step: composed_only; not staged | one_step: composed_only; not staged |
+| qwen3_8b | upper_plural | staged: staged; not staged | 0.05 (22; ends 0.00, 0.00) | one_step: composed_only; not staged | one_step: composed_only; not staged |
+| qwen3_8b | upper_last | staged: staged; not staged | 0.57 (21; ends 0.04, 0.00) | one_step: composed_only; not staged | one_step: composed_only; not staged |
+| olmo3_7b | upper_antonym | staged: staged; not staged | 0.74 (17; ends 0.00, 0.02) | one_step: composed_only; not staged | staged: composed_only; staged |
+| olmo3_7b | last_antonym | staged: staged; not staged | 0.34 (19; ends 0.00, 0.04) | staged: composed_only; staged | one_step: composed_only; not staged |
+| olmo3_7b | upper_last_antonym | staged: staged; not staged | 0.36 (14; ends 0.01, 0.00) | one_step: composed_only; not staged | staged: composed_only; staged |
+| olmo3_7b | upper_plural | staged: staged; not staged | 0.19 (16; ends 0.06, 0.00) | one_step: composed_only; not staged | staged: composed_only; staged |
+| olmo3_7b | upper_last | staged: staged; not staged | 0.47 (14; ends 0.00, 0.00) | one_step: composed_only; not staged | staged: composed_only; staged |
+| gemma4_12b | upper_antonym | staged: staged; not staged | 0.90 (29; ends 0.02, 0.00) | undecided: component_only (no power); not staged | one_step: composed_only; not staged |
+| gemma4_12b | last_antonym | staged: staged; not staged | 0.19 (21; ends 0.00, 0.00) | one_step: composed_only; not staged | staged: staircase; not staged |
+| gemma4_12b | upper_last_antonym | staged: staged; not staged | 0.14 (21; ends 0.00, 0.00) | one_step: component_only; not staged | one_step: composed_only; not staged |
+| gemma4_12b | upper_plural | staged: staged; not staged | 0.73 (29; ends 0.02, 0.00) | staged: staircase; not staged | one_step: composed_only; not staged |
+| gemma4_12b | upper_last | staged: staged; not staged | 0.98 (28; ends 0.01, 0.00) | one_step: component_only; not staged | staged: staircase; not staged |
+
+**Reading.** D41's null now stands on a readout with power: the
+composed controls carry no component-specific direction at any window
+where the first component's control alone carries a large one. The
+model's own few-shot computation does pass through the intermediate
+(Internal Chain-of-Thought's masking result, reproduced on four
+checkpoints). But the two claims rest on different instruments:
+masking has no steered counterpart, and on the lens, the one readout
+both share, the natural runs rarely pass the rule either (short early
+windows of the final token block it). Descriptively the steered lens
+also shows the intermediate rising mid-stack (OLMo 3 head mean,
+uppercase∘antonym: intermediate +5.7 against final +1.9 nats at read
+point 20). "The control skips the step the model takes" is therefore
+not established; what is established is that the control's
+direction holds no component-specific share.
+
 ## Not yet run / known limitations
 
 - Iteration 4b has run once on each of the four models, seed 20260907

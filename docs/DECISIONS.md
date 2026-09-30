@@ -2563,3 +2563,14 @@ gain under the composition's demonstrations must exceed its gain under
 the deranged ones (paired excess test, p ≤ 0.05) in the window. The
 power check on the first component's demonstrations is unchanged
 (λ_int > 0), and nothing else changes.
+
+Result (four checkpoints, STATUS.md D42). The model's own computation
+reads staged on all five compositions (3 or 4 of 4), carried by
+masking; the head-mean control reads one step on all five; the
+learned control one step on three and undecided on two. Prediction 1
+(the controls skip the intermediate) is supported by readout 1 only:
+the composed controls' component-specific excess is at noise where
+the first component's control alone reads large. It is not supported
+by a readout shared with the natural condition, since the lens rule
+rarely reads staged for either, so the contrast between the model and
+its control is instrument-dependent and stays open.
