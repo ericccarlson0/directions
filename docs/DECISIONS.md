@@ -2473,3 +2473,12 @@ The CPU probe that fixed the choices (Qwen3-0.6B-Base in float32, antonym, layer
   choice among programs; the reading needs the within-label path beside it.
 * **Wiring check**: the pipeline with this control on the 0.6B on the CPU (antonym and add_3, one candidate layer,
   four steps, `--stop-after extraction`) wrote the fields above.
+
+Result (`STATUS.md`, D42; Qwen3 0.6B–8B Base, seed 20260916): the weight-decayed vector qualifies on the same tasks
+as D31's on every model, with 0.86–1.16 of its held-out effect at 0.10–0.48 of the median residual norm (medians
+0.15–0.19), a neutral-prose KL an order of magnitude below both D31's and the head mean's, and the same early
+conversion (removal leaves 90 % of the effect from 0.22–0.36 of the downstream depth in the median; nothing carried
+by the direction at the end on the lexical tasks). It is as orthogonal to the head mean (|cos| ≤ 0.04, ≤ 0.11 on the
+8B) and to PC1 as D31's vector was, and more unique (median stability 0.39–0.68, rising with size and depth, against
+0.13–0.16) without being unique. So the large norm of D31 made its damage, not its orthogonality to the model's own
+construction: the shortest single vector that does a task is not the heads' vector.
