@@ -2,7 +2,8 @@
 function vector of the same model and seed, from three finished pilot runs (no model is loaded).
 
 Per task: whether each construction qualified, its selected layer and strength, its held-out effect (mean d(lp/tok)
-on the evaluation pool), its excess over the gate controls, its damage (query-token and neutral-prose KL); and per
+on the evaluation pool), its excess over the gate controls, its damage (query-token and neutral-prose KL), where the
+injected direction is handed over (D29); and per
 candidate layer the geometry: the weight-decayed vector's fitted norm over the median residual norm, its cosine with
 the D31 vector, the function vector and PC1, the D31 vector's cosine with the function vector, the cross-seed
 stability of both learned constructions, the final fitting losses, and how much of a random start survives in the
@@ -35,12 +36,17 @@ def _held_out(q: dict[str, Any] | None) -> dict[str, Any]:
     if not q or not q.get("selection") or not q.get("steering"):
         return {"qualified": bool(q and q.get("qualified")), "measured": False}
     s, sel = q["steering"], q["selection"]
+    inj = (q.get("commitment") or {}).get("injected") or {}
     return {
         "qualified": bool(q.get("qualified")), "measured": True,
         "layer": sel["layer"], "rho": sel["rho"], "rho_layer_norm": sel.get("rho_layer_norm"), "alpha": sel["alpha"],
         "effect": s["test"]["mean_diff"], "effect_p": s["test"]["p_value"],
         "excess": s["excess_test"]["excess_mean"], "excess_p": s["excess_test"]["p_value"],
         "kl_mean": (q.get("damage") or {}).get("kl_mean"), "neutral_kl_mean": (q.get("damage") or {}).get("neutral_kl_mean"),
+        # D29: where the injected direction stops carrying the effect (as fractions of the downstream depth), and
+        # the share it alone carries at the last read point
+        "handed_over_50": inj.get("handed_over_50_fraction"), "handed_over_90": inj.get("handed_over_90_fraction"),
+        "carried_by_direction_final": inj.get("carried_by_direction_final"),
     }
 
 
