@@ -7,8 +7,9 @@ import numpy as np
 import pytest
 
 from directions.config import LearnedVectorWDConfig, ModelConfig, PromptConfig, load_config
-from directions.learned import (adam_regularised, fit_vector_wd, learned_directions_wd, permuted_target_vectors_wd,
-                                regularised_objective, regularised_step_schedule, wd_init)
+from directions.learned import (adam_regularised, cosine_schedule, fit_vector_wd, learned_directions_wd,
+                                permuted_target_vectors_wd, regularised_objective, regularised_step_schedule,
+                                sgd_regularised, wd_init)
 from directions.model import Intervention, ModelBackend
 from directions.pipeline import run_pipeline
 from directions.prompts import zero_shot_prompt
@@ -23,12 +24,8 @@ def test_step_schedule_is_a_cosine_decay_from_the_scaled_step():
     assert np.all(np.diff(lrs) < 0) and lrs[-1] < 1e-3 * lrs[0]
 
 
-def test_adam_reaches_the_penalised_minimiser_of_a_quadratic_from_any_start():
-    """On f(v) = 1/2 (v - a)^T H (v - a) the penalised objective has the unique minimiser
-    (H + lambda / r^2 I)^{-1} H a; the optimiser reaches it from zero and from a random start, and the
-    stationarity it reports is small there."""
-    rng = np.random.default_rng(0)
-    d, radius, lam = 24, 5.0, 2.0
+def _quadratic(seed=0, d=24):
+    rng = np.random.default_rng(seed)
     Q, _ = np.linalg.qr(rng.normal(size=(d, d)))
     H = Q @ np.diag(np.linspace(0.05, 1.0, d)) @ Q.T
     a = rng.normal(size=d) * 2.0
@@ -37,19 +34,65 @@ def test_adam_reaches_the_penalised_minimiser_of_a_quadratic_from_any_start():
         r = v - a
         return 0.5 * float(r @ H @ r), H @ r
 
+    return rng, H, a, grad_fn
+
+
+@pytest.mark.parametrize("optimizer", ["sgd", "adam"])
+def test_optimisers_reach_the_penalised_minimiser_of_a_quadratic_from_any_start(optimizer):
+    """On f(v) = 1/2 (v - a)^T H (v - a) the penalised objective has the unique minimiser
+    (H + lambda / r^2 I)^{-1} H a; both optimisers reach it from zero and from a random start, and the
+    stationarity and the drift they report are small there."""
+    d, radius, lam = 24, 5.0, 2.0
+    rng, H, a, grad_fn = _quadratic(d=d)
     expected = np.linalg.solve(H + lam / radius ** 2 * np.eye(d), H @ a)
     n = 3000
-    lrs = regularised_step_schedule(0.05, radius, d, n)
+
+    def run(v0, lam_):
+        if optimizer == "sgd":
+            return sgd_regularised(grad_fn, v0, radius, lam_, n, cosine_schedule(0.02, n), momentum=0.9,
+                                   max_step_fraction=0.05, log_every=500)
+        return adam_regularised(grad_fn, v0, radius, lam_, n, regularised_step_schedule(0.05, radius, d, n), log_every=500)
+
     for v0 in (np.zeros(d), 2.0 * rng.normal(size=d)):
-        v, steps, losses, objectives, norms, stationarity, drift = adam_regularised(grad_fn, v0, radius, lam, n, lrs, log_every=500)
+        v, steps, losses, objectives, norms, stationarity, drift = run(v0, lam)
         assert np.allclose(v, expected, atol=2e-3), np.abs(v - expected).max()
         assert stationarity < 1e-2 and 0 <= drift < 1e-2
         assert steps == [0, 500, 1000, 1500, 2000, 2500, 3000]
         assert objectives[-1] == pytest.approx(regularised_objective(losses[-1], v, radius, lam))
         assert norms[-1] == pytest.approx(np.linalg.norm(v) / radius)
     # a larger penalty gives a shorter minimiser
-    v_big, *_ = adam_regularised(grad_fn, np.zeros(d), radius, 20 * lam, n, lrs)
+    v_big = run(np.zeros(d), 20 * lam)[0]
     assert np.linalg.norm(v_big) < np.linalg.norm(expected)
+
+
+def test_sgd_shrinks_a_direction_the_task_does_not_use_and_caps_the_step():
+    """With a loss that ignores half the coordinates, a random start's component there decays under the penalty
+    alone (what Adam's per-coordinate scaling fails to do when the task gradient is large elsewhere), and no step
+    is longer than the cap."""
+    d, radius, lam = 16, 1.0, 1.0
+    a = np.zeros(d)
+    a[: d // 2] = 3.0
+    mask = np.zeros(d)
+    mask[: d // 2] = 1.0
+
+    def grad_fn(v):
+        r = (v - a) * mask
+        return 0.5 * float(r @ r) * 100.0, 100.0 * r  # a stiff task in the used coordinates
+
+    v0 = np.zeros(d)
+    v0[d // 2:] = 1.0
+    traj = []
+
+    def tracked(v):
+        traj.append(v.copy())
+        return grad_fn(v)
+
+    n = 2000
+    v, *_ = sgd_regularised(tracked, v0, radius, lam, n, cosine_schedule(0.005, n), momentum=0.9, max_step_fraction=0.05)
+    assert np.abs(v[d // 2:]).max() < 1e-3  # the unused directions are gone
+    assert np.allclose(v[: d // 2], 100.0 * 3.0 / (100.0 + lam), atol=1e-3)
+    steps = np.linalg.norm(np.diff(np.array(traj), axis=0), axis=1)
+    assert steps.max() <= 0.05 * radius + 1e-12
 
 
 def test_init_is_zero_for_the_first_seed_and_random_at_the_fraction_otherwise():
@@ -71,7 +114,7 @@ def prompts():
 
 
 def test_fit_from_zero_lowers_the_loss_finds_its_own_norm_and_is_deterministic(backend, prompts):
-    cfg = LearnedVectorWDConfig(n_steps=20, step_fraction=0.1, weight_decay=0.5, log_every=5)
+    cfg = LearnedVectorWDConfig(n_steps=20, lr=0.05, weight_decay=0.5, log_every=5)
     radius = 3.0
     zero = np.zeros(backend.hidden_size)
     fit = fit_vector_wd(backend, prompts, layer=2, radius=radius, init=zero, cfg=cfg)
@@ -87,14 +130,14 @@ def test_fit_from_zero_lowers_the_loss_finds_its_own_norm_and_is_deterministic(b
     assert np.array_equal(again.vector, fit.vector) and again.losses == fit.losses
     # a stronger penalty finds a shorter vector
     strong = fit_vector_wd(backend, prompts, layer=2, radius=radius, init=zero,
-                           cfg=LearnedVectorWDConfig(n_steps=20, step_fraction=0.1, weight_decay=50.0, log_every=5))
+                           cfg=LearnedVectorWDConfig(n_steps=20, lr=0.05, weight_decay=50.0, log_every=5))
     assert strong.norm < fit.norm
 
 
 def test_learned_directions_wd_and_permuted_null(backend):
     task = build_task("antonym")
     pool = task.items[:10]
-    cfg = LearnedVectorWDConfig(n_steps=4, step_fraction=0.1, weight_decay=1.0, log_every=1)
+    cfg = LearnedVectorWDConfig(n_steps=4, lr=0.05, weight_decay=1.0, log_every=1)
     radii = {1: 2.0, 3: 2.5}
     dirs, fits = learned_directions_wd(backend, PromptConfig(), pool, [1, 3], radii, run_seed=7, task_name="antonym",
                                        cfg=cfg, n_seeds=3)

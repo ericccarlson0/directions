@@ -135,8 +135,11 @@ def fit_summary(fits: dict[int, list[FitResult]]) -> dict[str, Any]:
 # of the penalty and of the step. The first seed starts at zero, so the carried fit is the one gradient descent
 # reaches from no intervention at all; the other seeds start from random directions at ``init_fraction`` of the
 # radius and say whether different starts reach the same stationary point (the stability). The penalty is in the
-# objective (an L2 penalty, coupled), so its stationary point does not depend on the optimiser: Adam with a
-# cosine-decayed step only finds it. The stationarity is reported: the norm of the objective's gradient at the
+# objective (an L2 penalty, coupled), so its stationary point does not depend on the optimiser. The optimiser is
+# gradient descent with momentum (rotation-equivariant: the fit does not depend on the residual's coordinate basis,
+# and the penalty shrinks every direction the task does not use at the same known rate); Adam is kept as an option,
+# because the CPU probe of D42 found that with it random starts keep most of their start (Adam's per-coordinate
+# scaling drowns the penalty wherever the task gradient is large). The stationarity is reported: the norm of the objective's gradient at the
 # end over the norm of the penalty's gradient (0 at an exact stationary point, where the two balance).
 
 
@@ -163,12 +166,17 @@ def regularised_objective(task_loss: float, v: np.ndarray, radius: float, weight
     return float(task_loss + 0.5 * weight_decay * float(v @ v) / radius ** 2)
 
 
+def cosine_schedule(start: float, n_steps: int) -> np.ndarray:
+    """``start`` cosine-decayed to zero over ``n_steps``."""
+    t = np.arange(n_steps)
+    return start * 0.5 * (1.0 + np.cos(np.pi * t / max(1, n_steps)))
+
+
 def regularised_step_schedule(step_fraction: float, radius: float, d: int, n_steps: int) -> np.ndarray:
     """The Adam step size per coordinate at every step: ``step_fraction * radius / sqrt(d)`` (an update moving
     every coordinate by the step moves the vector by about ``step_fraction * radius``), cosine-decayed to zero
     over ``n_steps`` so that the iterates settle on a stationary point."""
-    t = np.arange(n_steps)
-    return step_fraction * radius / np.sqrt(d) * 0.5 * (1.0 + np.cos(np.pi * t / max(1, n_steps)))
+    return cosine_schedule(step_fraction * radius / np.sqrt(d), n_steps)
 
 
 def adam_regularised(grad_fn: Any, v0: np.ndarray, radius: float, weight_decay: float, n_steps: int, lrs: np.ndarray,
@@ -218,6 +226,50 @@ def adam_regularised(grad_fn: Any, v0: np.ndarray, radius: float, weight_decay: 
     return v, steps, losses, objectives, norms, stationarity, drift
 
 
+def sgd_regularised(grad_fn: Any, v0: np.ndarray, radius: float, weight_decay: float, n_steps: int, lrs: np.ndarray,
+                    momentum: float = 0.9, max_step_fraction: float = 0.05, log_every: int = 10
+                    ) -> tuple[np.ndarray, list[int], list[float], list[float], list[float], float, float]:
+    """Gradient descent with heavy-ball momentum on ``task_loss(v) + (weight_decay / 2) * ||v||^2 / radius^2`` from
+    ``v0``: ``u <- momentum * u + grad``, ``v <- v - lrs[t] * radius^2 * u``, the step's length capped at
+    ``max_step_fraction * radius`` (which keeps the fixed points and the rotation equivariance). ``lrs`` is in units
+    of 1 / (nats per example), so that ``lrs[t] * weight_decay`` is the rate per step at which the penalty shrinks a
+    direction the task does not use. Returns what :func:`adam_regularised` returns."""
+    v = np.asarray(v0, dtype=np.float64).copy()
+    u = np.zeros_like(v)
+    steps: list[int] = []
+    losses: list[float] = []
+    objectives: list[float] = []
+    norms: list[float] = []
+    stationarity = float("nan")
+    t_late = int(0.9 * n_steps)
+    v_late = v.copy()
+    cap = max_step_fraction * radius
+    for t in range(n_steps + 1):
+        if t == t_late:
+            v_late = v.copy()
+        loss, g_task = grad_fn(v)
+        g_pen = weight_decay * v / radius ** 2
+        g = g_task + g_pen
+        if t % log_every == 0 or t == n_steps:
+            steps.append(t)
+            losses.append(float(loss))
+            objectives.append(regularised_objective(loss, v, radius, weight_decay))
+            norms.append(float(np.linalg.norm(v) / radius))
+        if t == n_steps:
+            pen = float(np.linalg.norm(g_pen))
+            stationarity = float(np.linalg.norm(g) / pen) if pen > 0 else float("nan")
+            break
+        u = momentum * u + g
+        step = lrs[t] * radius ** 2 * u
+        n = float(np.linalg.norm(step))
+        if n > cap:
+            step *= cap / n
+        v = v - step
+    nv = float(np.linalg.norm(v))
+    drift = float(np.linalg.norm(v - v_late) / nv) if nv > 0 else float("nan")
+    return v, steps, losses, objectives, norms, stationarity, drift
+
+
 def fit_vector_wd(backend: ModelBackend, prompts: list[Prompt], layer: int, radius: float, init: np.ndarray,
                   cfg: LearnedVectorWDConfig) -> RegularisedFit:
     """The weight-decayed fit at ``layer`` over ``prompts`` from ``init`` (D42). Deterministic given ``init`` and
@@ -229,10 +281,16 @@ def fit_vector_wd(backend: ModelBackend, prompts: list[Prompt], layer: int, radi
         return _loss(scores), -grads[0].astype(np.float64).sum(axis=0) / n
 
     d = backend.hidden_size
-    lrs = regularised_step_schedule(cfg.step_fraction, radius, d, cfg.n_steps)
-    v, steps, losses, objectives, norms, stationarity, drift = adam_regularised(
-        grad_fn, np.asarray(init, dtype=np.float64), radius, cfg.weight_decay, cfg.n_steps, lrs,
-        beta1=cfg.beta1, beta2=cfg.beta2, log_every=cfg.log_every)
+    v0 = np.asarray(init, dtype=np.float64)
+    if cfg.optimizer == "sgd":
+        lrs = cosine_schedule(cfg.lr, cfg.n_steps)
+        v, steps, losses, objectives, norms, stationarity, drift = sgd_regularised(
+            grad_fn, v0, radius, cfg.weight_decay, cfg.n_steps, lrs, momentum=cfg.momentum,
+            max_step_fraction=cfg.max_step_fraction, log_every=cfg.log_every)
+    else:
+        lrs = regularised_step_schedule(cfg.step_fraction, radius, d, cfg.n_steps)
+        v, steps, losses, objectives, norms, stationarity, drift = adam_regularised(
+            grad_fn, v0, radius, cfg.weight_decay, cfg.n_steps, lrs, beta1=cfg.beta1, beta2=cfg.beta2, log_every=cfg.log_every)
     return RegularisedFit(vector=v, radius=float(radius), weight_decay=cfg.weight_decay, losses=losses, objectives=objectives,
                           norms=norms, loss_steps=steps, n_steps=cfg.n_steps, stationarity=stationarity, drift=drift,
                           init=np.asarray(init, dtype=np.float64))
