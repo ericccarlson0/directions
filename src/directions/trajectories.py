@@ -537,8 +537,8 @@ class Trajectories:
         self.run_cfg, learned_meta = _load_run(self.learned_root)
         fv_cfg, fv_meta = _load_run(self.fv_root)
         problems = []
-        if learned_meta.get("control") != "learned_vector":
-            problems.append(f"--learned-run has control {learned_meta.get('control')!r}, not learned_vector")
+        if learned_meta.get("control") not in ("learned_vector", "learned_vector_wd"):  # D31 or the weight-decayed D42
+            problems.append(f"--learned-run has control {learned_meta.get('control')!r}, not learned_vector(_wd)")
         if fv_meta.get("control") != "function_vector":
             problems.append(f"--fv-run has control {fv_meta.get('control')!r}, not function_vector")
         for section in ("model", "prompt", "data"):
@@ -555,7 +555,8 @@ class Trajectories:
             "directions_version": __version__, "git": git_info(Path(__file__).resolve().parents[2]),
             "environment": environment_metadata(), "seed": cfg.seed, "config": config_to_dict(cfg),
             "runs": {"learned": {"path": str(self.learned_root), "run_id": learned_meta.get("run_id"),
-                                 "git": learned_meta.get("git"), "seed": learned_meta.get("seed")},
+                                 "git": learned_meta.get("git"), "seed": learned_meta.get("seed"),
+                                 "control": learned_meta.get("control")},
                      "fv": {"path": str(self.fv_root), "run_id": fv_meta.get("run_id"),
                             "git": fv_meta.get("git"), "seed": fv_meta.get("seed")}},
             "run_config": config_to_dict(self.run_cfg),

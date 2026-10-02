@@ -23,7 +23,7 @@ from typing import Any
 
 import numpy as np
 
-from .config import LearnedVectorConfig, PromptConfig
+from .config import LearnedVectorConfig, LearnedVectorWDConfig, PromptConfig
 from .extraction import LayerDirection
 from .geometry import normalize, random_unit_vector
 from .model import Intervention, ModelBackend
@@ -122,3 +122,178 @@ def fit_summary(fits: dict[int, list[FitResult]]) -> dict[str, Any]:
                      "losses": [f.losses for f in fs], "final_loss": [f.losses[-1] for f in fs],
                      "initial_loss": [f.losses[0] for f in fs]}
             for l, fs in fits.items()}
+
+
+# --------------------------------------------------------------------------- #
+# The weight-decayed learned vector (docs/DECISIONS.md D42)
+# --------------------------------------------------------------------------- #
+#
+# A second learned construction beside D31's, not a replacement: the D31 fit starts from a random direction at
+# the full median residual norm and keeps the norm fixed, so its solution set is large (seed cosines 0.1-0.2) and
+# the norm is imposed, not found. Here the norm is free and penalised: the objective is the D31 loss plus
+# (weight_decay / 2) * (||v|| / radius)^2, the radius (median residual norm at the layer) only setting the scale
+# of the penalty and of the step. The first seed starts at zero, so the carried fit is the one gradient descent
+# reaches from no intervention at all; the other seeds start from random directions at ``init_fraction`` of the
+# radius and say whether different starts reach the same stationary point (the stability). The penalty is in the
+# objective (an L2 penalty, coupled), so its stationary point does not depend on the optimiser: Adam with a
+# cosine-decayed step only finds it. The stationarity is reported: the norm of the objective's gradient at the
+# end over the norm of the penalty's gradient (0 at an exact stationary point, where the two balance).
+
+
+@dataclass
+class RegularisedFit:
+    vector: np.ndarray  # (d,) float64, its norm found by the fit
+    radius: float  # the scale of the penalty and of the step: the median residual norm at the layer
+    weight_decay: float
+    losses: list[float]  # the task loss (D31's: −mean summed scored log p) at the logged steps
+    objectives: list[float]  # the task loss plus the penalty, at the logged steps
+    norms: list[float]  # ||v|| / radius at the logged steps
+    loss_steps: list[int]
+    n_steps: int
+    stationarity: float  # ||grad of the objective|| / ||grad of the penalty|| at the final vector (nan at v = 0)
+    init: np.ndarray  # (d,) the starting vector (zero for the carried fit)
+
+    @property
+    def norm(self) -> float:
+        return float(np.linalg.norm(self.vector))
+
+
+def regularised_objective(task_loss: float, v: np.ndarray, radius: float, weight_decay: float) -> float:
+    return float(task_loss + 0.5 * weight_decay * float(v @ v) / radius ** 2)
+
+
+def regularised_step_schedule(step_fraction: float, radius: float, d: int, n_steps: int) -> np.ndarray:
+    """The Adam step size per coordinate at every step: ``step_fraction * radius / sqrt(d)`` (an update moving
+    every coordinate by the step moves the vector by about ``step_fraction * radius``), cosine-decayed to zero
+    over ``n_steps`` so that the iterates settle on a stationary point."""
+    t = np.arange(n_steps)
+    return step_fraction * radius / np.sqrt(d) * 0.5 * (1.0 + np.cos(np.pi * t / max(1, n_steps)))
+
+
+def adam_regularised(grad_fn: Any, v0: np.ndarray, radius: float, weight_decay: float, n_steps: int, lrs: np.ndarray,
+                     beta1: float = 0.9, beta2: float = 0.999, log_every: int = 10
+                     ) -> tuple[np.ndarray, list[int], list[float], list[float], list[float], float]:
+    """Adam on ``task_loss(v) + (weight_decay / 2) * ||v||^2 / radius^2`` from ``v0``. ``grad_fn(v)`` returns the
+    task loss and its gradient with respect to ``v``. Returns the final vector, the logged steps, task losses,
+    objectives and norms (over the radius), and the stationarity at the final vector. Separated from the model
+    so that it can be checked on a problem with a known minimiser."""
+    v = np.asarray(v0, dtype=np.float64).copy()
+    m = np.zeros_like(v)
+    s = np.zeros_like(v)
+    eps = 1e-12  # float64 arithmetic; only guards a coordinate whose gradient has always been zero
+    steps: list[int] = []
+    losses: list[float] = []
+    objectives: list[float] = []
+    norms: list[float] = []
+    stationarity = float("nan")
+    for t in range(n_steps + 1):
+        loss, g_task = grad_fn(v)
+        g_pen = weight_decay * v / radius ** 2
+        g = g_task + g_pen
+        if t % log_every == 0 or t == n_steps:
+            steps.append(t)
+            losses.append(float(loss))
+            objectives.append(regularised_objective(loss, v, radius, weight_decay))
+            norms.append(float(np.linalg.norm(v) / radius))
+        if t == n_steps:
+            pen = float(np.linalg.norm(g_pen))
+            stationarity = float(np.linalg.norm(g) / pen) if pen > 0 else float("nan")
+            break
+        m = beta1 * m + (1 - beta1) * g
+        s = beta2 * s + (1 - beta2) * g * g
+        m_hat = m / (1 - beta1 ** (t + 1))
+        s_hat = s / (1 - beta2 ** (t + 1))
+        v = v - lrs[t] * m_hat / (np.sqrt(s_hat) + eps)
+    return v, steps, losses, objectives, norms, stationarity
+
+
+def fit_vector_wd(backend: ModelBackend, prompts: list[Prompt], layer: int, radius: float, init: np.ndarray,
+                  cfg: LearnedVectorWDConfig) -> RegularisedFit:
+    """The weight-decayed fit at ``layer`` over ``prompts`` from ``init`` (D42). Deterministic given ``init`` and
+    the backend's forward pass."""
+    n = len(prompts)
+
+    def grad_fn(v: np.ndarray) -> tuple[float, np.ndarray]:
+        grads, scores = backend.gradients_with_scores(prompts, interventions=[Intervention(layer, v, 1.0)], read_points=[layer])
+        return _loss(scores), -grads[0].astype(np.float64).sum(axis=0) / n
+
+    d = backend.hidden_size
+    lrs = regularised_step_schedule(cfg.step_fraction, radius, d, cfg.n_steps)
+    v, steps, losses, objectives, norms, stationarity = adam_regularised(
+        grad_fn, np.asarray(init, dtype=np.float64), radius, cfg.weight_decay, cfg.n_steps, lrs,
+        beta1=cfg.beta1, beta2=cfg.beta2, log_every=cfg.log_every)
+    return RegularisedFit(vector=v, radius=float(radius), weight_decay=cfg.weight_decay, losses=losses, objectives=objectives,
+                          norms=norms, loss_steps=steps, n_steps=cfg.n_steps, stationarity=stationarity,
+                          init=np.asarray(init, dtype=np.float64))
+
+
+def wd_init(seed_index: int, rng: np.random.Generator, d: int, radius: float, init_fraction: float) -> np.ndarray:
+    """The first seed starts at zero (the carried fit); the others at a random direction of ``init_fraction``
+    times the radius."""
+    if seed_index == 0:
+        return np.zeros(d)
+    return init_fraction * radius * random_unit_vector(rng, d)
+
+
+def learned_directions_wd(backend: ModelBackend, prompt_cfg: PromptConfig, pool: list[Item], layers: list[int],
+                          radii: dict[int, float], run_seed: int, task_name: str, cfg: LearnedVectorWDConfig, n_seeds: int
+                          ) -> tuple[dict[int, LayerDirection], dict[int, list[RegularisedFit]]]:
+    """One weight-decayed vector per candidate layer (D42). The direction carried forward is the zero-start fit,
+    its natural norm the norm the fit found (``mean_difference_norm``, the unit of ``rho`` under the natural
+    strength unit); the random starts give the stability (min pairwise signed cosine over all seeds' fits)."""
+    prompts = [zero_shot_prompt(prompt_cfg, x) for x in pool]
+    d = backend.hidden_size
+    directions: dict[int, LayerDirection] = {}
+    fits: dict[int, list[RegularisedFit]] = {}
+    for layer in layers:
+        fits[layer] = [fit_vector_wd(backend, prompts, layer, radii[layer],
+                                     wd_init(i, rng_for(run_seed, "learned_vector_wd", task_name, layer, i), d, radii[layer],
+                                             cfg.init_fraction), cfg)
+                       for i in range(n_seeds)]
+        if not fits[layer][0].norm > 0:
+            raise ValueError(f"{task_name}: the weight-decayed fit at layer {layer} stayed at zero (weight_decay too large)")
+        units = np.stack([normalize(f.vector) for f in fits[layer]])
+        carried = units[0]
+        cos = units @ units.T
+        stability = float(min(cos[i, j] for i in range(n_seeds) for j in range(i + 1, n_seeds))) if n_seeds > 1 else 1.0
+        directions[layer] = LayerDirection(
+            layer=layer, direction=carried, seed_directions=units,
+            explained_variance_ratio=[], cos_with_mean=[float(u @ carried) for u in units],
+            stability=stability, pooled_explained_variance_ratio=float("nan"), pooled_cos_with_mean=float("nan"),
+            mean_difference_norm=fits[layer][0].norm, cos_pooled_vs_seeds=[float(u @ carried) for u in units],
+            kind="learned_vector_wd",
+        )
+    return directions, fits
+
+
+def permuted_target_vectors_wd(backend: ModelBackend, prompt_cfg: PromptConfig, pool: list[Item], layer: int, radius: float,
+                               run_seed: int, task_name: str, cfg: LearnedVectorWDConfig, n: int) -> list[np.ndarray]:
+    """The matched null of the weight-decayed construction: ``n`` unit vectors fitted from zero with the same
+    budget and penalty to the pool's targets permuted across items (a derangement per control). A fit that stays
+    at zero (nothing to gain on deranged targets) is replaced by a random direction from the same generator."""
+    out = []
+    for i in range(n):
+        rng = rng_for(run_seed, "learned_wd_permuted", task_name, layer, i)
+        perm = derangement(len(pool), rng)
+        items = [Item(x.input, pool[j].output) for x, j in zip(pool, perm)]
+        prompts = [zero_shot_prompt(prompt_cfg, x) for x in items]
+        fit = fit_vector_wd(backend, prompts, layer, radius, np.zeros(backend.hidden_size), cfg)
+        out.append(normalize(fit.vector) if fit.norm > 0 else random_unit_vector(rng, backend.hidden_size))
+    return out
+
+
+def fit_summary_wd(fits: dict[int, list[RegularisedFit]]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for l, fs in fits.items():
+        out[str(l)] = {
+            "radius": fs[0].radius, "weight_decay": fs[0].weight_decay, "n_steps": fs[0].n_steps, "loss_steps": fs[0].loss_steps,
+            "losses": [f.losses for f in fs], "objectives": [f.objectives for f in fs], "norms": [f.norms for f in fs],
+            "final_loss": [f.losses[-1] for f in fs], "initial_loss": [f.losses[0] for f in fs],
+            "fitted_norm": [f.norm for f in fs], "fitted_norm_over_radius": [f.norm / f.radius for f in fs],
+            "stationarity": [f.stationarity for f in fs],
+            "init_norm_over_radius": [float(np.linalg.norm(f.init) / f.radius) for f in fs],
+            # how much of a random start survives in the fit (nan for the zero start)
+            "cos_with_init": [float(normalize(f.vector) @ normalize(f.init)) if np.linalg.norm(f.init) > 0 and f.norm > 0
+                              else float("nan") for f in fs],
+        }
+    return out

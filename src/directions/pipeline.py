@@ -24,7 +24,7 @@ from __future__ import annotations
 import sys
 import time
 import traceback
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -63,7 +63,8 @@ from .geometry import (
     random_unit_vector,
     set_linalg_device,
 )
-from .learned import FitResult, fit_summary, learned_directions, permuted_target_vectors
+from .learned import (fit_summary, fit_summary_wd, learned_directions, learned_directions_wd,
+                      permuted_target_vectors, permuted_target_vectors_wd)
 from .layerwise import LayerwiseProfile, compare_by_kind, compute_profile, metric_curves, null_summary, profile_arrays
 from .model import ForwardResult, Intervention, ModelBackend, environment_metadata, set_torch_determinism
 from .neutral import neutral_prompts
@@ -104,9 +105,11 @@ class TaskState:
     head_effects_n_prompts: int = 0
     permuted_head_means: list[np.ndarray] = field(default_factory=list)  # demo_variation null inputs
     fv: FunctionVector | None = None
-    # Learned-vector inputs and result (D31), when extraction.control == "learned_vector":
-    learned_fits: dict[int, list[FitResult]] = field(default_factory=dict)  # per candidate layer, per seed
-    learned_radii: dict[int, float] = field(default_factory=dict)  # the fitted norm per candidate layer (median residual norm)
+    # Learned-vector inputs and result (D31), when extraction.control == "learned_vector", or the weight-decayed
+    # learned vector (D42), when it is "learned_vector_wd":
+    learned_fits: dict[int, list[Any]] = field(default_factory=dict)  # per candidate layer, per seed (FitResult / RegularisedFit)
+    # the median residual norm per candidate layer: D31's fitted norm, D42's scale of the penalty and the step
+    learned_radii: dict[int, float] = field(default_factory=dict)
     aie_prompts: list[Prompt] = field(default_factory=list)  # the deranged-label prompts the indirect effects use
     aie_baseline: np.ndarray | None = None  # their unpatched metric values
     aie_positive_mean: float | None = None  # the metric's mean on the positive prompts (the head-support ceiling)
@@ -328,7 +331,8 @@ class Pipeline:
 
         # 3. extraction --------------------------------------------------
         fv_mode = cfg.extraction.control == "function_vector"
-        learned_mode = cfg.extraction.control == "learned_vector"
+        learned_mode = cfg.extraction.control in ("learned_vector", "learned_vector_wd")
+        wd_mode = cfg.extraction.control == "learned_vector_wd"
         with self.prof.section("extraction", name):
             seeds = extract_differences(self.backend, prompt_cfg, splits.extraction, cfg.seed, name, cfg.extraction.n_seeds,
                                         capture_heads=fv_mode)
@@ -369,6 +373,34 @@ class Pipeline:
                 with self.prof.section("demo_variation", name):
                     st.permuted_head_means = permuted_head_means(self.backend, prompt_cfg, splits.extraction, cfg.seed, name, n_dv)
                 ext["demo_variation"] = {"n": n_dv, "construction": "function vector of deranged-label prompts (D21)"}
+        elif wd_mode:
+            # D42: one weight-decayed vector per candidate layer, fitted from zero on the extraction pool's zero-shot
+            # prompts with a free norm and an L2 penalty in units of the median residual norm; the demo-variation null
+            # (fitted the same way to permuted targets) is built at the selected layer, as under D31.
+            wdc = cfg.extraction.learned_vector_wd
+            with self.prof.section("learned_vector", name):
+                base_ext = self.backend.run([zero_shot_prompt(prompt_cfg, x) for x in splits.extraction], capture=True)
+                st.learned_radii = median_layer_norms(base_ext, self.layers)
+                base_loss = float(-np.mean(base_ext.logprob_sum))
+                st.directions, st.learned_fits = learned_directions_wd(self.backend, prompt_cfg, splits.extraction, self.layers,
+                                                                       st.learned_radii, cfg.seed, name, wdc, cfg.extraction.n_seeds)
+            fits0 = {l: fs[0] for l, fs in st.learned_fits.items()}
+            ext["learned_vector"] = {
+                "construction": "weight_decay", "config": asdict(wdc),
+                "n_seeds": cfg.extraction.n_seeds, "n_steps": wdc.n_steps, "weight_decay": wdc.weight_decay,
+                "n_prompts": len(splits.extraction), "base_loss": base_loss, "layers": fit_summary_wd(st.learned_fits),
+                "stability": {str(l): st.directions[l].stability for l in self.layers},
+                "fitted_norm_over_radius": {str(l): f.norm / f.radius for l, f in fits0.items()},
+                "cos_with_pca": {str(l): float(st.directions[l].direction @ st.pca_directions[l].direction) for l in self.layers},
+                "demo_variation": {"n": n_dv, "construction": "vectors fitted from zero with the same penalty to permuted targets "
+                                                              "at the selected layer (D42)"},
+            }
+            log.info("[%s] weight-decayed learned vector (%d steps, weight decay %g, %d seeds, %.0fs): loss %.3f -> %s per "
+                     "candidate layer; norm / radius %s; stationarity %s; stability %s; cos with PC1 %s", name, wdc.n_steps,
+                     wdc.weight_decay, cfg.extraction.n_seeds, self.prof.sections[f"learned_vector:{name}"]["seconds"], base_loss,
+                     {l: round(f.losses[-1], 3) for l, f in fits0.items()}, {l: round(f.norm / f.radius, 3) for l, f in fits0.items()},
+                     {l: round(f.stationarity, 3) for l, f in fits0.items()}, {l: round(st.directions[l].stability, 3) for l in self.layers},
+                     {l: round(float(st.directions[l].direction @ st.pca_directions[l].direction), 3) for l in self.layers})
         elif learned_mode:
             # D31: one vector per candidate layer, fitted on the extraction pool's zero-shot prompts at the median
             # residual norm of the layer; the demo-variation null (vectors fitted to permuted targets) is built at
@@ -471,11 +503,16 @@ class Pipeline:
             "all_layers": st.all_layer_directions,
         }
         if st.learned_fits:
+            # "learned_radii" is the vector's natural strength, which downstream commands inject when a layer has no
+            # calibration of its own: the median residual norm under D31 (the fixed norm), the norm the fit found
+            # under D42, whose median residual norm is kept as "learned_reference_radii".
             arrays.update({
                 "learned": np.stack([st.directions[l].direction for l in self.layers]),
                 "learned_per_seed": np.stack([st.directions[l].seed_directions for l in self.layers]),
-                "learned_radii": np.array([st.learned_radii[l] for l in self.layers]),
+                "learned_radii": np.array([st.directions[l].mean_difference_norm for l in self.layers]),
             })
+            if self.cfg.extraction.control == "learned_vector_wd":
+                arrays["learned_reference_radii"] = np.array([st.learned_radii[l] for l in self.layers])
         if st.fv is not None:
             arrays.update({
                 "fv": st.fv.vector,
@@ -641,9 +678,14 @@ class Pipeline:
             if st.learned_fits and layer not in st.demo_variation:
                 assert st.prompt_cfg is not None
                 with self.prof.section("demo_variation", st.name):
-                    st.demo_variation[layer] = permuted_target_vectors(
-                        self.backend, st.prompt_cfg, st.splits.extraction, layer, st.learned_radii[layer], cfg.seed, st.name,
-                        cfg.extraction.learned_vector, counts["demo_variation"])
+                    if cfg.extraction.control == "learned_vector_wd":
+                        st.demo_variation[layer] = permuted_target_vectors_wd(
+                            self.backend, st.prompt_cfg, st.splits.extraction, layer, st.learned_radii[layer], cfg.seed,
+                            st.name, cfg.extraction.learned_vector_wd, counts["demo_variation"])
+                    else:
+                        st.demo_variation[layer] = permuted_target_vectors(
+                            self.backend, st.prompt_cfg, st.splits.extraction, layer, st.learned_radii[layer], cfg.seed,
+                            st.name, cfg.extraction.learned_vector, counts["demo_variation"])
             for i, u in enumerate(st.demo_variation.get(layer, [])[: counts["demo_variation"]]):
                 out.append(("demo_variation", f"demo_variation_{i}", u))
         if counts.get("common", 0):
@@ -719,6 +761,10 @@ class Pipeline:
                 "stability": ld.stability,
                 "final_loss": [f.losses[-1] for f in st.learned_fits[st.selection.layer]],
             }
+            if cfg.extraction.control == "learned_vector_wd":
+                f0 = st.learned_fits[st.selection.layer][0]
+                q["learned_vector"].update({"construction": "weight_decay", "fitted_norm_over_radius": f0.norm / f0.radius,
+                                            "stationarity": f0.stationarity})
             log.info("[%s] learned vector: selected alpha / fitted norm %.3g; cos with PC1 there %.3f; stability %.3f",
                      name, q["learned_vector"]["alpha_over_natural_norm"], q["learned_vector"]["cos_with_pca_at_selected_layer"],
                      ld.stability)
