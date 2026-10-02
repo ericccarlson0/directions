@@ -41,9 +41,9 @@ def test_adam_reaches_the_penalised_minimiser_of_a_quadratic_from_any_start():
     n = 3000
     lrs = regularised_step_schedule(0.05, radius, d, n)
     for v0 in (np.zeros(d), 2.0 * rng.normal(size=d)):
-        v, steps, losses, objectives, norms, stationarity = adam_regularised(grad_fn, v0, radius, lam, n, lrs, log_every=500)
+        v, steps, losses, objectives, norms, stationarity, drift = adam_regularised(grad_fn, v0, radius, lam, n, lrs, log_every=500)
         assert np.allclose(v, expected, atol=2e-3), np.abs(v - expected).max()
-        assert stationarity < 1e-2
+        assert stationarity < 1e-2 and 0 <= drift < 1e-2
         assert steps == [0, 500, 1000, 1500, 2000, 2500, 3000]
         assert objectives[-1] == pytest.approx(regularised_objective(losses[-1], v, radius, lam))
         assert norms[-1] == pytest.approx(np.linalg.norm(v) / radius)
@@ -82,7 +82,7 @@ def test_fit_from_zero_lowers_the_loss_finds_its_own_norm_and_is_deterministic(b
     steered = backend.run(prompts, interventions=[Intervention(2, fit.vector, 1.0)])
     assert fit.losses[-1] == pytest.approx(float(-np.mean(steered.logprob_sum)), abs=1e-5)
     assert fit.objectives[-1] == pytest.approx(fit.losses[-1] + 0.5 * 0.5 * fit.norm ** 2 / radius ** 2)
-    assert np.isfinite(fit.stationarity)
+    assert np.isfinite(fit.stationarity) and np.isfinite(fit.drift) and fit.drift >= 0
     again = fit_vector_wd(backend, prompts, layer=2, radius=radius, init=zero, cfg=cfg)
     assert np.array_equal(again.vector, fit.vector) and again.losses == fit.losses
     # a stronger penalty finds a shorter vector

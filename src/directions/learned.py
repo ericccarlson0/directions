@@ -151,6 +151,7 @@ class RegularisedFit:
     loss_steps: list[int]
     n_steps: int
     stationarity: float  # ||grad of the objective|| / ||grad of the penalty|| at the final vector (nan at v = 0)
+    drift: float  # ||v_final - v at 90 % of the steps|| / ||v_final||: how far the last tenth of the fit still moved it
     init: np.ndarray  # (d,) the starting vector (zero for the carried fit)
 
     @property
@@ -172,11 +173,15 @@ def regularised_step_schedule(step_fraction: float, radius: float, d: int, n_ste
 
 def adam_regularised(grad_fn: Any, v0: np.ndarray, radius: float, weight_decay: float, n_steps: int, lrs: np.ndarray,
                      beta1: float = 0.9, beta2: float = 0.999, log_every: int = 10
-                     ) -> tuple[np.ndarray, list[int], list[float], list[float], list[float], float]:
+                     ) -> tuple[np.ndarray, list[int], list[float], list[float], list[float], float, float]:
     """Adam on ``task_loss(v) + (weight_decay / 2) * ||v||^2 / radius^2`` from ``v0``. ``grad_fn(v)`` returns the
     task loss and its gradient with respect to ``v``. Returns the final vector, the logged steps, task losses,
-    objectives and norms (over the radius), and the stationarity at the final vector. Separated from the model
-    so that it can be checked on a problem with a known minimiser."""
+    objectives and norms (over the radius), the stationarity at the final vector and the drift over the last
+    tenth of the steps. Separated from the model so that it can be checked on a problem with a known minimiser.
+
+    Two convergence readouts because neither suffices alone: the stationarity (gradient norm of the objective over
+    the penalty's) is dominated by the stiffest directions, where an iterate a step size away from the minimum
+    already has a large gradient; the drift says whether the vector itself had stopped moving."""
     v = np.asarray(v0, dtype=np.float64).copy()
     m = np.zeros_like(v)
     s = np.zeros_like(v)
@@ -186,7 +191,11 @@ def adam_regularised(grad_fn: Any, v0: np.ndarray, radius: float, weight_decay: 
     objectives: list[float] = []
     norms: list[float] = []
     stationarity = float("nan")
+    t_late = int(0.9 * n_steps)
+    v_late = v.copy()
     for t in range(n_steps + 1):
+        if t == t_late:
+            v_late = v.copy()
         loss, g_task = grad_fn(v)
         g_pen = weight_decay * v / radius ** 2
         g = g_task + g_pen
@@ -204,7 +213,9 @@ def adam_regularised(grad_fn: Any, v0: np.ndarray, radius: float, weight_decay: 
         m_hat = m / (1 - beta1 ** (t + 1))
         s_hat = s / (1 - beta2 ** (t + 1))
         v = v - lrs[t] * m_hat / (np.sqrt(s_hat) + eps)
-    return v, steps, losses, objectives, norms, stationarity
+    nv = float(np.linalg.norm(v))
+    drift = float(np.linalg.norm(v - v_late) / nv) if nv > 0 else float("nan")
+    return v, steps, losses, objectives, norms, stationarity, drift
 
 
 def fit_vector_wd(backend: ModelBackend, prompts: list[Prompt], layer: int, radius: float, init: np.ndarray,
@@ -219,11 +230,11 @@ def fit_vector_wd(backend: ModelBackend, prompts: list[Prompt], layer: int, radi
 
     d = backend.hidden_size
     lrs = regularised_step_schedule(cfg.step_fraction, radius, d, cfg.n_steps)
-    v, steps, losses, objectives, norms, stationarity = adam_regularised(
+    v, steps, losses, objectives, norms, stationarity, drift = adam_regularised(
         grad_fn, np.asarray(init, dtype=np.float64), radius, cfg.weight_decay, cfg.n_steps, lrs,
         beta1=cfg.beta1, beta2=cfg.beta2, log_every=cfg.log_every)
     return RegularisedFit(vector=v, radius=float(radius), weight_decay=cfg.weight_decay, losses=losses, objectives=objectives,
-                          norms=norms, loss_steps=steps, n_steps=cfg.n_steps, stationarity=stationarity,
+                          norms=norms, loss_steps=steps, n_steps=cfg.n_steps, stationarity=stationarity, drift=drift,
                           init=np.asarray(init, dtype=np.float64))
 
 
@@ -290,7 +301,7 @@ def fit_summary_wd(fits: dict[int, list[RegularisedFit]]) -> dict[str, Any]:
             "losses": [f.losses for f in fs], "objectives": [f.objectives for f in fs], "norms": [f.norms for f in fs],
             "final_loss": [f.losses[-1] for f in fs], "initial_loss": [f.losses[0] for f in fs],
             "fitted_norm": [f.norm for f in fs], "fitted_norm_over_radius": [f.norm / f.radius for f in fs],
-            "stationarity": [f.stationarity for f in fs],
+            "stationarity": [f.stationarity for f in fs], "drift": [f.drift for f in fs],
             "init_norm_over_radius": [float(np.linalg.norm(f.init) / f.radius) for f in fs],
             # how much of a random start survives in the fit (nan for the zero start)
             "cos_with_init": [float(normalize(f.vector) @ normalize(f.init)) if np.linalg.norm(f.init) > 0 and f.norm > 0

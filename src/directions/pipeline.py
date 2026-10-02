@@ -396,10 +396,11 @@ class Pipeline:
                                                               "at the selected layer (D42)"},
             }
             log.info("[%s] weight-decayed learned vector (%d steps, weight decay %g, %d seeds, %.0fs): loss %.3f -> %s per "
-                     "candidate layer; norm / radius %s; stationarity %s; stability %s; cos with PC1 %s", name, wdc.n_steps,
+                     "candidate layer; norm / radius %s; stationarity %s; drift %s; stability %s; cos with PC1 %s", name, wdc.n_steps,
                      wdc.weight_decay, cfg.extraction.n_seeds, self.prof.sections[f"learned_vector:{name}"]["seconds"], base_loss,
                      {l: round(f.losses[-1], 3) for l, f in fits0.items()}, {l: round(f.norm / f.radius, 3) for l, f in fits0.items()},
-                     {l: round(f.stationarity, 3) for l, f in fits0.items()}, {l: round(st.directions[l].stability, 3) for l in self.layers},
+                     {l: round(f.stationarity, 3) for l, f in fits0.items()}, {l: round(f.drift, 4) for l, f in fits0.items()},
+                     {l: round(st.directions[l].stability, 3) for l in self.layers},
                      {l: round(float(st.directions[l].direction @ st.pca_directions[l].direction), 3) for l in self.layers})
         elif learned_mode:
             # D31: one vector per candidate layer, fitted on the extraction pool's zero-shot prompts at the median
@@ -764,7 +765,7 @@ class Pipeline:
             if cfg.extraction.control == "learned_vector_wd":
                 f0 = st.learned_fits[st.selection.layer][0]
                 q["learned_vector"].update({"construction": "weight_decay", "fitted_norm_over_radius": f0.norm / f0.radius,
-                                            "stationarity": f0.stationarity})
+                                            "stationarity": f0.stationarity, "drift": f0.drift})
             log.info("[%s] learned vector: selected alpha / fitted norm %.3g; cos with PC1 there %.3f; stability %.3f",
                      name, q["learned_vector"]["alpha_over_natural_norm"], q["learned_vector"]["cos_with_pca_at_selected_layer"],
                      ld.stability)
