@@ -8,6 +8,13 @@ dilution null mixes each endpoint with random unit directions along the same pat
 intermediate label in the middle is read against the endpoint's effect merely fading. An intermediate label's
 mass that exceeds both endpoints and the null at an interior weight, with an interior maximum, is a parameter;
 endpoints that cross with no intermediate rise are a switch; endpoints that do not cross are neither.
+
+The within-label path (construction ``within``; docs/DECISIONS.md D44) is the control the cross-label path needs: one
+label's learned vector from its first fit mixed with the same label's vector from another start of the fit,
+v(t) = alpha * normalise((1 - t) u_0 + t u_s), read as that label's own readout (its candidate's mass, or its own
+held-out effect) against the same dilution null (u_0 mixed with random directions). If two solutions of one task
+do no better at their midpoint than one solution mixed with noise, the solutions are isolated, and a switch between
+two labels' vectors is what any path between fitted vectors does, whatever the labels.
 """
 
 from __future__ import annotations
@@ -129,6 +136,28 @@ def verdict(weights: list[float], real: np.ndarray, null_stack: np.ndarray, keys
             "intermediates": inter, "real_mean": real_mean.tolist(), "null_mean": null_mean.tolist()}
 
 
+def within_reading(weights: list[float], path: np.ndarray, null: np.ndarray, unsteered: float, rng: np.random.Generator,
+                   n_boot: int, mid_weight: float = 0.5, retained_min: float = 0.5) -> dict[str, Any]:
+    """Read one within-label path. ``path`` is (n_weights, n_items), the label's own readout along u_0 -> u_s;
+    ``null`` is (n_null, n_weights, n_items), the same readout along u_0 -> random; ``unsteered`` the readout's
+    population mean with no control. At ``mid_weight``: the share of the endpoints' gain over the unsteered value
+    that the path retains, and the paired excess of the path over the dilution null (one-sided). *connected*: the
+    path beats the null (p <= 0.05) and retains at least ``retained_min``; *isolated*: it does not beat the null;
+    *partial* otherwise."""
+    W = list(weights)
+    j = W.index(mid_weight)
+    curve = path.mean(axis=1)
+    ends = 0.5 * (curve[0] + curve[-1])
+    gain = ends - unsteered
+    retained = float((curve[j] - unsteered) / gain) if gain != 0 else float("nan")
+    t = paired_excess_test(path[j], null[:, j], rng, n_boot=n_boot)
+    beats_null = bool(t.excess_mean > 0 and t.p_value <= 0.05)
+    label = "isolated" if not beats_null else ("connected" if retained >= retained_min else "partial")
+    return {"reading": label, "curve": curve.tolist(), "null_curve": null.mean(axis=(0, 2)).tolist(), "unsteered": float(unsteered),
+            "retained_mid": retained, "excess_over_null_mid": float(t.excess_mean), "p_mid": float(t.p_value),
+            "min_retained": float(np.nanmin((curve - unsteered) / gain)) if gain != 0 else float("nan")}
+
+
 class Mixing:
     def __init__(self, cfg: MixingConfig, runs: dict[str, tuple[str, str | None]], run_id: str | None,
                  config_path: str | None) -> None:
@@ -153,6 +182,7 @@ class Mixing:
         self.backend = ModelBackend(self.run_cfg.model, run_seed=self.run_cfg.seed)
         self.metadata["model"] = self.backend.metadata()
         summary: dict[str, Any] = {"pairs": [], "skipped": []}
+        self._within_done: set[tuple[str, str]] = set()
         for pair in self.cfg.pairs:
             if pair.family not in self.runs:
                 summary["skipped"].append({"family": pair.family, "labels": pair.labels, "reason": "no runs given"})
@@ -185,6 +215,8 @@ class Mixing:
         return td, q, dict(np.load(td / "directions.npz"))
 
     def _pair(self, pair: MixingPair, construction: str) -> dict[str, Any]:
+        if construction == "within":
+            return self._within(pair)
         a, b = pair.labels
         ta, qa, arr_a = self._endpoint(pair.family, a, construction)
         tb, qb, arr_b = self._endpoint(pair.family, b, construction)
@@ -240,6 +272,63 @@ class Mixing:
         inter_keys = [_candidate_key(k, pair.readout) for k in pair.intermediates]
         v = verdict(weights, real, null_stack, keys, a_key, b_key, inter_keys, tuple(self.cfg.interior), rng, self.cfg.n_boot)
         return {**base, "n_items": len(items), **v}
+
+
+    def _within(self, pair: MixingPair) -> dict[str, Any]:
+        """The within-label paths of the pair's end labels (each label once per run): the first fit's learned vector
+        mixed with each other start's, at the label's selected layer and strength, on its own readout."""
+        out: dict[str, Any] = {"family": pair.family, "labels": pair.labels, "construction": "within", "readout": pair.readout,
+                               "weights": list(self.cfg.weights), "per_label": {}}
+        pc = _prompt_cfg_for(self.run_cfg, pair.readout)
+        weights = list(self.cfg.weights)
+        readings = []
+        for label in pair.labels:
+            if (pair.family, label) in self._within_done:
+                out["per_label"][label] = {"skipped": "read in an earlier pair"}
+                continue
+            try:
+                td, q, arr = self._endpoint(pair.family, label, "learned")
+            except _Skip as exc:
+                out["per_label"][label] = {"skipped": str(exc)}
+                continue
+            self._within_done.add((pair.family, label))
+            layer = int(q["selection"]["layer"])
+            i = [int(l) for l in arr["layers"]].index(layer)
+            seeds = np.asarray(arr["learned_per_seed"][i], dtype=np.float64)
+            if seeds.shape[0] < 2:
+                out["per_label"][label] = {"skipped": "fewer than two fits"}
+                continue
+            cal = read_json(td / "calibration.json") if (td / "calibration.json").exists() else None
+            alpha = float((alpha_from_calibration(cal, layer) or {"alpha": float(arr["learned_radii"][i])})["alpha"])
+            u0 = _unit(seeds[0])
+            items = _items(read_json(td / "splits.json")["evaluation"])[: self.cfg.n_prompts]
+            if pair.readout == "own_targets":
+                prompts = _own_prompts(items, pc)
+                base = self.backend.run(prompts).logprob_per_token
+
+                def readout(direction: np.ndarray, a: float = alpha) -> np.ndarray:
+                    return _effect(self.backend, prompts, layer, a, direction, base)
+                unsteered = 0.0
+            else:
+                per_item = [_candidate_prompts(it, pair.readout, pc, pair.operands) for it in items]
+                ci = [k for k, _ in per_item[0]].index(_candidate_key(label, pair.readout))
+
+                def readout(direction: np.ndarray, a: float = alpha) -> np.ndarray:
+                    return _masses(self.backend, per_item, layer, a, direction)[:, ci]
+                unsteered = float(readout(u0, 0.0).mean())
+            rng = rng_for(self.cfg.seed, "mixing_within", pair.family, label)
+            randoms = [_unit(rng.normal(size=u0.shape[0])) for _ in range(self.cfg.n_null)]
+            null = np.stack([np.stack([readout(mix(u0, r, t)) for t in weights]) for r in randoms])
+            paths = []
+            for sidx in range(1, seeds.shape[0]):
+                us = _unit(seeds[sidx])
+                path = np.stack([readout(mix(u0, us, t)) for t in weights])
+                r = within_reading(weights, path, null, unsteered, rng, self.cfg.n_boot, 0.5, self.cfg.within_retained_min)
+                paths.append({"seed": sidx, "cos": float(u0 @ us), **r})
+                readings.append(r["reading"])
+            out["per_label"][label] = {"layer": layer, "alpha": alpha, "n_items": len(items), "paths": paths}
+        out["verdict"] = ",".join(readings) if readings else "skipped"
+        return out
 
 
 def _candidate_key(label: str, readout: str) -> str:

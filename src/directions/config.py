@@ -581,7 +581,8 @@ class MixingPair:
                    n + k over the family's operands) or "own_targets" (two tasks with different inputs: each task's
                    own held-out effect along the path)
     operands       the operands of an "operands" readout (a label add_<k> reads as the operand k)
-    constructions  "fv" (the head mean) and/or "learned"
+    constructions  "fv" (the head mean), "learned" and/or "within" (the within-label path of the learned vectors:
+                   each end label's first fit mixed with its other starts' fits, docs/DECISIONS.md D44)
     """
 
     family: str
@@ -603,6 +604,8 @@ class MixingConfig:
     n_null            random unit directions per side for the dilution curves
     interior          the weights within which an intermediate label's maximum counts as interior
     determinism_check one steered pass repeated, bit identity required (D23)
+    within_retained_min  a within-label path (D44) is *connected* when at t = 0.5 it beats the dilution null and
+                      keeps at least this share of the endpoints' gain over the unsteered readout
     """
 
     name: str = "mixing"
@@ -615,6 +618,7 @@ class MixingConfig:
     ci_alpha: float = 0.05
     interior: list[float] = field(default_factory=lambda: [0.2, 0.8])
     determinism_check: bool = True
+    within_retained_min: float = 0.5
     device: str | None = None
     pairs: list[MixingPair] = field(default_factory=list)
 
@@ -640,8 +644,12 @@ def load_mixing_config(path: str | Path) -> MixingConfig:
             raise ValueError(f"pair {p.family}: unknown readout {p.readout!r}")
         if p.readout == "operands" and not p.operands:
             raise ValueError(f"pair {p.family}: an operands readout needs operands")
-        if any(c not in ("fv", "learned") for c in p.constructions) or not p.constructions:
-            raise ValueError(f"pair {p.family}: constructions must be a non-empty subset of fv, learned")
+        if any(c not in ("fv", "learned", "within") for c in p.constructions) or not p.constructions:
+            raise ValueError(f"pair {p.family}: constructions must be a non-empty subset of fv, learned, within")
+        if "within" in p.constructions and 0.5 not in cfg.weights:
+            raise ValueError("the within-label path is read at t = 0.5, which must be among the weights")
+    if not (0 < cfg.within_retained_min <= 1):
+        raise ValueError("within_retained_min must lie in (0, 1]")
     return cfg
 
 

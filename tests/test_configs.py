@@ -19,7 +19,7 @@ def test_all_configs_load():
             cfg = load_source_config(p)
             assert cfg.n_controls >= 1 and cfg.variants, p
             continue
-        if p.name == "mixing.yaml":  # the geometry test's own config (D40)
+        if p.name in ("mixing.yaml", "mixing_within.yaml"):  # the geometry test's own configs (D40, D44)
             from directions.config import load_mixing_config
 
             cfg = load_mixing_config(p)
@@ -323,3 +323,20 @@ def test_learned_wd_configs_are_the_learned_config_with_the_weight_decayed_contr
             x["extraction"].pop("control")
             x["extraction"].pop("learned_vector_wd")
         assert a == ref, fname
+
+
+def test_family_learned_wd_configs_are_the_family_learned_configs_with_the_weight_decayed_control():
+    """The k-th word and add-k weight-decayed configs (D43, D44) differ from the D31 family configs of the same model
+    only in the run name, the control and its settings, which are the lexical weight-decayed config's."""
+    for fam in ("kth", "arith"):
+        for m in ("0.6b", "1.7b", "4b", "8b"):
+            ref = config_to_dict(load_config(CONFIGS / f"{fam}_learned_qwen3_{m}.yaml"))
+            a = config_to_dict(load_config(CONFIGS / f"{fam}_learned_wd_qwen3_{m}.yaml"))
+            lex = config_to_dict(load_config(CONFIGS / f"learned_wd_qwen3_{m}.yaml"))
+            assert a["name"] == f"{fam}_learned_wd" and a["extraction"]["control"] == "learned_vector_wd"
+            assert a["extraction"]["learned_vector_wd"] == lex["extraction"]["learned_vector_wd"]
+            for x in (a, ref):
+                x.pop("name")
+                x["extraction"].pop("control")
+                x["extraction"].pop("learned_vector_wd")
+            assert a == ref, (fam, m)

@@ -1,0 +1,55 @@
+# The geometry test with the within-label path (docs/DECISIONS.md D44; `directions mixing`): configs/mixing.yaml with
+# the learned constructions only, the cross-label path ("learned", D40) and the within-label path ("within"): each end
+# label's first fit mixed with its other starts' fits, read on the label's own readout against the same dilution
+# null. Run on the D31 learned family runs and on the weight-decayed ones (D43), one job each per model:
+#
+#   uv run directions mixing --config configs/mixing_within.yaml \
+#       --runs kth_word=<learned family run>: add_k=<learned add-k run>: lexical=<learned run>: --run-id mixing_within_<model>
+#
+# A family whose runs are not given is skipped; a label whose vector is not qualified is skipped and noted.
+name: mixing_within
+seed: 20260907                 # the test's own draws: the random directions of the dilution null, the bootstraps
+output_dir: results
+
+weights: [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+n_null: 4                      # random unit directions per side (a -> random, random -> b)
+n_prompts: 96                  # the first n held-out prompts of label a (the readout pool)
+n_boot: 1000
+ci_alpha: 0.05
+interior: [0.2, 0.8]           # the weights at which an intermediate label's maximum counts as interior
+determinism_check: true        # one steered pass repeated, bit identity required (D23)
+within_retained_min: 0.5       # D44: a within-label path is connected when at t = 0.5 it beats the dilution null and keeps half the endpoints' gain
+
+pairs:
+  - family: kth_word           # the k-th word family (D39): the ends of the three-word list
+    labels: [kth_1, kth_3]
+    intermediates: [kth_2]
+    readout: list_words
+    constructions: [learned, within]
+  - family: kth_word           # exploratory: the neighbouring pairs, where the middle qualifies
+    labels: [kth_1, kth_2]
+    intermediates: []
+    readout: list_words
+    constructions: [learned, within]
+  - family: kth_word
+    labels: [kth_2, kth_3]
+    intermediates: []
+    readout: list_words
+    constructions: [learned, within]
+  - family: add_k              # the add-k family (D30) under the learned vector of the family-only learned runs
+    labels: [add_1, add_5]
+    intermediates: [add_2, add_3]
+    readout: operands
+    operands: [1, 2, 3, 5, 10]
+    constructions: [learned, within]
+  - family: add_k
+    labels: [add_2, add_10]
+    intermediates: [add_3, add_5]
+    readout: operands
+    operands: [1, 2, 3, 5, 10]
+    constructions: [learned, within]
+  - family: lexical            # the switch baseline: two lexical tasks with different inputs
+    labels: [antonym, plural]
+    intermediates: []
+    readout: own_targets
+    constructions: [learned, within]

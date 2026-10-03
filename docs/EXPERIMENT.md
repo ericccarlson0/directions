@@ -139,6 +139,10 @@ With `extraction.control: learned_vector` the direction carried forward is fitte
 
 With `extraction.control: learned_vector_wd` the direction is fitted as under D31 but with a free norm: at each candidate layer the D31 loss plus an L2 penalty `(weight_decay / 2) * (||v|| / r)^2`, `r` the median residual norm at the layer (the scale of the penalty and of the step only), minimised by Adam with a cosine-decayed step (`step_fraction * r / sqrt(d)` per coordinate) for `n_steps` steps. The control is the fit started from zero; the other seeds start from random directions at `init_fraction * r` and give the stability (min pairwise signed cosine), so that it measures whether different starts reach one stationary point. The natural norm (the unit of `rho` under `strength_unit: natural`) is the norm the fit found. The `demo_variation` controls are fitted from zero with the same penalty to permuted targets. The D31 construction is unchanged and remains its own control type; `directions trajectories` (and the commands that read a learned run's vectors) accept either as `--learned-run`. `scripts/learned_wd_compare.py` compares a run with the D31 and head-mean runs of the same model and seed.
 
+### The within-label path (docs/DECISIONS.md D44)
+
+`directions mixing` with `construction: within` (`configs/mixing_within.yaml`) mixes one label's learned vector from its first fit with the same label's vector from each other start, at the label's selected layer and strength, read on the label's own readout against the dilution null of the cross-label path; at t = 0.5 a path is *connected* (beats the null and keeps half the endpoints' gain over the unsteered readout), *isolated* (does not beat the null) or *partial*. It is the control of D40's cross-label reading, run on the D31 and the weight-decayed (D43) learned vectors.
+
 ## Intervention Calibration
 
 Candidate intervention layers:

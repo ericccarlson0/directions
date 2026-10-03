@@ -2661,3 +2661,46 @@ by the direction at the end on the lexical tasks). It is as orthogonal to the he
 8B) and to PC1 as D31's vector was, and more unique (median stability 0.39–0.68, rising with size and depth, against
 0.13–0.16) without being unique. So the large norm of D31 made its damage, not its orthogonality to the model's own
 construction: the shortest single vector that does a task is not the heads' vector.
+
+## 2026-10-03 — The weight-decayed vector through the downstream chain, and the within-label path
+
+### D44. The hand-over, the source test and the geometry test on the weight-decayed vector; the within-label path as the control of D40
+
+Context: D43's weight-decayed vector does the D31 tasks with the D31 effect at a fifth of the norm and an order of
+magnitude less damage, and is as orthogonal to the head mean as D31's was. Two downstream results rest on the D31
+vector and could be properties of its fit rather than of the model. The hand-over (D33, D37): a full-norm vector
+carries a large generic response, so its convergence onto the natural difference was read after removing that
+response; a vector at 0.15–0.19 of the norm is the cleaner test of the same claim. The source test (D38): the
+aligning increments of the D31 vector's run are MLP-written, while weight-decayed task vectors in the literature
+(Yang et al., "Task Vectors, Learned Not Extracted", ICLR 2026) act through attention-head OV circuits. And the
+geometry test (D40) read the learned vectors' mix between two labels as a switch, "a choice among programs", without
+the within-label path: D43's probe found two solutions of one task (cosine 0.21) whose midpoint does almost nothing,
+and D31 records the same for its seeds. Written before any of the runs below.
+
+Decision:
+
+* **Hand-over and source on D43's vectors**, unchanged protocols: `scripts/landmarks.py` with
+  `configs/trajectories_landmarks.yaml` (the patch test at every downstream read point, per construction) and
+  `directions source` with `configs/source.yaml`, on the D43 runs of Qwen3 0.6B–8B Base and the iteration-6 head-mean
+  runs of the same seed. The weight-decayed vector takes the learned vector's place in both (the commands accept it).
+  The questions: does it hand over (keep ≥ 0.9 along the per-prompt natural difference) at the D37 read point, the
+  write depth of the universal heads, and are its aligning increments MLP-written (attention's share ≤ 0.4) as D31's
+  were. Readings as in D37 and D38; the comparison with D31's numbers is per model, at each construction's own
+  selected layer.
+* **The within-label path** (`construction: within` in `directions mixing`, `configs/mixing_within.yaml`): for each
+  end label of a pair, its first fit's learned vector u_0 mixed with each other start's u_s, v(t) = α · normalise
+  ((1 − t) u_0 + t u_s), at the label's selected layer and strength, read on the label's own readout (its
+  candidate's mass for the k-th word and add-k families, its own held-out effect for the lexical pair) against the
+  dilution null of the cross-label path (u_0 mixed with random directions, 4 per label). At t = 0.5: the share of
+  the endpoints' gain over the unsteered readout that the path keeps, and the paired excess of the path over the null
+  (one-sided). *Connected*: it beats the null (p ≤ 0.05) and keeps ≥ 0.5 of the gain; *isolated*: it does not beat
+  the null; *partial* otherwise.
+* **Runs.** The within-label path and the cross-label learned path (the D40 rule, unchanged) on (i) the D31 family
+  runs of D39/D40 and the D31 lexical runs, the control D40 lacked, and (ii) new weight-decayed family runs
+  (`configs/kth_learned_wd_qwen3_<size>.yaml`, `configs/arith_learned_wd_qwen3_<size>.yaml`: the D31 family configs with
+  D43's control) with the D43 lexical runs; Qwen3 0.6B–8B, seed 20260916.
+* **Reading.** The cross-label switch of a construction counts as evidence of a choice among programs only where that
+  construction's within-label paths are connected: a switch between labels whose within-label paths are isolated is
+  what any path between two fitted vectors does. Where the within-label paths are connected and the cross-label path
+  still switches, the switch is a property of the labels.
+* **Exploratory**: the thresholds (0.5 of the gain, the midpoint) are judgements fixed here.
