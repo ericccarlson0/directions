@@ -329,3 +329,18 @@ extractive step (which word) is the one that shows as a state of its own
 before the map is applied to it; that is the intermediate the
 positioning asked for, at cosine 0.1, on one model, and it is what the
 time axis should be built to amplify.
+
+*After the weight-decayed vector* (D43, D44): the learned control was
+re-fitted with a free, penalised norm (gradient descent from zero). It
+does the D31 tasks with the D31 effect at a fifth of the norm and an
+order of magnitude less damage, and it is as orthogonal to the head
+mean as D31's was, so the orthogonality of fitted and model-native
+controls is not an artefact of the full-norm fit. The results built on
+the learned vector mostly survive the change: the hand-over sits at
+the same read point (the heads' write depth, +3 on the 8B), the
+aligning increments are MLP-written, and with the within-label path
+connected the cross-label switch of D40 is a property of the labels.
+One reading changes: the necessity of the MLPs' aligning writes rises
+with size for the shorter vector (3, 4, 9, 7 tasks) where it fell for
+D31's (7, 5, 3, 1), so D38's "regeneration on larger models" was in
+part the full norm's slack.

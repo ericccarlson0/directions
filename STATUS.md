@@ -4427,7 +4427,8 @@ constructions coincides on 3 of 37 tasks, so the hand-over columns compare selec
 - **More unique, increasingly with size, and not unique.** The fits from three starts agree at median cosines of
   0.39, 0.58, 0.59 and 0.68 (0.6B to 8B; up to 0.97), against D31's 0.13–0.16 at the same layers; the CPU probe
   showed the random starts losing their start and ending at distinct solutions of one norm and one quality whose
-  midpoint does almost nothing (D43). Stability rises with depth on every task (layer 6–7 lowest).
+  midpoint does almost nothing (D43); in the pipeline's protocol that collapse does not recur (D44: the
+  within-label paths are connected). Stability rises with depth on every task (layer 6–7 lowest).
 - **Converted like D31's, earlier than the head mean.** The injected direction stops being needed (removal leaves
   90 % of the effect) at 0.22–0.36 of the downstream depth in the median, D31's at 0.24–0.41, the head mean's at
   0.61–0.75; at the last read point the direction alone carries about nothing on every lexical task (−0.02 to 0.14),
@@ -4438,11 +4439,78 @@ constructions coincides on 3 of 37 tasks, so the hand-over columns compare selec
   mixing of two labels' vectors with the within-label path beside it (D40), and the serial and summed injection of
   compositions (D41). `directions trajectories` accepts these runs as `--learned-run`.
 
+### D44: the weight-decayed vector through the hand-over and source tests; the within-label path of the geometry test
+
+One job per model (`scripts/stages.py`): the landmark comparison (`scripts/landmarks.py`, D37) and the source test
+(`directions source`, D38) on the D43 run and the iteration-6 head-mean run, the weight-decayed k-th word and add-k
+family runs, then `directions mixing` with `configs/mixing_within.yaml` (the cross-label learned path of D40 and the
+within-label path) on the D43 vectors and on the D31 family and lexical runs. Seed 20260916.
+
+```
+# workflow runs 37086330214 (0.6B), 37086359503 (1.7B), 37092043429 (4B; the 4B D31 family runs 35771408727 and 35797856748
+# copied from the US-CA-2 volume to EUR-NO-1 first), RTX 4090 (ADA_24), EUR-NO-1; 37086384663 (8B Base), H100 80GB HBM3
+# (ADA_80_PRO), US-CA-2; 1.6, 1.7, 3.6 and 2.2 h; every determinism check identical (24 sub-runs); about 14.5 USD
+uv run python scripts/stages.py \
+  'uv run python scripts/landmarks.py --config configs/trajectories_landmarks.yaml --fv-run <pilot6 run> --learned-run <learned_wd run> --run-id landmarks_wd_qwen3_<size>_seed20260916' \
+  'uv run directions source --config configs/source.yaml --fv-run <pilot6 run> --learned-run <learned_wd run> --landmark-run results/landmarks_wd_qwen3_<size>_seed20260916 --run-id source_wd_qwen3_<size>_seed20260916' \
+  'uv run directions pilot --config configs/kth_learned_wd_qwen3_<size>.yaml --seed 20260916 --run-id kth3_learned_wd_qwen3_<size>_seed20260916' \
+  'uv run directions pilot --config configs/arith_learned_wd_qwen3_<size>.yaml --seed 20260916 --run-id arith_learned_wd_qwen3_<size>_seed20260916' \
+  'uv run directions mixing --config configs/mixing_within.yaml --run-id mixing_within_wd_qwen3_<size>_seed20260916 --runs kth_word=results/kth3_learned_wd_qwen3_<size>_seed20260916: add_k=results/arith_learned_wd_qwen3_<size>_seed20260916: lexical=<learned_wd run>:' \
+  'uv run directions mixing --config configs/mixing_within.yaml --run-id mixing_within_d31_qwen3_<size>_seed20260916 --runs kth_word=<kth3_learned run>: add_k=<arith_learned run>: lexical=<learned run>:'
+# the run directories per model are those of the D43 entry (learned_wd), iteration 6 (pilot6), D39 (kth3_learned),
+# D40 (arith_learned) and iteration 10 (learned); the full commands are in the request commits "Request the GPU job
+# d44_qwen3_<size>_seed20260916". On the downloads:
+uv run python scripts/d44_summary.py --model qwen3_<size> --wd-landmarks <run> --d31-landmarks <D37 run> --wd-source <run> \
+  --d31-source <D38 run> --wd-mixing <run> --d31-mixing <run> --out results/d44_<size>.json
+```
+
+| model | hand-over, D43 / D31 / head mean (median read point) | heads write at | attention's share of the steered aligning write, D43 (range) / D31; natural | MLP aligning components necessary (D38 rule), D43 / D31 | within-label paths, D43: connected / partial / isolated | the same, D31 (paths whose dilution null keeps ≥ 0.9 at the midpoint) | cross-label learned path, D43: kth_1→kth_3, add_1→add_5, add_2→add_10, antonym→plural |
+|---|---|---|---|---|---|---|---|
+| Qwen3 0.6B | 20 / 20 / 19 | 19 | 0.15 (0.09–0.21) / 0.16; 0.37 | 3 of 8 / 7 of 8 | 15 / 3 / 0 | 15 / 0 / 3 (3 of 18) | parameter, neither, switch, switch |
+| Qwen3 1.7B | 20 / 20 / 19 | 18.5 | 0.16 (0.11–0.19) / 0.15; 0.29 | 4 of 9 / 5 of 9 | 18 / 0 / 0 | 14 / 0 / 4 (16 of 18) | switch, switch, parameter, switch |
+| Qwen3 4B | 24 / 23 / 24 | 23 | 0.18 (0.11–0.26) / 0.16; 0.32 | 9 of 10 / 3 of 10 | 16 / 0 / 0 | 6 / 0 / 10 (12 of 16) | switch, switch, switch, switch |
+| Qwen3 8B | 26 / 24 / 24 | 23 | 0.15 (0.13–0.19) / 0.17; 0.28 | 7 of 10 / 1 of 10 | 16 / 1 / 1 | 8 / 0 / 10 (14 of 18) | switch, neither, switch, switch |
+
+(The D31 hand-over, attention share and necessity are D37's and D38's runs at each construction's own selected
+layer; the 8B D31 numbers are from the D37/D38 entries, the run directories having been removed from the volume. The
+4B's middle position does not qualify under either learned construction, so its k-th word paths are the ends only.)
+
+- **The hand-over is the same for the shorter vector.** The weight-decayed vector keeps 0.9 of its effect along the
+  per-prompt natural difference from the same read point as D31's on the 0.6B and 1.7B (20) and one and two read
+  points later on the 4B and 8B; the head mean hands over at 19–24. Against the universal heads' write depth the
+  offset is +1, +1.5, +1 and +3 read points (D37's rule: within 2), so the coincidence of D37 holds for the
+  clean vector on three of four models and drifts above the heads on the 8B, as the learned vector's did for the
+  k-th word family (D39). The central measurement does not rest on the full-norm fit's generic response.
+- **The aligning increments are MLP-written, as D38 found.** Attention writes 0.09–0.26 of the steered aligning
+  increment over the window to the hand-over (medians 0.15–0.18, D31's 0.15–0.17), against 0.28–0.37 in the natural
+  run; removing attention's aligning components keeps 0.70–1.00 of the effect (medians 0.91–0.97), with one
+  exception, the 1.7B's last_antonym (0.03 kept, random removal 1.00). The attention-OV
+  account of weight-decayed task vectors (Yang et al. 2026) is not what this measure shows: with weight decay, at a
+  fifth of the norm, the MLPs still write what aligns the perturbation with the model's own direction.
+- **Necessity rises with size for the shorter vector, where it fell for D31's.** The MLPs' aligning components
+  meet D38's necessity rule on 3, 4, 9 and 7 tasks (0.6B to 8B) against D31's 7, 5, 3 and 1. D38 read the falling
+  count as the larger models regenerating the alignment by other routes; with a vector of the needed size the count
+  does not fall, so that reading was in part the full norm's slack.
+- **The within-label path is connected under the weight-decayed vector, and uninformative under D31's.** Two fits
+  of one label from different starts mix without loss on the k-th word and lexical labels on every model (the
+  midpoint keeps 0.66–1.02 of the gain, the dilution null 0.20–0.87); only add-k's larger operands (add_5,
+  add_10 on the 0.6B and 8B) read partial or isolated. The D31 vectors are so far past saturation that their
+  dilution null already keeps ≥ 0.9 of the effect at the midpoint on 12–16 of 16–18 paths on the 1.7B–8B: nothing
+  can beat it, so the D31 readings there carry no information. The CPU probe's collapse at the midpoint (D43) does
+  not recur in this protocol.
+- **D40's reading stands under the control it lacked.** With the within-label paths connected, the weight-decayed
+  vector's cross-label path between the ends of the k-th word list is still a switch on the 1.7B, 4B and 8B (a
+  parameter on the 0.6B) and between antonym and plural a switch everywhere: the switch is a property of the labels,
+  not of the path between any two fitted vectors. The optimiser's control selects; the earlier objection (D43's
+  probe) does not hold. The weight-decayed vectors of different positions are less orthogonal than D31's (43–69°
+  against 78–88°) and still switch.
+
 ## Not yet run / known limitations
 
 - The weight-decayed learned vector (D43) has run once per Qwen3 Base model (seed 20260916) with one weight decay,
-  one step size and one budget fixed on a CPU probe of one task; the downstream stages (D32–D41) have not been run
-  on it, and OLMo 3 and Gemma 4 have no run.
+  one step size and one budget fixed on a CPU probe of one task; the hand-over, the source test and the geometry
+  test have run on it (D44), the all-to-all trajectories (D32–D34), the composition tests (D41, D42) and OLMo 3 and
+  Gemma 4 have not. The within-label path reads at one weight (t = 0.5) with four null directions per label.
 - Iteration 4b has run once on each of the four models, seed 20260907
   (8B on an H100 in US-CA-2, the others on RTX 4090s in EUR-NO-1).
   Iteration 4 (weakest-reliable calibration, first-token ranking) is

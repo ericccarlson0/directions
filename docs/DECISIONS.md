@@ -2662,6 +2662,12 @@ by the direction at the end on the lexical tasks). It is as orthogonal to the he
 0.13–0.16) without being unique. So the large norm of D31 made its damage, not its orthogonality to the model's own
 construction: the shortest single vector that does a task is not the heads' vector.
 
+Amendment (after D44): the probe's mixing of two solutions of one task (the bullet above) does not generalise. In
+the pipeline's protocol (64 prompts, each label at its selected layer and strength, the effect per token) the
+within-label paths of the weight-decayed vectors are connected on every lexical and k-th word label of the four
+models (D44), including the 0.6B's antonym, whose two starts are 0.23–0.28 apart in cosine. The probe's reading
+of D40 ("does not by itself show") is withdrawn; D44 states what the within-label path shows.
+
 ## 2026-10-03 — The weight-decayed vector through the downstream chain, and the within-label path
 
 ### D44. The hand-over, the source test and the geometry test on the weight-decayed vector; the within-label path as the control of D40
@@ -2704,3 +2710,17 @@ Decision:
   what any path between two fitted vectors does. Where the within-label paths are connected and the cross-label path
   still switches, the switch is a property of the labels.
 * **Exploratory**: the thresholds (0.5 of the gain, the midpoint) are judgements fixed here.
+
+Result (`STATUS.md`, D44; Qwen3 0.6B–8B Base, seed 20260916; every determinism check identical). The weight-decayed
+vector hands over at the D31 vector's read point on the 0.6B and 1.7B and one to two read points later on the 4B and
+8B, at +1 to +1.5 read points from the universal heads' write depth on three models and +3 on the 8B; its aligning
+increments are MLP-written (attention 0.15–0.18 of the steered aligning write in the median, removal of attention's
+aligning components keeping 0.91–0.97 in the median, the 1.7B's last_antonym the one exception), and the MLPs' aligning components are necessary on 3, 4, 9 and 7 tasks from
+the 0.6B up, where D31's were on 7, 5, 3 and 1. The within-label paths of the weight-decayed vectors are connected
+on every k-th word and lexical label (partial or isolated only on add_5 and add_10 of the 0.6B and 8B); those of
+the D31 vectors are uninformative on the 1.7B–8B, their dilution null keeping ≥ 0.9 of the effect at the midpoint.
+By the rule above the cross-label switches of the weight-decayed vectors (the k-th word ends on the 1.7B–8B, antonym
+to plural everywhere) are properties of the labels: D40's reading that the optimiser's control is a choice stands
+under its control. Two D38 readings change: the attention-versus-MLP split holds for the shorter vector, but the
+necessity count rises with size instead of falling, so the "regeneration on larger models" reading was in part
+the full norm's slack.
