@@ -146,6 +146,42 @@ class LearnedVectorConfig:
 
 
 @dataclass
+class LearnedVectorWDConfig:
+    """The weight-decayed learned vector (docs/DECISIONS.md D43): a second learned construction beside D31's, with
+    a free norm and an L2 penalty. Per candidate layer, the D31 loss (−mean summed scored log p of the target over
+    the extraction pool's zero-shot prompts, the model frozen) plus ``(weight_decay / 2) * (||v|| / radius)^2``,
+    the radius being the median residual norm at the layer (the scale of the penalty and of the step only); the
+    first seed starts at zero (the carried fit), the others at a random direction of ``init_fraction`` times the
+    radius.
+
+    optimizer          "sgd": gradient descent with heavy-ball momentum (rotation-equivariant; the D43 choice);
+                       "adam": Adam with a per-coordinate step (kept to reproduce the D43 probe)
+    n_steps            optimiser steps per fit (each one forward and one backward over the pool)
+    lr                 sgd: step = lr * radius^2 * (momentum buffer), cosine-decayed to zero; lr * weight_decay is
+                       the rate per step at which the penalty shrinks a direction the task does not use
+    momentum           sgd: the heavy-ball coefficient
+    max_step_fraction  sgd: a step's length is capped at this fraction of the radius
+    step_fraction      adam: step per coordinate = step_fraction * radius / sqrt(d), cosine-decayed to zero
+    weight_decay       the penalty's coefficient, in units of the loss (nats per example) at ||v|| = radius:
+                       the penalty there is weight_decay / 2
+    init_fraction      the norm of the random starts of the seeds after the first, over the radius
+    log_every          record the loss, the objective and the norm every this many steps (plus first and last)
+    """
+
+    optimizer: str = "sgd"
+    n_steps: int = 200
+    lr: float = 5e-4
+    momentum: float = 0.9
+    max_step_fraction: float = 0.05
+    step_fraction: float = 0.02
+    weight_decay: float = 10.0
+    init_fraction: float = 0.5
+    beta1: float = 0.9
+    beta2: float = 0.999
+    log_every: int = 10
+
+
+@dataclass
 class ExtractionConfig:
     n_seeds: int = 3
     center: bool = False  # mean-center differences before PCA (preregistered: off)
@@ -155,9 +191,12 @@ class ExtractionConfig:
     #   "function_vector"  the canonical function vector (D21); the PCA direction is still extracted and reported
     #   "learned_vector"   one vector per candidate layer fitted by gradient descent with the model frozen (D31);
     #                      the PCA direction is still extracted and reported, there is no head-support gate
+    #   "learned_vector_wd" one vector per candidate layer fitted from zero with a free norm and an L2 penalty
+    #                      (weight decay; D43); otherwise as "learned_vector"
     control: str = "pca"
     function_vector: FunctionVectorConfig = field(default_factory=FunctionVectorConfig)
     learned_vector: LearnedVectorConfig = field(default_factory=LearnedVectorConfig)
+    learned_vector_wd: LearnedVectorWDConfig = field(default_factory=LearnedVectorWDConfig)
 
 
 @dataclass
@@ -666,8 +705,15 @@ def validate_config(cfg: Config) -> None:
         raise ValueError("extraction.candidate_depth_fractions must be non-empty")
     if any(not (0 <= f < 1) for f in cfg.extraction.candidate_depth_fractions):
         raise ValueError("candidate_depth_fractions must lie in [0, 1)")
-    if cfg.extraction.control not in ("pca", "function_vector", "learned_vector"):
-        raise ValueError("extraction.control must be 'pca', 'function_vector' or 'learned_vector'")
+    if cfg.extraction.control not in ("pca", "function_vector", "learned_vector", "learned_vector_wd"):
+        raise ValueError("extraction.control must be 'pca', 'function_vector', 'learned_vector' or 'learned_vector_wd'")
+    wd = cfg.extraction.learned_vector_wd
+    if wd.optimizer not in ("sgd", "adam") or wd.n_steps < 1 or not wd.lr > 0 or not (0 <= wd.momentum < 1) \
+            or not wd.max_step_fraction > 0 or not (0 < wd.step_fraction < 1) or not wd.weight_decay > 0 \
+            or not (0 < wd.init_fraction <= 1) or not (0 <= wd.beta1 < 1) or not (0 <= wd.beta2 < 1) or wd.log_every < 1:
+        raise ValueError("extraction.learned_vector_wd: optimizer sgd or adam, n_steps >= 1, lr > 0, 0 <= momentum < 1, "
+                         "max_step_fraction > 0, 0 < step_fraction < 1, weight_decay > 0, 0 < init_fraction <= 1, "
+                         "0 <= beta1, beta2 < 1, log_every >= 1")
     lv = cfg.extraction.learned_vector
     if lv.n_steps < 1 or not (0 < lv.lr_fraction < 1) or not (0 <= lv.beta1 < 1) or not (0 <= lv.beta2 < 1) or lv.log_every < 1:
         raise ValueError("extraction.learned_vector: n_steps >= 1, 0 < lr_fraction < 1, 0 <= beta1, beta2 < 1, log_every >= 1")

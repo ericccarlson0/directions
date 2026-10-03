@@ -2574,3 +2574,90 @@ the first component's control alone reads large. It is not supported
 by a readout shared with the natural condition, since the lens rule
 rarely reads staged for either, so the contrast between the model and
 its control is instrument-dependent and stays open.
+
+## 2026-10-02 — The weight-decayed learned vector
+
+### D43. A second learned construction: a free, L2-penalised norm fitted from zero by gradient descent
+
+Context: the D31 learned vector starts from a random direction at one full median residual norm and is projected
+back to that norm after every Adam step. Three of its properties bear on the results built on it (D32–D41). Its
+norm is imposed, not found. Its solution set is large (the three seeds' cosines are 0.1–0.2), so "the" learned
+vector is an arbitrary member of it; D39 and D40 read the learned vectors' near-orthogonality across labels and
+the switch-like mixing of two labels' vectors as properties of an optimiser's control, while D31 itself records
+that "the mean of dissimilar solutions is not a solution" for one label. And Adam's first step at a step size of
+0.05 of the radius per coordinate has a length of about 0.05 √d radii (1.6 on the 0.6B, 3.2 on the 8B), so the
+fit is dominated early by the sign pattern of the gradient: a coordinate-basis-dependent shape the model's own
+directions do not have. A related literature result disagrees with D31 on uniqueness: optimised task vectors
+fitted with AdamW and weight decay (Yang et al., "Task Vectors, Learned Not Extracted", ICLR 2026) show strong
+same-task alignment, and act mainly through attention OV circuits where D38 found the MLPs writing the aligning
+increments. Whether these differences are properties of the model or of the fit is undecided.
+
+Decision: a fourth control, `extraction.control: learned_vector_wd`, beside `pca`, `function_vector` and
+`learned_vector` (D31, unchanged, still its own control type; the configs `learned_wd_qwen3_<size>.yaml` are the
+D31 configs with the new control and nothing else, enforced by a test).
+
+* **The objective.** At each candidate layer the D31 loss (−mean summed scored log p of the target over the
+  extraction pool's 64 zero-shot prompts, the model frozen) plus `(weight_decay / 2) (||v|| / r)^2`, `r` the median
+  residual norm at the layer, which sets only the scale of the penalty and of the step. The penalty is in the
+  objective (coupled), so its stationary points do not depend on the optimiser. `weight_decay = 10`: 5 nats per
+  example at one residual norm.
+* **The optimiser: gradient descent with heavy-ball momentum** (`u ← 0.9 u + ∇`, `v ← v − lr r² u`, `lr = 5e-4`
+  cosine-decayed to zero over 200 steps, a step capped at 0.05 r). It is rotation-equivariant (the fit does not
+  depend on the residual's coordinate basis), and the penalty shrinks every direction the task does not use at
+  `lr · weight_decay` = 0.005 per step (about 0.05 with the momentum). Adam is kept as an option
+  (`optimizer: adam`) to reproduce the probe below.
+* **Starts and stability.** The first seed starts at zero; it is the control carried forward, a deterministic
+  fit, and its natural norm (the unit of ρ under `strength_unit: natural`) is the norm it found. The other two
+  seeds start at random directions of half the radius; the stability (min pairwise signed cosine over the three
+  fits) now says whether different starts reach one stationary point, and the cosine of each random-start fit
+  with its own start says how much of the start survives. Neither gates (D31's reasoning).
+* **Convergence readouts**, per fit: the stationarity (the objective's gradient norm over the penalty's at the
+  final vector; 0 at an exact stationary point) and the drift (how far the last tenth of the steps still moved the
+  vector, over its norm). The stationarity alone is dominated by the stiffest directions.
+* **The null.** The `demo_variation` controls are fitted from zero with the same objective and budget to the
+  pool's targets permuted across items, at the selected layer.
+* **Outputs.** As D31's, with the fit's norms, objectives, stationarity, drift and cosines with the starts in
+  `extraction.json`; in `directions.npz`, `learned_radii` is the fitted norm (the strength downstream commands
+  fall back to) and `learned_reference_radii` the median residual norm. `directions trajectories` accepts the run
+  as `--learned-run` (and records which learned control it read), so the downstream chain of D32–D41 runs on it
+  unchanged; `scripts/learned_wd_compare.py` compares a run with the D31 and head-mean runs of the same model and
+  seed (held-out effects, damage, the cosines between the constructions per candidate layer, stabilities).
+* **Runs.** Qwen3 0.6B, 1.7B, 4B and 8B Base at seed 20260916, the seed of the D31 runs of iteration 10 and the
+  head-mean runs of iteration 6 that D37 and D38 read; the 0.6B first, the others only after its run is read.
+* **Exploratory**: the weight decay, the step and the budget are judgements fixed by the probe below on one task.
+
+The CPU probe that fixed the choices (Qwen3-0.6B-Base in float32, antonym, layer 8 of 28, 32 fitting prompts and
+32 held-out prompts from the task's items, 150–200 steps; `r` = 19.7; not a run, recorded so it is not repeated):
+
+* **Adam, the norm free** (step 0.02 r/√d per coordinate, cosine-decayed, 150 steps, from zero): weight decay
+  0.3, 1, 3, 10 found norms of 0.43, 0.42, 0.39, 0.31 r, fitting losses 0.06–0.08 from 8.30, held-out losses
+  1.68, 1.72, 1.80, 2.07 from 7.33. Every setting finds less than half the D31 norm. But **random starts did not
+  reach the zero-start fit**: at weight decay 1 and 10, two starts at 0.5 r ended at cosines 0.09–0.42 with it,
+  keeping 0.62–0.75 of their start, with the drift at 0.001–0.002 (stopped). Adam's per-coordinate scaling
+  divides the penalty's gradient by the task gradient's size wherever the latter is large, so the penalty cannot
+  remove what the task does not use; this is the reason the optimiser is not Adam.
+* **Gradient descent with momentum** (the settings above, weight decay 10, 200 steps): the zero-start fit has a
+  norm of 0.23 r, a fitting loss of 0.021, stationarity 0.27, drift 0.002, held-out loss 3.25 from 7.59 (a
+  different held-out draw from the Adam probe's). The two random starts lost their start (cosines with it 0.10 and
+  0.07) and **still ended elsewhere**: cosines 0.21 and 0.49 with the zero-start fit, at norms 1.03 and 1.17 times
+  it, fitting losses 0.022 and 0.041, held-out losses 3.17 and 2.44. With a working penalty and a basis-free
+  optimiser the task still has several distinct solutions of one norm and one quality: the non-uniqueness of
+  D31 is a property of the model and the task, not of the D31 fit.
+* **Mixing two solutions of one task** (the zero-start fit and the first random start, cosine 0.21; the control
+  that D40 lacked): on the path `normalise((1 − t) u_0 + t u_1)` at their mean norm the fitting loss is 0.02,
+  4.55, 6.39, 3.93, 0.05 at t = 0, 0.25, 0.5, 0.75, 1 (unsteered 8.30) and the held-out loss 3.19, 6.30, 7.01,
+  4.23, 3.04 (unsteered 7.59); the plain average does the same (6.75 and 6.22 at t = 0.5). The solutions are
+  isolated: their midpoint does almost nothing, within one task. D40's learned-vector switch between labels is
+  what such a path does whatever the labels are, so it does not by itself show that an optimiser's control is a
+  choice among programs; the reading needs the within-label path beside it.
+* **Wiring check**: the pipeline with this control on the 0.6B on the CPU (antonym and add_3, one candidate layer,
+  four steps, `--stop-after extraction`) wrote the fields above.
+
+Result (`STATUS.md`, D43; Qwen3 0.6B–8B Base, seed 20260916): the weight-decayed vector qualifies on the same tasks
+as D31's on every model, with 0.86–1.16 of its held-out effect at 0.10–0.48 of the median residual norm (medians
+0.15–0.19), a neutral-prose KL an order of magnitude below both D31's and the head mean's, and the same early
+conversion (removal leaves 90 % of the effect from 0.22–0.36 of the downstream depth in the median; nothing carried
+by the direction at the end on the lexical tasks). It is as orthogonal to the head mean (|cos| ≤ 0.04, ≤ 0.11 on the
+8B) and to PC1 as D31's vector was, and more unique (median stability 0.39–0.68, rising with size and depth, against
+0.13–0.16) without being unique. So the large norm of D31 made its damage, not its orthogonality to the model's own
+construction: the shortest single vector that does a task is not the heads' vector.

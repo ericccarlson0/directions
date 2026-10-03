@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-11.
 
-## Implemented (all exercised by `uv run pytest`, 49 tests)
+## Implemented (all exercised by `uv run pytest`, 258 test cases)
 
 `src/directions/`:
 
@@ -4377,8 +4377,72 @@ point 20). "The control skips the step the model takes" is therefore
 not established; what is established is that the control's
 direction holds no component-specific share.
 
+### D43: the weight-decayed learned vector (Qwen3 0.6B–8B Base, seed 20260916)
+
+The D31 protocol with `extraction.control: learned_vector_wd` (`configs/learned_wd_qwen3_<size>.yaml`): per
+candidate layer one vector fitted from zero with a free norm and an L2 penalty (weight decay 10 in units of the
+median residual norm r) by gradient descent with momentum, 200 steps; two more fits from random starts at r/2
+give the stability; the permuted-target null is fitted the same way. Each job then ran
+`scripts/learned_wd_compare.py` against the D31 learned run (iteration 10) and the head-mean run (iteration 6) of
+the same seed; the numbers below come from those comparisons, re-run locally with the hand-over readouts on the
+downloaded runs (`results/remote/compare_<size>.json`, not committed). The CPU probe that fixed the optimiser and
+the weight decay is in the D43 entry.
+
+```
+# workflow runs 37016182958 (0.6B; RTX 4090, ADA_24, EUR-NO-1, 90 min), 37031699565 (1.7B; RTX 4090, 95 min; the
+# first request 37027779621 failed on a full EUR-NO-1 volume, the 1.7B cache absent: the re-run's first stage deleted
+# the unused Qwen3-8B-Base cache there with scripts/volume_cleanup.py), 37027823112 (4B; RTX 4090, Flash environment
+# ci-b, 144 min), 37027869710 (8B Base; H100 80GB HBM3, ADA_80_PRO, US-CA-2, ci-8b, 86 min); determinism checks
+# passed on all four; about 13 USD in all
+uv run python scripts/stages.py 'uv run directions pilot --config configs/learned_wd_qwen3_0.6b.yaml --seed 20260916 --run-id learned_wd_qwen3_0.6b_seed20260916' 'uv run python scripts/learned_wd_compare.py --wd-run results/learned_wd_qwen3_0.6b_seed20260916 --learned-run /runpod-volume/results/run-35414652608/learned_qwen3_0.6b_seed20260916 --fv-run /runpod-volume/results/run-35050574186/pilot6_qwen3_0.6b_seed20260916 --out results/learned_wd_compare_qwen3_0.6b_seed20260916.json'
+# 1.7B: --learned-run run-35414702823/learned_qwen3_1.7b_seed20260916 --fv-run run-35050661831/pilot6_qwen3_1.7b_seed20260916
+# 4B:   --learned-run run-35420419658/learned_qwen3_4b_seed20260916   --fv-run run-35051925394/pilot6_qwen3_4b_seed20260916
+# 8B:   --learned-run run-35414623339/learned_qwen3_8b_seed20260916   --fv-run run-35050604985/pilot6_qwen3_8b_seed20260916
+```
+
+| model | qualified: wd / D31 / head mean | held-out effect, wd ÷ D31 (median; range) | fitted norm / r at the selected layer | neutral-prose KL: wd / D31 / head mean (medians) | cos(wd, head mean) | cos(wd, D31) | stability wd / D31 (median) | hand-over 90 %: wd / D31 / head mean (medians) |
+|---|---|---|---|---|---|---|---|---|
+| Qwen3 0.6B | 8 / 8 / 7 | 0.94; 0.91–1.00 | 0.15–0.38 (median 0.19) | 0.02 / 0.24 / 0.30 | −0.04 to 0.04 | 0.01–0.17 | 0.39 / 0.13 | 0.36 / 0.39 / 0.73 |
+| Qwen3 1.7B | 9 / 9 / 8 | 0.95; 0.90–1.00 | 0.11–0.28 (0.19) | 0.02 / 1.26 / 0.65 | −0.04 to 0.04 | 0.07–0.26 | 0.58 / 0.16 | 0.36 / 0.41 / 0.75 |
+| Qwen3 4B | 10 / 10 / 8 | 0.97; 0.86–1.16 | 0.14–0.35 (0.18) | 0.01 / 0.35 / 0.18 | −0.04 to 0.04 | 0.05–0.24 | 0.59 / 0.15 | 0.24 / 0.28 / 0.61 |
+| Qwen3 8B | 10 / 10 / 8 | 0.99; 0.86–1.10 | 0.10–0.48 (0.15) | 0.03 / 0.99 / 0.22 | −0.02 to 0.11 | 0.02–0.17 | 0.68 / 0.16 | 0.22 / 0.24 / 0.72 |
+
+(Cosines and stabilities at the weight-decayed vector's selected layer; D31's at the same candidate layer. The
+hand-over is D29's `handed_over_90_fraction` of each run's own selection; the selected layer of the two learned
+constructions coincides on 3 of 37 tasks, so the hand-over columns compare selections, not layers.)
+
+- **The same tasks, the same effect, a fifth of the norm.** The weight-decayed vector qualifies on exactly the
+  tasks D31's does on every model (the head mean on one or two fewer), with 0.86–1.16 of D31's held-out effect
+  (medians 0.94–0.99), at 0.10–0.48 of the median residual norm (medians 0.15–0.19), where D31's sits at 1.
+  The reference rule (D22) selects ρ = 1 in natural units, the fitted vector itself, on every task, and it is
+  reliable everywhere; the reliable range ends at 1–1.5 times the fitted norm on 10 of 37 tasks and reaches
+  2–2.5 on the rest.
+- **An order of magnitude less damage.** The KL on neutral prose (D24) has medians of 0.01–0.03 against D31's
+  0.24–1.26 and the head mean's 0.18–0.65, so the D31 fit's collateral damage, large for a few tasks per model
+  (up to 11.9 nats), was the imposed norm, not the task.
+- **Still orthogonal to the model's own construction.** The shortest vector that does the task is no closer to
+  the head mean than D31's (|cos| ≤ 0.04 on three models, ≤ 0.11 on the 8B), nor to PC1 (|cos| ≤ 0.05), nor to the
+  D31 vector of the same layer (0.01–0.26). The orthogonality of learned and head-mean controls (D31, D32) survives
+  the change of fit: it is not the large fixed norm or Adam's sign-shaped steps.
+- **More unique, increasingly with size, and not unique.** The fits from three starts agree at median cosines of
+  0.39, 0.58, 0.59 and 0.68 (0.6B to 8B; up to 0.97), against D31's 0.13–0.16 at the same layers; the CPU probe
+  showed the random starts losing their start and ending at distinct solutions of one norm and one quality whose
+  midpoint does almost nothing (D43). Stability rises with depth on every task (layer 6–7 lowest).
+- **Converted like D31's, earlier than the head mean.** The injected direction stops being needed (removal leaves
+  90 % of the effect) at 0.22–0.36 of the downstream depth in the median, D31's at 0.24–0.41, the head mean's at
+  0.61–0.75; at the last read point the direction alone carries about nothing on every lexical task (−0.02 to 0.14),
+  as D31's did. The arithmetic tasks are the exception for both learned constructions (add_3 carried alone to the
+  end, arithmetic_words in part).
+- **Open:** the downstream chain (D32–D41) on these vectors: the trajectory comparison and the hand-over to the
+  natural difference (D33, D37), the sublayer split (D38, where Yang et al. 2026 report attention OV circuits), the
+  mixing of two labels' vectors with the within-label path beside it (D40), and the serial and summed injection of
+  compositions (D41). `directions trajectories` accepts these runs as `--learned-run`.
+
 ## Not yet run / known limitations
 
+- The weight-decayed learned vector (D43) has run once per Qwen3 Base model (seed 20260916) with one weight decay,
+  one step size and one budget fixed on a CPU probe of one task; the downstream stages (D32–D41) have not been run
+  on it, and OLMo 3 and Gemma 4 have no run.
 - Iteration 4b has run once on each of the four models, seed 20260907
   (8B on an H100 in US-CA-2, the others on RTX 4090s in EUR-NO-1).
   Iteration 4 (weakest-reliable calibration, first-token ranking) is

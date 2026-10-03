@@ -297,3 +297,29 @@ def test_comp_configs_are_the_pilot_and_the_learned_config_with_the_composition_
         for key in ("model", "prompt", "data", "qualification", "extraction", "calibration", "evaluation", "commitment",
                     "exploratory", "analysis", "figures", "seed"):
             assert a[key] == ref[key], (base, key)
+
+
+LEARNED_WD_CONFIGS = {
+    "learned_wd_qwen3_0.6b.yaml": "Qwen/Qwen3-0.6B-Base",
+    "learned_wd_qwen3_1.7b.yaml": "Qwen/Qwen3-1.7B-Base",
+    "learned_wd_qwen3_4b.yaml": "Qwen/Qwen3-4B-Base",
+    "learned_wd_qwen3_8b.yaml": "Qwen/Qwen3-8B-Base",
+}
+
+
+def test_learned_wd_configs_are_the_learned_config_with_the_weight_decayed_control():
+    """The weight-decayed configs (D43) differ from the D31 learned config of the same model only in the run name,
+    the control and its settings, so that the two learned constructions compare on the same protocol."""
+    for fname, model_name in LEARNED_WD_CONFIGS.items():
+        ref = config_to_dict(load_config(CONFIGS / fname.replace("learned_wd_", "learned_")))
+        a = config_to_dict(load_config(CONFIGS / fname))
+        assert a["model"]["name"] == model_name, fname
+        assert a["name"] == "learned_wd" and ref["name"] == "learned"
+        assert a["extraction"]["control"] == "learned_vector_wd"
+        wd = a["extraction"]["learned_vector_wd"]
+        assert wd["optimizer"] == "sgd" and wd["weight_decay"] == 10.0 and wd["n_steps"] == 200 and wd["lr"] == 0.0005
+        for x in (a, ref):
+            x.pop("name")
+            x["extraction"].pop("control")
+            x["extraction"].pop("learned_vector_wd")
+        assert a == ref, fname

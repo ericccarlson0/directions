@@ -32,6 +32,9 @@ uv run directions trajectories --config configs/trajectories.yaml --fv-run resul
     --learned-run results/<learned-vector run> --run-id t1   # downstream trajectories compared all-to-all (D32)
 uv run directions trajectories --config configs/trajectories_subspace.yaml --fv-run results/<head-mean run> \
     --learned-run results/<learned-vector run> --run-id s1   # the causal dimensionality of the shared component only (D34)
+uv run directions pilot    --config configs/learned_wd_qwen3_0.6b.yaml --seed 20260916 --run-id learned_wd_qwen3_0.6b_seed20260916   # the weight-decayed learned vector (D43)
+uv run python scripts/learned_wd_compare.py --wd-run results/<learned_wd run> --learned-run results/<learned run> \
+    --fv-run results/<head-mean run> --out compare.json   # it against the D31 learned vector and the head mean (D43)
 ```
 
 Every scientifically meaningful parameter lives in the YAML config. Each run
