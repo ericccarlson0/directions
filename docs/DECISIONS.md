@@ -2724,3 +2724,18 @@ to plural everywhere) are properties of the labels: D40's reading that the optim
 under its control. Two D38 readings change: the attention-versus-MLP split holds for the shorter vector, but the
 necessity count rises with size instead of falling, so the "regeneration on larger models" reading was in part
 the full norm's slack.
+
+Amendment (2026-10-10, after the runs above and after reading them, so not preregistered): two changes to the
+within-label reading, applied to the stored runs from their curves (`directions.mixing.reread_within_path`, used by
+`scripts/d44_summary.py`) and to future runs (`within_null_ceiling`, `within_near_identical_cos` in
+`configs/mixing_within.yaml`). (1) A path is *uninformative* when the dilution null itself keeps ≥ 0.9 of the
+endpoints' gain at the midpoint: the rule as preregistered labelled such a path isolated (it cannot beat the null) or
+connected (on a tiny excess over a null at the ceiling), and neither label says anything. It applies to 45 of the D31
+vectors' 70 paths (3, 16, 12 and 14 from the 0.6B up) and to none of the weight-decayed vectors'. (2) A path whose two
+fits have cosine ≥ 0.85 is flagged near-identical, because blending a vector with nearly itself keeps the effect
+whatever the solution set looks like: 38 of the weight-decayed vectors' 70 paths. The reading of the result above is
+unchanged in direction and narrower in support: it rests on the 17 k-th word and lexical paths whose weight-decayed
+fits genuinely differ (13 on the 0.6B and 1.7B, 2 each on the 4B and 8B), all connected, with margins over the null
+that are modest where the null keeps more than half the effect; the D31 within-label readings are informative on
+the 0.6B (13 connected, 2 isolated, 3 uninformative) and on 10 paths of the larger models (2, 4 and 4).
+

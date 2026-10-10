@@ -129,5 +129,35 @@ def test_mixing_within_on_the_toy_learned_runs(tmp_path):
     for label in ("antonym", "number_to_words"):
         paths = within["per_label"][label]["paths"]
         assert len(paths) == 1 and paths[0]["seed"] == 1 and len(paths[0]["curve"]) == 11
-        assert paths[0]["reading"] in ("connected", "partial", "isolated") and -1 <= paths[0]["cos"] <= 1
+        assert paths[0]["reading"] in ("connected", "partial", "isolated", "uninformative") and -1 <= paths[0]["cos"] <= 1
+        assert isinstance(paths[0]["near_identical"], bool) and "null_retained_mid" in paths[0]
     assert any(p["construction"] == "learned" for p in summary["pairs"])
+
+
+def test_within_reading_is_uninformative_when_the_null_is_at_the_ceiling():
+    """When the dilution null itself keeps the endpoints' effect at the midpoint (a control far past saturation), no
+    path can beat it: the reading is uninformative, not isolated (D44 amendment)."""
+    from directions.mixing import within_reading
+    rng = np.random.default_rng(2)
+    W = [i / 10 for i in range(11)]
+    n = 40
+    path = np.ones((11, n)) + rng.normal(scale=0.01, size=(11, n))
+    null = np.ones((4, 11, n)) + rng.normal(scale=0.01, size=(4, 11, n))  # the null keeps everything too
+    v = within_reading(W, path, null, 0.1, rng, 500)
+    assert v["reading"] == "uninformative" and v["null_retained_mid"] > 0.9
+    v = within_reading(W, path, null, 0.1, rng, 500, null_ceiling=1.5)  # without the ceiling it would read isolated
+    assert v["reading"] == "isolated"
+
+
+def test_reread_within_path_relabels_stored_rows_and_flags_near_identical_fits():
+    """A stored path written before the amendment is re-read from its curves: a ceiling null makes it uninformative,
+    a high cosine flags the two fits as near-identical; a readable row keeps its reading."""
+    from directions.mixing import reread_within_path
+    W = [i / 10 for i in range(11)]
+    base = {"unsteered": 0.0, "curve": [1.0] * 11, "excess_over_null_mid": 0.0, "p_mid": 0.9, "retained_mid": 1.0,
+            "reading": "isolated", "cos": 0.2}
+    r = reread_within_path({**base, "null_curve": [1.0] * 11}, W)
+    assert r["reading"] == "uninformative" and r["null_retained_mid"] == 1.0 and not r["near_identical"]
+    r = reread_within_path({**base, "null_curve": [0.3] * 11, "excess_over_null_mid": 0.7, "p_mid": 0.001,
+                            "reading": "connected", "cos": 0.95}, W)
+    assert r["reading"] == "connected" and r["near_identical"]

@@ -606,6 +606,10 @@ class MixingConfig:
     determinism_check one steered pass repeated, bit identity required (D23)
     within_retained_min  a within-label path (D44) is *connected* when at t = 0.5 it beats the dilution null and
                       keeps at least this share of the endpoints' gain over the unsteered readout
+    within_null_ceiling  a within-label path is *uninformative* when the dilution null itself keeps at least this share
+                      of the gain at t = 0.5 (no path can beat it; D44 amendment)
+    within_near_identical_cos  a within-label path whose two fits have at least this cosine is flagged near-identical:
+                      its blend is nearly the same vector, so a kept effect is weak evidence (D44 amendment)
     """
 
     name: str = "mixing"
@@ -619,6 +623,8 @@ class MixingConfig:
     interior: list[float] = field(default_factory=lambda: [0.2, 0.8])
     determinism_check: bool = True
     within_retained_min: float = 0.5
+    within_null_ceiling: float = 0.9
+    within_near_identical_cos: float = 0.85
     device: str | None = None
     pairs: list[MixingPair] = field(default_factory=list)
 
@@ -650,6 +656,8 @@ def load_mixing_config(path: str | Path) -> MixingConfig:
             raise ValueError("the within-label path is read at t = 0.5, which must be among the weights")
     if not (0 < cfg.within_retained_min <= 1):
         raise ValueError("within_retained_min must lie in (0, 1]")
+    if not (0 < cfg.within_null_ceiling <= 1) or not (0 < cfg.within_near_identical_cos < 1):
+        raise ValueError("within_null_ceiling must lie in (0, 1] and within_near_identical_cos in (0, 1)")
     return cfg
 
 

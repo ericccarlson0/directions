@@ -141,7 +141,7 @@ With `extraction.control: learned_vector_wd` the direction is fitted as under D3
 
 ### The within-label path (docs/DECISIONS.md D44)
 
-`directions mixing` with `construction: within` (`configs/mixing_within.yaml`) mixes one label's learned vector from its first fit with the same label's vector from each other start, at the label's selected layer and strength, read on the label's own readout against the dilution null of the cross-label path; at t = 0.5 a path is *connected* (beats the null and keeps half the endpoints' gain over the unsteered readout), *isolated* (does not beat the null) or *partial*. It is the control of D40's cross-label reading, run on the D31 and the weight-decayed (D43) learned vectors.
+`directions mixing` with `construction: within` (`configs/mixing_within.yaml`) mixes one label's learned vector from its first fit with the same label's vector from each other start, at the label's selected layer and strength, read on the label's own readout against the dilution null of the cross-label path; at t = 0.5 a path is *uninformative* when the null itself keeps 0.9 of the endpoints' gain over the unsteered readout (no path can beat it), and otherwise *connected* (beats the null and keeps half the gain), *isolated* (does not beat the null) or *partial*; a path whose two fits have cosine ≥ 0.85 is flagged near-identical, its blend being nearly the same vector (both added after the first runs, D44 amendment). It is the control of D40's cross-label reading, run on the D31 and the weight-decayed (D43) learned vectors.
 
 ## Intervention Calibration
 

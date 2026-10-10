@@ -136,26 +136,56 @@ def verdict(weights: list[float], real: np.ndarray, null_stack: np.ndarray, keys
             "intermediates": inter, "real_mean": real_mean.tolist(), "null_mean": null_mean.tolist()}
 
 
+def _within_label(beats_null: bool, retained: float, null_retained: float, retained_min: float, null_ceiling: float) -> str:
+    """The reading of a within-label path from its numbers at the midpoint (the rule of within_reading)."""
+    if null_retained >= null_ceiling:
+        return "uninformative"
+    if not beats_null:
+        return "isolated"
+    return "connected" if retained >= retained_min else "partial"
+
+
 def within_reading(weights: list[float], path: np.ndarray, null: np.ndarray, unsteered: float, rng: np.random.Generator,
-                   n_boot: int, mid_weight: float = 0.5, retained_min: float = 0.5) -> dict[str, Any]:
+                   n_boot: int, mid_weight: float = 0.5, retained_min: float = 0.5, null_ceiling: float = 0.9) -> dict[str, Any]:
     """Read one within-label path. ``path`` is (n_weights, n_items), the label's own readout along u_0 -> u_s;
     ``null`` is (n_null, n_weights, n_items), the same readout along u_0 -> random; ``unsteered`` the readout's
     population mean with no control. At ``mid_weight``: the share of the endpoints' gain over the unsteered value
-    that the path retains, and the paired excess of the path over the dilution null (one-sided). *connected*: the
-    path beats the null (p <= 0.05) and retains at least ``retained_min``; *isolated*: it does not beat the null;
-    *partial* otherwise."""
+    that the path retains, the share the dilution null retains, and the paired excess of the path over the null
+    (one-sided). *uninformative*: the null itself retains at least ``null_ceiling`` of the gain, so no path can beat it
+    (a control so far past saturation that half of it plus noise does the task; D44 amendment); otherwise
+    *connected*: the path beats the null (p <= 0.05) and retains at least ``retained_min``; *isolated*: it does not
+    beat the null; *partial* otherwise."""
     W = list(weights)
     j = W.index(mid_weight)
     curve = path.mean(axis=1)
+    null_curve = null.mean(axis=(0, 2))
     ends = 0.5 * (curve[0] + curve[-1])
     gain = ends - unsteered
     retained = float((curve[j] - unsteered) / gain) if gain != 0 else float("nan")
+    null_retained = float((null_curve[j] - unsteered) / gain) if gain != 0 else float("nan")
     t = paired_excess_test(path[j], null[:, j], rng, n_boot=n_boot)
     beats_null = bool(t.excess_mean > 0 and t.p_value <= 0.05)
-    label = "isolated" if not beats_null else ("connected" if retained >= retained_min else "partial")
-    return {"reading": label, "curve": curve.tolist(), "null_curve": null.mean(axis=(0, 2)).tolist(), "unsteered": float(unsteered),
-            "retained_mid": retained, "excess_over_null_mid": float(t.excess_mean), "p_mid": float(t.p_value),
-            "min_retained": float(np.nanmin((curve - unsteered) / gain)) if gain != 0 else float("nan")}
+    label = _within_label(beats_null, retained, null_retained, retained_min, null_ceiling)
+    return {"reading": label, "curve": curve.tolist(), "null_curve": null_curve.tolist(), "unsteered": float(unsteered),
+            "retained_mid": retained, "null_retained_mid": null_retained, "excess_over_null_mid": float(t.excess_mean),
+            "p_mid": float(t.p_value), "min_retained": float(np.nanmin((curve - unsteered) / gain)) if gain != 0 else float("nan")}
+
+
+def reread_within_path(path: dict[str, Any], weights: list[float], mid_weight: float = 0.5, retained_min: float = 0.5,
+                       null_ceiling: float = 0.9, near_identical_cos: float = 0.85) -> dict[str, Any]:
+    """Re-read a stored within-label path (a ``per_label[...]["paths"]`` entry of a mixing summary) under the current
+    rule, from its stored curves and test: the reading, the null's retained share at the midpoint, and whether the two
+    fits are near-identical (cosine >= ``near_identical_cos``: their blend is nearly the same vector, so keeping the
+    effect is no evidence that different solutions combine). Runs written before the D44 amendment lack the null's
+    share and the uninformative reading; this recovers both without a rerun."""
+    j = list(weights).index(mid_weight)
+    u = float(path["unsteered"])
+    curve, null_curve = path["curve"], path["null_curve"]
+    gain = 0.5 * (curve[0] + curve[-1]) - u
+    null_retained = (null_curve[j] - u) / gain if gain != 0 else float("nan")
+    beats_null = bool(path["excess_over_null_mid"] > 0 and path["p_mid"] <= 0.05)
+    label = _within_label(beats_null, path["retained_mid"], null_retained, retained_min, null_ceiling)
+    return {"reading": label, "null_retained_mid": float(null_retained), "near_identical": bool(path["cos"] >= near_identical_cos)}
 
 
 class Mixing:
@@ -323,8 +353,10 @@ class Mixing:
             for sidx in range(1, seeds.shape[0]):
                 us = _unit(seeds[sidx])
                 path = np.stack([readout(mix(u0, us, t)) for t in weights])
-                r = within_reading(weights, path, null, unsteered, rng, self.cfg.n_boot, 0.5, self.cfg.within_retained_min)
-                paths.append({"seed": sidx, "cos": float(u0 @ us), **r})
+                r = within_reading(weights, path, null, unsteered, rng, self.cfg.n_boot, 0.5, self.cfg.within_retained_min,
+                                   self.cfg.within_null_ceiling)
+                cos = float(u0 @ us)
+                paths.append({"seed": sidx, "cos": cos, "near_identical": bool(cos >= self.cfg.within_near_identical_cos), **r})
                 readings.append(r["reading"])
             out["per_label"][label] = {"layer": layer, "alpha": alpha, "n_items": len(items), "paths": paths}
         out["verdict"] = ",".join(readings) if readings else "skipped"

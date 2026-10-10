@@ -19,6 +19,8 @@ ci_alpha: 0.05
 interior: [0.2, 0.8]           # the weights at which an intermediate label's maximum counts as interior
 determinism_check: true        # one steered pass repeated, bit identity required (D23)
 within_retained_min: 0.5       # D44: a within-label path is connected when at t = 0.5 it beats the dilution null and keeps half the endpoints' gain
+within_null_ceiling: 0.9       # D44 amendment: uninformative when the dilution null itself keeps 0.9 of the gain at t = 0.5
+within_near_identical_cos: 0.85  # D44 amendment: flag paths whose two fits are near-identical (weak evidence)
 
 pairs:
   - family: kth_word           # the k-th word family (D39): the ends of the three-word list

@@ -4464,16 +4464,18 @@ uv run python scripts/d44_summary.py --model qwen3_<size> --wd-landmarks <run> -
   --d31-source <D38 run> --wd-mixing <run> --d31-mixing <run> --out results/d44_<size>.json
 ```
 
-| model | hand-over, D43 / D31 / head mean (median read point) | heads write at | attention's share of the steered aligning write, D43 (range) / D31; natural | MLP aligning components necessary (D38 rule), D43 / D31 | within-label paths, D43: connected / partial / isolated | the same, D31 (paths whose dilution null keeps ≥ 0.9 at the midpoint) | cross-label learned path, D43: kth_1→kth_3, add_1→add_5, add_2→add_10, antonym→plural |
+| model | hand-over, D43 / D31 / head mean (median read point) | heads write at | attention's share of the steered aligning write, D43 (range) / D31; natural | MLP aligning components necessary (D38 rule), D43 / D31 | within-label paths, D43: connected / partial / isolated (the same among the paths whose two fits genuinely differ, cosine < 0.85) | within-label paths, D31: connected / isolated / uninformative (the dilution null keeps ≥ 0.9 at the midpoint) | cross-label learned path, D43: kth_1→kth_3, add_1→add_5, add_2→add_10, antonym→plural |
 |---|---|---|---|---|---|---|---|
-| Qwen3 0.6B | 20 / 20 / 19 | 19 | 0.15 (0.09–0.21) / 0.16; 0.37 | 3 of 8 / 7 of 8 | 15 / 3 / 0 | 15 / 0 / 3 (3 of 18) | parameter, neither, switch, switch |
-| Qwen3 1.7B | 20 / 20 / 19 | 18.5 | 0.16 (0.11–0.19) / 0.15; 0.29 | 4 of 9 / 5 of 9 | 18 / 0 / 0 | 14 / 0 / 4 (16 of 18) | switch, switch, parameter, switch |
-| Qwen3 4B | 24 / 23 / 24 | 23 | 0.18 (0.11–0.26) / 0.16; 0.32 | 9 of 10 / 3 of 10 | 16 / 0 / 0 | 6 / 0 / 10 (12 of 16) | switch, switch, switch, switch |
-| Qwen3 8B | 26 / 24 / 24 | 23 | 0.15 (0.13–0.19) / 0.17; 0.28 | 7 of 10 / 1 of 10 | 16 / 1 / 1 | 8 / 0 / 10 (14 of 18) | switch, neither, switch, switch |
+| Qwen3 0.6B | 20 / 20 / 19 | 19 | 0.15 (0.09–0.21) / 0.16; 0.37 | 3 of 8 / 7 of 8 | 15 / 3 / 0 (11 / 3 / 0 of 14) | 13 / 2 / 3 | parameter, neither, switch, switch |
+| Qwen3 1.7B | 20 / 20 / 19 | 18.5 | 0.16 (0.11–0.19) / 0.15; 0.29 | 4 of 9 / 5 of 9 | 18 / 0 / 0 (9 / 0 / 0 of 9) | 2 / 0 / 16 | switch, switch, parameter, switch |
+| Qwen3 4B | 24 / 23 / 24 | 23 | 0.18 (0.11–0.26) / 0.16; 0.32 | 9 of 10 / 3 of 10 | 16 / 0 / 0 (3 / 0 / 0 of 3) | 3 / 1 / 12 | switch, switch, switch, switch |
+| Qwen3 8B | 26 / 24 / 24 | 23 | 0.15 (0.13–0.19) / 0.17; 0.28 | 7 of 10 / 1 of 10 | 16 / 1 / 1 (4 / 1 / 1 of 6) | 2 / 2 / 14 | switch, neither, switch, switch |
 
 (The D31 hand-over, attention share and necessity are D37's and D38's runs at each construction's own selected
 layer; the 8B D31 numbers are from the D37/D38 entries, the run directories having been removed from the volume. The
-4B's middle position does not qualify under either learned construction, so its k-th word paths are the ends only.)
+4B's middle position does not qualify under either learned construction, so its k-th word paths are the ends only.
+The within-label columns are re-read from the stored curves under the amended rule of the D44 entry, the uninformative
+reading and the near-identical flag; `scripts/d44_summary.py` applies it to the runs as stored.)
 
 - **The hand-over is the same for the shorter vector.** The weight-decayed vector keeps 0.9 of its effect along the
   per-prompt natural difference from the same read point as D31's on the 0.6B and 1.7B (20) and one and two read
@@ -4491,14 +4493,20 @@ layer; the 8B D31 numbers are from the D37/D38 entries, the run directories havi
   meet D38's necessity rule on 3, 4, 9 and 7 tasks (0.6B to 8B) against D31's 7, 5, 3 and 1. D38 read the falling
   count as the larger models regenerating the alignment by other routes; with a vector of the needed size the count
   does not fall, so that reading was in part the full norm's slack.
-- **The within-label path is connected under the weight-decayed vector, and uninformative under D31's.** Two fits
-  of one label from different starts mix without loss on the k-th word and lexical labels on every model (the
-  midpoint keeps 0.66–1.02 of the gain, the dilution null 0.20–0.87); only add-k's larger operands (add_5,
-  add_10 on the 0.6B and 8B) read partial or isolated. The D31 vectors are so far past saturation that their
-  dilution null already keeps ≥ 0.9 of the effect at the midpoint on 12–16 of 16–18 paths on the 1.7B–8B: nothing
-  can beat it, so the D31 readings there carry no information. The CPU probe's collapse at the midpoint (D43) does
-  not recur in this protocol.
-- **D40's reading stands under the control it lacked.** With the within-label paths connected, the weight-decayed
+- **The within-label path is connected under the weight-decayed vector, on fewer paths than the tallies suggest,
+  and mostly uninformative under D31's.** Of the weight-decayed vector's 70 paths, 38 blend two near-identical
+  fits (cosine ≥ 0.85: 4, 9, 13 and 12 from the 0.6B up); their blend is nearly the same vector, so keeping the
+  effect proves little. Of the 32 whose fits genuinely differ, 27 are connected, and the 5 that are not are add-k's
+  larger operands (add_5, add_10 on the 0.6B and 8B). The reading on the k-th word and lexical labels rests on 17
+  such paths, 13 of them on the 0.6B and 1.7B and 2 each on the 4B and 8B, all connected: the midpoint keeps
+  0.66–1.02 of the gain against a dilution null of 0.21–0.87, a modest margin where the null is high (the 1.7B's
+  plural 0.68 against 0.56, the 4B's antonym 1.01 against 0.66–0.69, the 8B's first position 1.00 against 0.87).
+  The D31 vectors are so far past saturation that their dilution null keeps ≥ 0.9 of the effect at the midpoint on
+  45 of their 70 paths (3, 16, 12 and 14 from the 0.6B up): nothing can beat it, and those rows, which the rule as
+  run labelled isolated or connected, are uninformative. The CPU probe's collapse at the midpoint (D43) does not
+  recur in this protocol.
+- **D40's reading stands under the control it lacked, on narrow evidence.** With the within-label paths connected
+  (on the 17 k-th word and lexical paths whose fits genuinely differ, most of them on the two smaller models), the weight-decayed
   vector's cross-label path between the ends of the k-th word list is still a switch on the 1.7B, 4B and 8B (a
   parameter on the 0.6B) and between antonym and plural a switch everywhere: the switch is a property of the labels,
   not of the path between any two fitted vectors. The optimiser's control selects; the earlier objection (D43's

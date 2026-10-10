@@ -21,6 +21,8 @@ from pathlib import Path
 from statistics import median
 from typing import Any
 
+from directions.mixing import reread_within_path
+
 
 def _json(path: Path) -> Any:
     return json.loads(path.read_text()) if path.exists() else None
@@ -67,7 +69,8 @@ def source(run: Path | None) -> dict[str, Any] | None:
 
 
 def mixing(run: Path | None) -> dict[str, Any] | None:
-    """The within-label readings per label and start, and the cross-label verdicts per pair."""
+    """The within-label readings per label and start, re-read under the current rule from the stored curves (the
+    uninformative reading and the near-identical flag of the D44 amendment), and the cross-label verdicts per pair."""
     if run is None:
         return None
     s = _json(run / "core" / "summary.json")
@@ -79,8 +82,11 @@ def mixing(run: Path | None) -> dict[str, Any] | None:
         if p.get("construction") == "within":
             for label, v in (p.get("per_label") or {}).items():
                 for path in v.get("paths") or []:
+                    rr = reread_within_path(path, p["weights"])
                     within[f"{p['family']}/{label}/s{path['seed']}"] = {
-                        "reading": path["reading"], "cos": path["cos"], "retained_mid": path["retained_mid"], "p_mid": path["p_mid"]}
+                        "reading": rr["reading"], "reading_as_run": path["reading"], "cos": path["cos"],
+                        "near_identical": rr["near_identical"], "retained_mid": path["retained_mid"],
+                        "null_retained_mid": rr["null_retained_mid"], "p_mid": path["p_mid"]}
         elif p.get("construction") == "learned":
             cross.append({"family": p["family"], "labels": p["labels"], "verdict": p.get("verdict"), "angle_deg": p.get("angle_deg")})
     return {"within": within, "cross": cross, "skipped": s.get("skipped")}
@@ -112,9 +118,14 @@ def summarise(models: dict[str, dict[str, Path | None]]) -> dict[str, Any]:
             mx = r[f"{kind}_mixing"]
             if mx:
                 counts: dict[str, int] = {}
+                distinct: dict[str, int] = {}  # the paths whose two fits genuinely differ (not near-identical)
                 for v in mx["within"].values():
                     counts[v["reading"]] = counts.get(v["reading"], 0) + 1
+                    if not v["near_identical"]:
+                        distinct[v["reading"]] = distinct.get(v["reading"], 0) + 1
                 row[f"{kind}_within_counts"] = counts
+                row[f"{kind}_within_counts_distinct_fits"] = distinct
+                row[f"{kind}_within_near_identical"] = sum(1 for v in mx["within"].values() if v["near_identical"])
         out[model] = row
     return out
 
@@ -144,7 +155,8 @@ def main() -> None:
         print(f"== {m}: hand-over medians {row.get('handover_median')}; attention share (steered, natural) "
               f"wd {row.get('wd_att_share_steered_median')}, {row.get('wd_att_share_natural_median')}; "
               f"d31 {row.get('d31_att_share_steered_median')}, {row.get('d31_att_share_natural_median')}; "
-              f"within wd {row.get('wd_within_counts')}, d31 {row.get('d31_within_counts')}")
+              f"within wd {row.get('wd_within_counts')} (fits that differ: {row.get('wd_within_counts_distinct_fits')}), "
+              f"d31 {row.get('d31_within_counts')} (fits that differ: {row.get('d31_within_counts_distinct_fits')})")
 
 
 if __name__ == "__main__":

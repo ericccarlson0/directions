@@ -339,7 +339,9 @@ controls is not an artefact of the full-norm fit. The results built on
 the learned vector mostly survive the change: the hand-over sits at
 the same read point (the heads' write depth, +3 on the 8B), the
 aligning increments are MLP-written, and with the within-label path
-connected the cross-label switch of D40 is a property of the labels.
+connected the cross-label switch of D40 is a property of the labels
+(on narrow evidence: 17 paths whose two fits genuinely differ, most of
+them on the two smaller models).
 One reading changes: the necessity of the MLPs' aligning writes rises
 with size for the shorter vector (3, 4, 9, 7 tasks) where it fell for
 D31's (7, 5, 3, 1), so D38's "regeneration on larger models" was in
