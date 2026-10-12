@@ -346,3 +346,21 @@ One reading changes: the necessity of the MLPs' aligning writes rises
 with size for the shorter vector (3, 4, 9, 7 tasks) where it fell for
 D31's (7, 5, 3, 1), so D38's "regeneration on larger models" was in
 part the full norm's slack.
+
+*After the close-out* (`docs/SINGLE_CONTROL.md`, 2026-10-12): the
+single-control line is closed, and one statement above is narrowed. The
+fixed read point of §2 ("for every injection layer, vector type and
+strength tried") holds tightly for the learned vector: across iteration
+10's primary and neighbouring injection layers, the within-task slope of
+the hand-over on the injection layer is 0.05 (95% cluster bootstrap
+0.01–0.08; 23 task × model groups, injections spanning a median of six
+read points), so moving the injection by six blocks moves the hand-over by
+a third of a read point. For the head-mean vector it is partial: slope
+0.45 (0.29–0.58), 0.32 (0.19–0.42) on the injections that recover at least
+0.3 of the few-shot gap. At its own selected layer the head mean still
+hands over where the learned vector does (D37); away from it, it is a
+weaker push (a median 0.35 of the gap) whose keep curve plateaus near the
+threshold. Whether the head mean's drift disappears at a matched strength
+per layer is the one open item on the fixed read point. The next stage
+(the subroutine census) inherits the composition question of D41/D42 and
+the tools listed under "What carries over" in the close-out.

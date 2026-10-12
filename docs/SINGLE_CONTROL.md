@@ -170,7 +170,8 @@ instead of the heads) and the same source at the transformation step (the MLPs i
   partly: cosine 0.01–0.33 at full norm, 0.39–0.68 with weight decay.
 - **Switch versus dial.** Interpolating two labels' fitted vectors *switches* between them with nothing in
   between. This holds on every Qwen3 size, for positions in a list and for operands, and survives the
-  within-label control of D44. Interpolating two positions' head means gives the position in between, where the
+  within-label control of D44, on narrow evidence: 17 paths whose two fits genuinely differ, most of them on the
+  two smaller models (the D44 amendment of 2026-10-10). Interpolating two positions' head means gives the position in between, where the
   head means are strong controls (D39, D40).
 - **Reading.** The model's own control signal behaves like a parameter of the downstream computation. A control
   fitted from outside is admitted into the same computation as a choice.

@@ -4,7 +4,8 @@ Research code for measuring how a low-dimensional causal control direction
 propagates through, and is transformed by, the layers of a transformer.
 See `docs/PROJECT.md` (question), `docs/EXPERIMENT.md` (protocol),
 `docs/DECISIONS.md` (implementation choices), `STATUS.md` (what has run) and
-`docs/GENERIC_RESPONSE.md` (the closed line on the residual stream's generic response to any injected vector).
+`docs/GENERIC_RESPONSE.md` (the closed line on the residual stream's generic response to any injected vector) and
+`docs/SINGLE_CONTROL.md` (the close-out of the single-control line, D1–D44: findings, statistics, figures, open questions).
 
 ## Setup
 

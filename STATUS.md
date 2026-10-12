@@ -4744,3 +4744,10 @@ Suggested next steps (2026-09-18; the list of two days ago with the state of eac
    seed, and two seeds give a range, not an interval.
 
 The generic-response line is closed (docs/GENERIC_RESPONSE.md).
+
+The single-control line (D1–D44) is closed (docs/SINGLE_CONTROL.md, 2026-10-12): the established findings,
+re-read from the run directories still on the volumes by `scripts/single_control_summary.py` (statistics, CSVs and
+figures in `docs/single_control/`), the open questions, and the relation to prior work. One reading is corrected
+there: the hand-over's invariance to the injection layer is tight for the learned vector (within-task slope 0.05,
+95% cluster bootstrap 0.01–0.08, iteration 10's patch grid) and partial for the head-mean vector (0.45, 0.29–0.58;
+0.32 on the injections that recover ≥ 0.3 of the gap).
