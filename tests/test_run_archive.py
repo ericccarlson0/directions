@@ -53,3 +53,39 @@ def test_fetch_refuses_a_corrupted_copy(tmp_path):
     with pytest.raises(ValueError, match="does not match"):
         run_archive.fetch(entry, tmp_path, client=FakeClient(_zip_bytes()))
     assert not (tmp_path / "results-y.zip").exists()
+
+
+class FakeUploadClient:
+    def __init__(self):
+        self.objects: dict[str, bytes] = {}
+
+    def upload_file(self, path, bucket, key, ExtraArgs=None):
+        self.objects[key] = Path(path).read_bytes()
+
+    def head_object(self, Bucket, Key):
+        return {"ContentLength": len(self.objects[Key])}
+
+
+def test_add_verifies_uploads_and_appends(tmp_path):
+    payload = _zip_bytes()
+    src = tmp_path / "artifact.zip"
+    src.write_bytes(payload)
+    manifest = tmp_path / "manifest.jsonl"
+    client = FakeUploadClient()
+    digest = "sha256:" + hashlib.sha256(payload).hexdigest()
+    e = run_archive.add("42", "7", "results-ci-42-abc", digest, len(payload), "2027-01-01T00:00:00Z", src.as_uri(),
+                        client, "vol", tmp_path / "tmp", manifest)
+    assert client.objects["archive/github-artifacts/results-ci-42-abc.zip"] == payload
+    assert run_archive.archived(run_archive.load_manifest(manifest), "42") == [e]
+    with pytest.raises(ValueError, match="already archived"):
+        run_archive.add("42", "7", "results-ci-42-abc", digest, len(payload), "x", src.as_uri(), client, "vol", tmp_path / "tmp", manifest)
+
+
+def test_add_refuses_a_digest_mismatch(tmp_path):
+    src = tmp_path / "artifact.zip"
+    src.write_bytes(_zip_bytes())
+    client = FakeUploadClient()
+    with pytest.raises(ValueError, match="does not match GitHub"):
+        run_archive.add("43", "8", "results-ci-43", "sha256:" + "0" * 64, 1, "x", src.as_uri(), client, "vol", tmp_path / "tmp",
+                        tmp_path / "manifest.jsonl")
+    assert client.objects == {} and not (tmp_path / "manifest.jsonl").exists()

@@ -4,8 +4,13 @@ before GitHub's 90-day retention deleted it (docs/INFRA.md, "The run archive"; d
     uv run --with boto3 python scripts/run_archive.py list                       # archived runs (from the manifest)
     uv run --with boto3 python scripts/run_archive.py fetch 35682027963 --out results/archive
     uv run --with boto3 python scripts/run_archive.py verify                     # every manifest entry is on the volume
+    uv run --with boto3 python scripts/run_archive.py add --run-id <id> --artifact-id <id> --name <name> \
+        --digest sha256:<hex> --size <bytes> --expires <iso> --url '<signed URL>'   # archive one more artifact
 
-``fetch`` downloads the run's artifact zip(s), checks the SHA-256 recorded in the manifest (GitHub's own digest of
+``add`` is how runs after 2026-10-12 join the archive: a session lists a run's artifacts and gets a signed download
+URL for each (the GitHub MCP tools ``list_workflow_run_artifacts`` and ``download_workflow_run_artifact``; the URL
+lives about ten minutes; ``gh api`` gives the same outside a session), then ``add`` downloads it, checks GitHub's
+SHA-256, uploads it to the archive volume and appends its manifest line. ``fetch`` downloads the run's artifact zip(s), checks the SHA-256 recorded in the manifest (GitHub's own digest of
 the artifact), and unpacks them into ``<out>/run-<id>/``, the layout ``scripts/runpod_log.py --download`` produces.
 Needs ``RUNPOD_API_KEY`` and ``RUNPOD_S3_ACCESS_KEY`` / ``RUNPOD_S3_SECRET_KEY`` (docs/INFRA.md); standard library plus
 boto3, through ``scripts/runpod_job.py``.
@@ -19,10 +24,12 @@ import importlib.util
 import json
 import os
 import sys
+import urllib.request
 import zipfile
 from pathlib import Path
 
 MANIFEST = Path(__file__).resolve().parents[1] / "docs" / "archive_manifest.jsonl"
+ARCHIVE = {"datacenter": "US-IL-1", "volume_name": "directions", "prefix": "archive/github-artifacts/"}
 
 
 def load_manifest(path: Path = MANIFEST) -> list[dict]:
@@ -78,6 +85,34 @@ def fetch(entry: dict, out: Path, client=None) -> Path:
     return dest
 
 
+def add(run_id: str, artifact_id: str, name: str, digest: str, size: int, expires: str, url: str, client, volume: str,
+        tmp_dir: Path, manifest: Path = MANIFEST) -> dict:
+    """Download one artifact from its signed URL, check GitHub's SHA-256, upload it to the archive volume and append
+    its manifest line. Refuses a run already in the manifest (the archive is append-only)."""
+    if archived(load_manifest(manifest) if manifest.exists() else [], run_id):
+        raise ValueError(f"run {run_id} is already archived")
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    tmp = tmp_dir / f"{artifact_id}.zip"
+    with urllib.request.urlopen(url) as r, open(tmp, "wb") as f:
+        while chunk := r.read(1 << 20):
+            f.write(chunk)
+    got = sha256_file(tmp)
+    if got != digest.removeprefix("sha256:"):
+        tmp.unlink()
+        raise ValueError(f"artifact {artifact_id}: sha256 {got} does not match GitHub's {digest}")
+    key = f"{ARCHIVE['prefix']}{name}.zip"
+    client.upload_file(str(tmp), volume, key, ExtraArgs={"Metadata": {"sha256": got, "github-artifact-id": str(artifact_id),
+                                                                      "github-run-id": str(run_id)}})
+    if client.head_object(Bucket=volume, Key=key)["ContentLength"] != tmp.stat().st_size:
+        raise ValueError(f"{key}: the uploaded size does not match")
+    entry = {"run_id": str(run_id), "artifact_id": str(artifact_id), "name": name, "size": tmp.stat().st_size, "sha256": got,
+             "expires_at": expires, "key": key, "volume": volume, "datacenter": ARCHIVE["datacenter"], "status": "archived"}
+    tmp.unlink()
+    with open(manifest, "a") as f:
+        f.write(json.dumps(entry) + "\n")
+    return entry
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -86,7 +121,19 @@ def main(argv: list[str] | None = None) -> int:
     f.add_argument("run", help="workflow run id (or run-<id>)")
     f.add_argument("--out", type=Path, default=Path("results/archive"))
     sub.add_parser("verify")
+    a = sub.add_parser("add")
+    for opt in ("--run-id", "--artifact-id", "--name", "--digest", "--expires", "--url"):
+        a.add_argument(opt, required=True)
+    a.add_argument("--size", type=int, required=True)
+    a.add_argument("--tmp-dir", type=Path, default=Path("results/archive_tmp"))
     args = ap.parse_args(argv)
+    if args.cmd == "add":
+        rj = _runpod_job()
+        client = _client({"datacenter": ARCHIVE["datacenter"]})
+        volume = rj.resolve_volume_id(rj.list_volumes(os.environ["RUNPOD_API_KEY"]), ARCHIVE["volume_name"], ARCHIVE["datacenter"])
+        e = add(args.run_id, args.artifact_id, args.name, args.digest, args.size, args.expires, args.url, client, volume, args.tmp_dir)
+        print("archived", e["key"], e["size"], "bytes, sha256 verified")
+        return 0
     entries = load_manifest()
 
     if args.cmd == "list":
