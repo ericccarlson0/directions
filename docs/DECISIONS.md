@@ -2800,7 +2800,10 @@ Decision (the first map; exploratory):
   variable (DAS) and scored by RAVEL's Cause and Isolate (Huang et al., ACL 2024), with a randomly initialised model
   as the null against over-flexible fits (Sutter et al. 2025). It is decided after this map is read.
 * **Gate.** A task is mapped on a model only if few-shot accuracy on its bases is ≥ 0.5. Rows whose base or source
-  the model gets wrong are dropped and logged.
+  the model gets wrong are dropped and logged. The gate is applied per swap type: a base enters a type's map when the
+  model answers the base and that type's source, so one wrong source does not remove a base from every map. Each
+  type's map reports its own count of bases kept. (A CPU smoke on 0.6B kept 0 of 6 two-lane bases under an all-five
+  gate.) On a kept row the base answer is Y, so the change rate is read against the base run's own argmax.
 * **Runs.** Qwen3 0.6B, 1.7B and 4B Base, seed 20260916, 64 bases per task, one job on an RTX 4090 (EUR-NO-1).
 * **Checks** (D23):
   - a patched batch is repeated and must be bit-identical;

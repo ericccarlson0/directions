@@ -97,7 +97,7 @@ def test_smoke_run_on_the_toy_model(tmp_path):
         assert set(res["rates"]) == set(vm.SOURCE_TYPES[task])
         assert (root / "figures" / f"{task}.png").exists()
         arr = np.load(root / "core" / "tasks" / task / "varmap_arrays.npz")
-        assert arr["S1__flip"].shape == (res["n_kept"], 3, P)
+        assert arr["S1__flip"].shape == (res["n_kept"]["S1"], 3, P)
     # at the last read point the answer token's swap carries the source run's output entirely, whatever the model
     res = json.loads((root / "core" / "tasks" / "two_lane" / "varmap.json").read_text())
     for k in ("S1", "S2", "both"):
