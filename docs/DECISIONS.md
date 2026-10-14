@@ -2949,3 +2949,12 @@ Decision (the first map; exploratory):
   Where the attention pattern points is not measured; which bracket a head moves is read off the source types.
 * **Checks** (D23): the first capture batch is repeated and must be bit-identical; one head-patch batch is repeated
   and must be bit-identical; a no-op patch of a whole batch must reproduce the unpatched batch bit-exactly.
+* **Extension after the run (exploratory, 2026-10-14).** In run 38654038341 the heads of block G moved only part
+  of one bracket.
+  - All-heads transfer: 4B S2 0.36, 1.7B S1 0.25–0.36, 0.6B S1 0.53.
+  - Swapping all of block G's heads from a same-sum source of that bracket changed the answer: 4B S2_same 0.47,
+    1.7B S1_same 0.50–0.53, 0.6B S1_same 0.40. The source's digits from block G met the base's digits already at
+    the answer token.
+  So part of that bracket reaches the token before G, though D45 found the token causally empty there (whole-vector
+  swaps). The head swaps of Part 2 are extended to blocks G−3..G−1 (`configs/varsplit_pre_qwen3_*.yaml`, Part 2
+  only, the same readouts and thresholds). The extension is not pre-registered.

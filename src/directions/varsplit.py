@@ -131,10 +131,13 @@ class VarSplit:
         summary: dict[str, Any] = {"tasks": {}}
         for task in self.cfg.expressions:
             t0 = time.time()
-            result = {"task": task, "gather": self.cfg.gather, "probe": self._probe_part(task), "heads": self._head_part(task)}
+            skip = {"skipped": "not requested"}
+            result = {"task": task, "gather": self.cfg.gather,
+                      "probe": self._probe_part(task) if "probe" in self.cfg.parts else skip,
+                      "heads": self._head_part(task) if "heads" in self.cfg.parts else skip}
             td = self.root / "core" / "tasks" / task
             write_json(td / "varsplit.json", _jsonable(result))
-            if self.cfg.figures and "skipped" not in result["probe"]:
+            if self.cfg.figures and ("states" in result["probe"] or "blocks" in result["heads"]):
                 try:
                     mc = self.cfg.model
                     plot_task(result, self.root / "figures" / f"{task}.png",
@@ -351,12 +354,14 @@ def plot_task(result: dict[str, Any], path: Path, model_name: str) -> None:
     from matplotlib.colors import LinearSegmentedColormap
 
     probe, heads = result["probe"], result["heads"]
-    names = probe["states"]
+    top = 1 if "states" in probe else 0  # a heads-only run has no probe row
+    names = probe.get("states", [])
     x = np.arange(len(names))
     hb = list(heads.get("blocks", {}).keys())
-    fig = plt.figure(figsize=(10.5, 3.4 + 1.25 * len(hb)))
-    gs = fig.add_gridspec(1 + len(hb), 2, height_ratios=[2.2] + [1.0] * len(hb), hspace=0.75, wspace=0.18, top=0.9, bottom=0.12)
-    for j, t in enumerate(("S1|Y", "Y")):
+    fig = plt.figure(figsize=(10.5, 3.4 * top + 1.0 + 1.25 * len(hb)))
+    gs = fig.add_gridspec(top + len(hb), 2, height_ratios=[2.2] * top + [1.0] * len(hb), hspace=0.75, wspace=0.18,
+                          top=0.9, bottom=0.12)
+    for j, t in enumerate(("S1|Y", "Y") if top else ()):
         if t not in probe["targets"]:
             continue
         ax = fig.add_subplot(gs[0, j])
@@ -391,7 +396,7 @@ def plot_task(result: dict[str, Any], path: Path, model_name: str) -> None:
              "attention's share of that block's gain in probe accuracy.", fontsize=6.5, color=INK2, ha="left", va="top")
     cmap = LinearSegmentedColormap.from_list("seq", SEQ)
     for r, b in enumerate(hb):
-        ax = fig.add_subplot(gs[1 + r, :])
+        ax = fig.add_subplot(gs[top + r, :])
         types = [k for k in VALUE_TYPES if "transfer" in heads["blocks"][b]["types"].get(k, {})]
         mat = np.stack([np.asarray(heads["blocks"][b]["types"][k]["transfer"]["mean"], dtype=float) for k in types])
         im = ax.imshow(np.clip(mat, 0, 1), aspect="auto", cmap=cmap, vmin=0, vmax=1, interpolation="nearest")

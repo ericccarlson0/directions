@@ -1099,6 +1099,7 @@ class VarsplitConfig:
     carry_lower: float = 0.1
     not_carry_upper: float = 0.05
     digit_change: float = 0.25
+    parts: list[str] = field(default_factory=lambda: ["probe", "heads"])  # Part 1 (probe) and/or Part 2 (heads)
     determinism_check: bool = True
     figures: bool = True
 
@@ -1111,6 +1112,8 @@ def load_varsplit_config(path: str | Path) -> VarsplitConfig:
         raise ValueError("expressions must be a non-empty subset of two_lane, one_lane")
     if not cfg.split_blocks or not cfg.head_blocks or min(cfg.split_blocks + cfg.head_blocks) < 1:
         raise ValueError("split_blocks and head_blocks must be non-empty lists of blocks >= 1")
+    if not cfg.parts or any(x not in ("probe", "heads") for x in cfg.parts):
+        raise ValueError("parts must be a non-empty subset of probe, heads")
     if list(cfg.split_blocks) != list(range(cfg.split_blocks[0], cfg.split_blocks[-1] + 1)):
         raise ValueError("split_blocks must be consecutive")
     if cfg.n_examples < 2 * cfg.n_folds or cfg.n_bases < 2 or cfg.n_demo_pool < cfg.n_shots:
