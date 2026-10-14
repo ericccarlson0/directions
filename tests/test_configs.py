@@ -31,6 +31,12 @@ def test_all_configs_load():
             cfg = load_serial_config(p)
             assert cfg.compositions and all(len(c.steps) == 2 for c in cfg.compositions), p
             continue
+        if "varprobe" in p.name:  # the conditional probe and logit lens (D46)
+            from directions.config import load_varprobe_config
+
+            cfg = load_varprobe_config(p)
+            assert cfg.expressions and cfg.n_examples >= 2 * cfg.n_folds, p
+            continue
         if "varmap" in p.name:  # the variable map's own configs (D45)
             from directions.config import load_varmap_config
 
@@ -363,4 +369,20 @@ def test_varmap_configs_differ_only_in_model_name():
         assert a == b, name
     assert ref["expressions"] == ["two_lane", "one_lane"] and ref["n_bases"] == 64 and ref["n_shots"] == 8
     assert ref["present_flip"] == 0.5 and ref["value_change"] == 0.25 and ref["read_points"] is None
+    assert ref["model"]["device"] == "cuda" and ref["seed"] == 20260916
+
+
+def test_varprobe_configs_differ_only_in_model_name_and_marks():
+    """The conditional probe's family (D46): the Qwen3 files differ only in `model.name` and the figure marks."""
+    from dataclasses import asdict
+
+    from directions.config import load_varprobe_config
+
+    cfgs = {p.name: asdict(load_varprobe_config(p)) for p in sorted(CONFIGS.glob("varprobe_qwen3_*.yaml"))}
+    assert set(cfgs) == {"varprobe_qwen3_0.6b.yaml", "varprobe_qwen3_1.7b.yaml", "varprobe_qwen3_4b.yaml"}
+    ref = next(iter(cfgs.values()))
+    for name, c in cfgs.items():
+        assert dict(c, model=dict(c["model"], name=None), marks=None) == dict(ref, model=dict(ref["model"], name=None), marks=None), name
+    assert ref["n_examples"] == 2048 and ref["n_folds"] == 5 and ref["n_perm"] == 200 and ref["alpha"] == 0.05
+    assert ref["lambdas"] == [0.1, 1.0, 10.0, 100.0] and ref["gate"] and ref["positive_control"]
     assert ref["model"]["device"] == "cuda" and ref["seed"] == 20260916

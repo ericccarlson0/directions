@@ -2814,3 +2814,73 @@ Decision (the first map; exploratory):
   - a patched batch is repeated and must be bit-identical;
   - swapping a run's own states back into it must reproduce its scores bit-exactly. This is checked on the model in
     every run, and on the toy model in the tests, together with batched swaps against one-at-a-time ones.
+
+## 2026-10-14 — The conditional probe and the logit lens at the answer token
+
+### D46. What the answer token carries after the gather: a conditional linear probe and the model's own readout
+
+* **Why.** The first variable maps (D45) put both sub-results at the answer token from one block on (the *gather*:
+  read point 24 of 36 on Qwen3-4B, 21 of 28 on 1.7B and on 0.6B one-lane) and nowhere else. Whole-vector swaps cannot
+  tell "holds S1 and S2" from "holds the answer Y" there. Two cheap readings decide whether the subspace step (DAS)
+  is worth building and where it should look: (i) does the answer token carry the *decomposition* of the answer,
+  information about S1 beyond Y, and the digits beyond their sums; (ii) from which read point does the model's own
+  unembedding read the answer (or a sub-result) off the answer token.
+* **Data.** The D45 tasks and prompts (8 demonstrations from a disjoint pool of 96, one line per demonstration).
+  Two-lane: 2048 expressions in a seeded order; one-lane: every expression outside the pool (574). Only the
+  examples the model answers correctly enter (the gate; a task is read only if few-shot accuracy is ≥ 0.5). The
+  answer token's residual (the last prompt token) is captured at every read point 0..L, float32 from the bf16 pass.
+* **Conditional probe.** For a target T and a conditioning variable C: can a linear readout of the state recover T
+  among the values consistent with C?
+  - Targets: Y (C none); S1 given Y (two-lane S1 ∈ [Y, 18], one-lane S1 ∈ [Y, Y+9]); a given S1 (a ∈
+    [max(0, S1−9), min(9, S1)]); two-lane also c given S2. Given Y, S1 fixes S2, so "S1 given Y" is the
+    decomposition; "a given S1" is the digits beyond their sum.
+  - Readout: ridge regression on one-hot targets (a linear least-squares probe, in its kernel form), features
+    z-scored per dimension on the training fold; the prediction is the highest-scoring class among those consistent
+    with C. Five outer folds (seeded); the ridge λ ∈ {0.1, 1, 10, 100} (the kernel's mean diagonal is 1) is chosen in
+    each training fold by its closed-form leave-one-out accuracy.
+  - Null: T permuted within the classes of C over all examples (C's information and T's marginal given C kept, the
+    state's information about T beyond C destroyed), the whole procedure rerun, λ choice included; 200 permutations,
+    the same ones at every read point.
+  - Statistic: cross-validated accuracy; z = (accuracy − null mean) / null s.d. per read point. T is *carried* at a
+    read point when z exceeds the 95th percentile of the permutations' maximum z over read points (family-wise error
+    0.05 over the read points of one target, model and task). Reported with the excess accuracy over the null mean.
+  - Positive control: a given S1 at the a token itself (whose input is the digit a), read point L/2; it must be
+    carried.
+* **Logit lens.** At each read point, the answer token's state through the final norm and the unembedding
+  (`logits_from_residual`), restricted to the ten digit tokens: the share of examples whose lens digit is Y, and,
+  where it differs from Y, S1 (when a digit), S2 (when a digit), a, b, c, d. Each share against its null: the
+  candidate values shuffled across the eligible examples (200 shuffles, the same family-wise maximum over read
+  points). Also the share whose full-vocabulary lens top token is a digit, and log p(Y). The lens at read point L
+  must agree with the model's answer (recorded).
+* **Before the gather** every reading is a control: D45 found the answer token causally empty there, so a carried
+  target before the gather is information present but unused.
+* **Decision rules for the next step (fixed here).** G is the D45 gather read point.
+  1. S1 given Y not carried at any read point ≥ G: as far as a linear readout sees, the answer token holds the answer
+     only. DAS at the answer token is dropped; the next step goes into the gather block (per-head patching of
+     block G, whether the two brackets travel as separate channels and where the subtraction happens).
+  2. S1 given Y carried from G up to some r* < L and not after: the decomposition is there and is discarded at r*. DAS
+     with Cause/Isolate at the answer token, read points G..r*, tests whether the sums are used and where they merge.
+  3. a given S1 carried wherever S1 given Y is: the digits are still at the answer token and the decomposition may be
+     their trace; DAS must then separate sums from digits (same-sum sources in the Isolate set).
+  4. S1 given Y carried and a given S1 not: sub-results without their digits, the strongest case for computed sums;
+     DAS tests whether they are used.
+  5. The lens: Y read from G on puts the subtraction inside the gather block or within a block of it; S1 or S2 read
+     above their nulls before Y gives DAS its read points in output space.
+* **What it cannot show.** Decodable is not used (the probe is correlational; D45 and DAS are the causal tests), and
+  not linearly decodable is not absent (a nonlinear code would pass unseen). The lens is the untuned logit lens, poor
+  at middle depths; the Y probe is its fitted counterpart.
+* **Runs.** Qwen3 0.6B, 1.7B and 4B Base, seed 20260916, one job on an RTX 4090 (EUR-NO-1), the D45 models.
+* **Checks** (D23): the first capture batch is repeated and must be bit-identical; one target's probe and null is
+  recomputed at one read point and must be bit-identical.
+* **Amended after the CPU smoke, before the run (2026-10-14).** A smoke on Qwen3-0.6B (175 one-lane examples, 20
+  permutations, CPU) and the toy model showed two things the design had missed.
+  - On the one-lane task S1 = Y + c, so "S1 given Y" is the operand digit c given Y. It reads a digit, not a sum, and
+    is reported as "c given Y". The test for a computed sum beyond the answer is the two-lane "S1 given Y" alone.
+  - The digits reach the answer token from read point 1: "a given S1" was carried at every read point (0.42–0.95
+    accuracy against 0.12), although D45 shows the token causally unused before the gather; a random toy model
+    does the same (attention mixes the earlier tokens into the last with position-dependent weights). "a given S1"
+    after G therefore cannot separate rule 3 from rule 4; both fall to DAS, whose Isolate set holds same-sum sources
+    in any case. A target that digits alone determine is expected to be carried before G and counts as present but
+    unused there.
+  Rules 1, 2 and 5 stand, read on the two-lane "S1 given Y" and the lens. Also read, descriptively: the first read
+  point at which the Y probe reaches 0.9 of its accuracy at L (where the answer is linearly formed).

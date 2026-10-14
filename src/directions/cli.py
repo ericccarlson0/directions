@@ -6,6 +6,7 @@
     uv run directions compare  results/<run_a> results/<run_b>
     uv run directions aggregate results/<run_1> results/<run_2> ... --out results/aggregate.json
     uv run directions varmap   --config configs/varmap_qwen3_4b.yaml --run-id varmap_qwen3_4b_seed20260916
+    uv run directions varprobe --config configs/varprobe_qwen3_4b.yaml --run-id varprobe_qwen3_4b_seed20260916
 """
 
 from __future__ import annotations
@@ -212,6 +213,21 @@ def _cmd_varmap(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_varprobe(args: argparse.Namespace) -> int:
+    """The conditional probe and the logit lens at the answer token (docs/DECISIONS.md D46)."""
+    from .config import load_varprobe_config
+    from .varprobe import run_varprobe
+
+    cfg = load_varprobe_config(args.config)
+    if args.output_dir:
+        cfg.output_dir = args.output_dir
+    if args.seed is not None:
+        cfg.seed = int(args.seed)
+    root = run_varprobe(cfg, run_id=args.run_id, config_path=str(args.config))
+    print(root)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="directions", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -285,6 +301,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--output-dir", default=None, help="override output_dir from the config")
     p.add_argument("--run-id", default=None, help="explicit run directory name")
     p.add_argument("--seed", type=int, default=None, help="override the map's seed (its draws: expressions, sources, demonstrations, bootstraps)")
+    p = sub.add_parser("varprobe", help="the conditional probe and the logit lens at the answer token of the arithmetic "
+                                        "expression tasks (D46)")
+    p.add_argument("--config", required=True, help="YAML config (configs/varprobe_<model>.yaml)")
+    p.add_argument("--output-dir", default=None, help="override output_dir from the config")
+    p.add_argument("--run-id", default=None, help="explicit run directory name")
+    p.add_argument("--seed", type=int, default=None, help="override the seed (expressions, demonstrations, folds, permutations)")
     args = parser.parse_args(argv)
     if args.command in ("validate", "pilot"):
         return _cmd_run(args, args.command)
@@ -306,6 +328,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_staging(args)
     if args.command == "varmap":
         return _cmd_varmap(args)
+    if args.command == "varprobe":
+        return _cmd_varprobe(args)
     parser.error("unknown command")
     return 2
 

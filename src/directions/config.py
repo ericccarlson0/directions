@@ -1024,3 +1024,53 @@ def load_varmap_config(path: str | Path) -> VarmapConfig:
     if not (0 < cfg.present_flip <= 1 and 0 <= cfg.value_change < 1 and 0 < cfg.alpha < 1):
         raise ValueError("present_flip in (0, 1], value_change in [0, 1), alpha in (0, 1)")
     return cfg
+
+
+@dataclass
+class VarprobeConfig:
+    """The conditional probe and the logit lens at the answer token (docs/DECISIONS.md D46), on the D45 expression
+    tasks: does the answer token carry the answer's decomposition (S1 given Y, a digit given its bracket's sum), and
+    from which read point does the model's own unembedding read the answer or a sub-result off it.
+
+    n_examples       expressions per task (capped at those outside the demonstration pool); answered ones enter
+    n_folds          outer cross-validation folds of the probe
+    lambdas          the ridge grid (the kernel's mean diagonal is 1), chosen per training fold by leave-one-out accuracy
+    n_perm           permutations of the target within the conditioning classes (probe) or shuffles (lens)
+    alpha            family-wise error over the read points of one target, model and task
+    positive_control a given S1 at the a token itself, read point L/2 (must be carried)
+    marks            read points to mark on the figures, by label (annotation only)
+    """
+
+    name: str = "varprobe"
+    seed: int = 20260916
+    output_dir: str = "results"
+    model: ModelConfig = field(default_factory=ModelConfig)
+    expressions: list[str] = field(default_factory=lambda: ["two_lane", "one_lane"])
+    n_examples: int = 2048
+    n_shots: int = 8
+    n_demo_pool: int = 96
+    n_folds: int = 5
+    lambdas: list[float] = field(default_factory=lambda: [0.1, 1.0, 10.0, 100.0])
+    n_perm: int = 200
+    alpha: float = 0.05
+    min_accuracy: float = 0.5
+    gate: bool = True
+    positive_control: bool = True
+    determinism_check: bool = True
+    figures: bool = True
+    marks: dict[str, int] = field(default_factory=dict)
+
+
+def load_varprobe_config(path: str | Path) -> VarprobeConfig:
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    cfg = _from_dict(VarprobeConfig, data)
+    if not cfg.expressions or any(t not in ("two_lane", "one_lane") for t in cfg.expressions):
+        raise ValueError("expressions must be a non-empty subset of two_lane, one_lane")
+    if cfg.n_examples < 2 * cfg.n_folds or cfg.n_folds < 2 or cfg.n_demo_pool < cfg.n_shots:
+        raise ValueError("n_examples must be at least twice n_folds (>= 2), and n_demo_pool at least n_shots")
+    if not cfg.lambdas or any(x <= 0 for x in cfg.lambdas) or list(cfg.lambdas) != sorted(cfg.lambdas):
+        raise ValueError("lambdas must be positive and increasing")
+    if cfg.n_perm < 1 or not 0 < cfg.alpha < 1:
+        raise ValueError("n_perm >= 1 and alpha in (0, 1)")
+    return cfg

@@ -1,0 +1,20 @@
+# Smoke run of the conditional probe and the logit lens (D46) on a random tiny model (CPU, no downloads): the model
+# cannot do the task, so the gate is off; checks the plumbing, the files and the figures.
+name: varprobe
+seed: 20260916
+output_dir: results
+
+model:
+  backend: toy
+  dtype: float32
+  device: cpu
+  batch_size: 64
+
+expressions: [two_lane, one_lane]
+n_examples: 60
+n_shots: 2
+n_demo_pool: 8
+n_folds: 3
+n_perm: 12
+min_accuracy: 0.0
+gate: false
