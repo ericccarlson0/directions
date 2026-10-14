@@ -1,0 +1,25 @@
+# Smoke run of the block split (D47) on a random tiny model (CPU, no downloads): the model cannot do the task, so the
+# gate is off; checks the plumbing, the files and the figures.
+name: varsplit
+seed: 20260916
+output_dir: results
+
+model:
+  backend: toy
+  dtype: float32
+  device: cpu
+  batch_size: 64
+
+expressions: [two_lane, one_lane]
+n_examples: 40
+n_bases: 6
+n_shots: 2
+n_demo_pool: 8
+gather: 2
+split_blocks: [2, 3]
+head_blocks: [2, 3]
+n_folds: 3
+n_perm: 8
+n_boot: 50
+min_accuracy: 0.0
+gate: false

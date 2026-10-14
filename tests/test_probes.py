@@ -105,3 +105,12 @@ def test_family_wise_threshold_and_match_rates():
     cand = np.array([1, 2, 3, 4, 5, 6] * 10)
     r = match_rates(pred, cand, np.ones(60, dtype=bool), n_perm=50, seed=0)
     assert r["rate"].tolist() == [1.0, 0.0] and r["carried"].tolist() == [True, False]
+
+
+def test_per_example_correctness_matches_the_accuracy():
+    feats, Y, S1, allowed = _one_lane_like(n=150)
+    a = conditional_probe(feats, S1, Y, allowed, n_perm=5, seed=2, per_example=True)
+    b = conditional_probe(feats, S1, Y, allowed, n_perm=5, seed=2)
+    np.testing.assert_array_equal(a["accuracy"], b["accuracy"])
+    np.testing.assert_allclose(a["correct"].mean(axis=1), a["accuracy"], rtol=0, atol=1e-12)
+    assert "correct" not in b

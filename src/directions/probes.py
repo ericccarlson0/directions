@@ -51,17 +51,19 @@ def _restricted_correct(scores: torch.Tensor, allowed: torch.Tensor, labels: tor
 
 
 def ridge_cv_accuracy(x: torch.Tensor, labels: torch.Tensor, allowed: torch.Tensor, folds: np.ndarray,
-                      lambdas: Sequence[float]) -> tuple[torch.Tensor, torch.Tensor]:
+                      lambdas: Sequence[float], per_example: bool = False) -> tuple[torch.Tensor, ...]:
     """Cross-validated restricted accuracy of the kernel ridge probe for several label sets at once.
 
     x (n, d) float64; labels (S, n) int64 class indices (row 0 the true labels, the rest permuted); allowed (n, C)
-    bool. Returns the accuracy per label set (S,) and the index of the λ chosen per (fold, label set) (F, S)."""
+    bool. Returns the accuracy per label set (S,) and the index of the λ chosen per (fold, label set) (F, S); with
+    ``per_example``, also whether each example's held-out prediction is right under the true labels (n,) bool."""
     n, C = allowed.shape
     S = labels.shape[0]
     onehot = torch.zeros(n, C, S, dtype=x.dtype, device=x.device)
     onehot.scatter_(1, labels.T[:, None, :], 1.0)
     onehot = onehot.reshape(n, C * S)
     correct = torch.zeros(S, dtype=torch.int64, device=x.device)
+    right = torch.zeros(n, dtype=torch.bool, device=x.device)
     chosen = []
     for f in np.unique(folds):
         tr = torch.as_tensor(np.flatnonzero(folds != f), device=x.device)
@@ -77,7 +79,7 @@ def ridge_cv_accuracy(x: torch.Tensor, labels: torch.Tensor, allowed: torch.Tens
         tc = ttr - mean
         A = U.T @ tc  # (ntr, C*S)
         U2 = U * U
-        loo_correct, test_correct = [], []
+        loo_correct, test_correct, test_right = [], [], []
         for lam in lambdas:
             w = s / (s + lam)
             fit = U @ (w[:, None] * A)  # H tc
@@ -87,24 +89,32 @@ def ridge_cv_accuracy(x: torch.Tensor, labels: torch.Tensor, allowed: torch.Tens
             alpha = U @ (A / (s + lam)[:, None])
             pred = kte @ alpha + mean
             test_correct.append(_restricted_correct(pred.reshape(-1, C, S), allowed[te], labels[:, te]))
+            if per_example:
+                p0 = pred.reshape(-1, C, S)[:, :, 0].masked_fill(~allowed[te], float("-inf")).argmax(dim=1)
+                test_right.append(p0 == labels[0, te])
         loo_c = torch.stack(loo_correct)  # (n_lambda, S)
         # the best leave-one-out accuracy; ties go to the strongest ridge (the last of an increasing grid)
         best = len(lambdas) - 1 - torch.flip(loo_c, dims=[0]).argmax(dim=0)
         test_c = torch.stack(test_correct)
         correct += test_c.gather(0, best[None, :])[0]
         chosen.append(best)
+        if per_example:
+            right[te] = test_right[int(best[0])]
+    if per_example:
+        return correct.to(torch.float64) / n, torch.stack(chosen), right
     return correct.to(torch.float64) / n, torch.stack(chosen)
 
 
 def conditional_probe(features: Any, y: np.ndarray, cond: np.ndarray, allowed: np.ndarray, *, n_folds: int = 5,
                       lambdas: Sequence[float] = (0.1, 1.0, 10.0, 100.0), n_perm: int = 200, alpha: float = 0.05,
-                      seed: int = 0, device: str | torch.device = "cpu", read_points: Sequence[int] | None = None) -> dict:
+                      seed: int = 0, device: str | torch.device = "cpu", read_points: Sequence[int] | None = None,
+                      per_example: bool = False) -> dict:
     """The conditional probe of T = ``y`` given C = ``cond`` at every read point of ``features`` (M, N, d).
 
     ``allowed`` (N, C) marks the classes consistent with each example's C. Returns, per read point, the accuracy,
     the null's mean and s.d., z, the family-wise threshold (95th percentile of the permutations' maximum z over
     read points), whether T is carried, the family-wise p-value and the λ choices; ``null`` holds the permutation
-    accuracies (M, n_perm)."""
+    accuracies (M, n_perm). With ``per_example``, ``correct`` (M, N) says which held-out predictions are right."""
     y = np.asarray(y, dtype=np.int64)
     cond = np.asarray(cond)
     allowed = np.asarray(allowed, dtype=bool)
@@ -117,16 +127,21 @@ def conditional_probe(features: Any, y: np.ndarray, cond: np.ndarray, allowed: n
     labels = torch.as_tensor(sets, device=dev)
     allowed_t = torch.as_tensor(allowed, device=dev)
     rps = range(len(features)) if read_points is None else read_points
-    acc, lam_idx = [], []
+    acc, lam_idx, right = [], [], []
     for m in rps:
         x = torch.as_tensor(np.asarray(features[m]), device=dev).to(torch.float64)
-        a, ch = ridge_cv_accuracy(x, labels, allowed_t, folds, lambdas)
-        acc.append(a.cpu().numpy())
-        lam_idx.append(ch.cpu().numpy())
+        out = ridge_cv_accuracy(x, labels, allowed_t, folds, lambdas, per_example=per_example)
+        acc.append(out[0].cpu().numpy())
+        lam_idx.append(out[1].cpu().numpy())
+        if per_example:
+            right.append(out[2].cpu().numpy())
     acc_all = np.stack(acc)  # (M, 1 + n_perm)
-    return probe_statistics(acc_all[:, 0], acc_all[:, 1:], alpha) | {
+    res = probe_statistics(acc_all[:, 0], acc_all[:, 1:], alpha) | {
         "lambda_chosen": np.asarray(lambdas)[np.stack(lam_idx)[:, :, 0]],  # (M, n_folds), the true labels' choice
     }
+    if per_example:
+        res["correct"] = np.stack(right)
+    return res
 
 
 def probe_statistics(observed: np.ndarray, null: np.ndarray, alpha: float = 0.05) -> dict:

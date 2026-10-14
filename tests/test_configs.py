@@ -31,6 +31,12 @@ def test_all_configs_load():
             cfg = load_serial_config(p)
             assert cfg.compositions and all(len(c.steps) == 2 for c in cfg.compositions), p
             continue
+        if "varsplit" in p.name:  # splitting the block where the sums appear (D47)
+            from directions.config import load_varsplit_config
+
+            cfg = load_varsplit_config(p)
+            assert cfg.split_blocks and cfg.head_blocks, p
+            continue
         if "varprobe" in p.name:  # the conditional probe and logit lens (D46)
             from directions.config import load_varprobe_config
 
@@ -386,3 +392,25 @@ def test_varprobe_configs_differ_only_in_model_name_and_marks():
     assert ref["n_examples"] == 2048 and ref["n_folds"] == 5 and ref["n_perm"] == 200 and ref["alpha"] == 0.05
     assert ref["lambdas"] == [0.1, 1.0, 10.0, 100.0] and ref["gate"] and ref["positive_control"]
     assert ref["model"]["device"] == "cuda" and ref["seed"] == 20260916
+
+
+def test_varsplit_configs_differ_only_in_model_tasks_and_blocks():
+    """The block split's family (D47): the Qwen3 files differ only in `model.name`, the task list and the blocks
+    around the D45 gather (G-1..G+3 probed, G..G+2 swapped)."""
+    from dataclasses import asdict
+
+    from directions.config import load_varsplit_config
+
+    cfgs = {p.name: asdict(load_varsplit_config(p)) for p in sorted(CONFIGS.glob("varsplit_qwen3_*.yaml"))}
+    assert set(cfgs) == {"varsplit_qwen3_0.6b.yaml", "varsplit_qwen3_1.7b.yaml", "varsplit_qwen3_4b.yaml"}
+    varying = ("expressions", "gather", "split_blocks", "head_blocks")
+    ref = next(iter(cfgs.values()))
+    for name, c in cfgs.items():
+        G = c["gather"]
+        assert c["split_blocks"] == list(range(G - 1, G + 4)) and c["head_blocks"] == [G, G + 1, G + 2], name
+        a = dict(c, model=dict(c["model"], name=None), **{k: None for k in varying})
+        b = dict(ref, model=dict(ref["model"], name=None), **{k: None for k in varying})
+        assert a == b, name
+    assert cfgs["varsplit_qwen3_0.6b.yaml"]["expressions"] == ["one_lane"]
+    assert {c["gather"] for n, c in cfgs.items() if "4b" in n} == {24}
+    assert ref["n_examples"] == 2048 and ref["n_bases"] == 64 and ref["n_perm"] == 200 and ref["model"]["device"] == "cuda"

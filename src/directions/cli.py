@@ -7,6 +7,7 @@
     uv run directions aggregate results/<run_1> results/<run_2> ... --out results/aggregate.json
     uv run directions varmap   --config configs/varmap_qwen3_4b.yaml --run-id varmap_qwen3_4b_seed20260916
     uv run directions varprobe --config configs/varprobe_qwen3_4b.yaml --run-id varprobe_qwen3_4b_seed20260916
+    uv run directions varsplit --config configs/varsplit_qwen3_4b.yaml --run-id varsplit_qwen3_4b_seed20260916
 """
 
 from __future__ import annotations
@@ -228,6 +229,21 @@ def _cmd_varprobe(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_varsplit(args: argparse.Namespace) -> int:
+    """Splitting the block where the sums appear (docs/DECISIONS.md D47)."""
+    from .config import load_varsplit_config
+    from .varsplit import run_varsplit
+
+    cfg = load_varsplit_config(args.config)
+    if args.output_dir:
+        cfg.output_dir = args.output_dir
+    if args.seed is not None:
+        cfg.seed = int(args.seed)
+    root = run_varsplit(cfg, run_id=args.run_id, config_path=str(args.config))
+    print(root)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="directions", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -307,6 +323,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--output-dir", default=None, help="override output_dir from the config")
     p.add_argument("--run-id", default=None, help="explicit run directory name")
     p.add_argument("--seed", type=int, default=None, help="override the seed (expressions, demonstrations, folds, permutations)")
+    p = sub.add_parser("varsplit", help="splitting the block where the sums appear (D47): the probe before and after a "
+                                        "block's attention and MLP, and single attention heads swapped")
+    p.add_argument("--config", required=True, help="YAML config (configs/varsplit_<model>.yaml)")
+    p.add_argument("--output-dir", default=None, help="override output_dir from the config")
+    p.add_argument("--run-id", default=None, help="explicit run directory name")
+    p.add_argument("--seed", type=int, default=None, help="override the seed (the D45/D46 draws, folds, permutations, bootstraps)")
     args = parser.parse_args(argv)
     if args.command in ("validate", "pilot"):
         return _cmd_run(args, args.command)
@@ -330,6 +352,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_varmap(args)
     if args.command == "varprobe":
         return _cmd_varprobe(args)
+    if args.command == "varsplit":
+        return _cmd_varsplit(args)
     parser.error("unknown command")
     return 2
 

@@ -71,6 +71,21 @@ def lens_eligible(name: str, v: dict[str, np.ndarray]) -> np.ndarray:
     return (v[name] >= 0) & (v[name] <= 9) & (v[name] != v["Y"])
 
 
+def sample_probe_set(seed: int, task: str, n_examples: int, n_shots: int, n_demo_pool: int
+                     ) -> tuple[list[Expr], list[list[Expr]], dict[str, int]]:
+    """The D46 draw: a demonstration pool, then up to ``n_examples`` expressions in a seeded order, each with its
+    demonstrations."""
+    exprs = all_exprs(task)
+    order = rng_for(seed, "varprobe", task, "split").permutation(len(exprs))
+    pool = [exprs[i] for i in order[:n_demo_pool]]
+    chosen = [exprs[i] for i in order[n_demo_pool:]][:n_examples]
+    demos = []
+    for i in range(len(chosen)):
+        r = rng_for(seed, "varprobe", task, "demos", i)
+        demos.append([pool[j] for j in r.choice(len(pool), size=n_shots, replace=False)])
+    return chosen, demos, {"n_expressions": len(exprs), "n_examples": len(chosen)}
+
+
 class _Rows:
     """``features[m]`` = the kept examples' states at read point m, without copying the whole array."""
 
@@ -130,15 +145,8 @@ class VarProbe:
 
     def _sample(self, task: str) -> tuple[list[Expr], list[list[Expr]]]:
         cfg = self.cfg
-        exprs = all_exprs(task)
-        order = rng_for(cfg.seed, "varprobe", task, "split").permutation(len(exprs))
-        pool = [exprs[i] for i in order[: cfg.n_demo_pool]]
-        chosen = [exprs[i] for i in order[cfg.n_demo_pool :]][: cfg.n_examples]
-        demos = []
-        for i in range(len(chosen)):
-            r = rng_for(cfg.seed, "varprobe", task, "demos", i)
-            demos.append([pool[j] for j in r.choice(len(pool), size=cfg.n_shots, replace=False)])
-        self.metadata.setdefault("sampling", {})[task] = {"n_expressions": len(exprs), "n_examples": len(chosen)}
+        chosen, demos, info = sample_probe_set(cfg.seed, task, cfg.n_examples, cfg.n_shots, cfg.n_demo_pool)
+        self.metadata.setdefault("sampling", {})[task] = info
         return chosen, demos
 
     def _task(self, task: str) -> dict[str, Any]:
@@ -286,7 +294,7 @@ def _first(mask: np.ndarray) -> int | None:
 
 def _jsonable(x: Any) -> Any:
     if isinstance(x, dict):
-        return {k: _jsonable(v) for k, v in x.items() if not k.startswith("_")}
+        return {k: _jsonable(v) for k, v in x.items() if not (isinstance(k, str) and k.startswith("_"))}
     if isinstance(x, np.ndarray):
         return x.tolist()
     if isinstance(x, (np.floating, np.integer, np.bool_)):

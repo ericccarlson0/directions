@@ -123,6 +123,35 @@ def draw_source(kind: str, base: Expr, pool: Sequence[Expr], rng: np.random.Gene
     return cands[int(rng.integers(len(cands)))] if cands else None
 
 
+def sample_bases(seed: int, task: str, n_bases: int, n_shots: int, n_demo_pool: int, rejections: RejectionLog | None = None
+                 ) -> tuple[list[Expr], list[dict[str, Expr]], list[list[Expr]], dict[str, int]]:
+    """The D45 draw: the demonstration pool, then the bases in a seeded order, each with one source per type and its
+    demonstrations (shared by the base and its sources). An expression without a valid source of some type (a sum
+    with a single digit pair, e.g. 0 or 18) is skipped and counted (and logged to ``rejections``)."""
+    exprs = all_exprs(task)
+    rng = rng_for(seed, "varmap", task, "split")
+    order = rng.permutation(len(exprs))
+    demo_pool = [exprs[i] for i in order[:n_demo_pool]]
+    rest = [exprs[i] for i in order[n_demo_pool:]]
+    bases, sources, demos, skipped = [], [], [], 0
+    for base in rest:
+        if len(bases) == n_bases:
+            break
+        i = len(bases)
+        srcs = {k: draw_source(k, base, rest, rng_for(seed, "varmap", task, "source", i, skipped, k)) for k in SOURCE_TYPES[task]}
+        if any(v is None for v in srcs.values()):
+            skipped += 1
+            if rejections is not None:
+                rejections.add("source", task, "no valid source of some type", {"base": base.text(),
+                               "missing": [k for k, v in srcs.items() if v is None]})
+            continue
+        bases.append(base)
+        sources.append(srcs)
+        r = rng_for(seed, "varmap", task, "demos", i)
+        demos.append([demo_pool[j] for j in r.choice(len(demo_pool), size=n_shots, replace=False)])
+    return bases, sources, demos, {"n_expressions": len(exprs), "skipped_without_source": skipped, "n_bases": len(bases)}
+
+
 def render(demos: Sequence[Expr], query: Expr) -> Prompt:
     """``{expr} = {Y}`` per demonstration, one per line, then ``{expr} = `` with the digit as the target."""
     lines = [f"{e.text()} = {e.Y}" for e in demos]
@@ -261,31 +290,9 @@ class VariableMap:
     # ------------------------------------------------------------------ #
 
     def _sample(self, task: str) -> tuple[list[Expr], list[dict[str, Expr | None]], list[list[Expr]]]:
-        """The demonstration pool, then the bases in a seeded order, each with one source per type; an expression
-        that has no valid source of some type (a sum with a single digit pair, e.g. 0 or 18) is skipped and counted."""
         cfg = self.cfg
-        exprs = all_exprs(task)
-        rng = rng_for(cfg.seed, "varmap", task, "split")
-        order = rng.permutation(len(exprs))
-        demo_pool = [exprs[i] for i in order[: cfg.n_demo_pool]]
-        rest = [exprs[i] for i in order[cfg.n_demo_pool :]]
-        bases, sources, demos, skipped = [], [], [], 0
-        for base in rest:
-            if len(bases) == cfg.n_bases:
-                break
-            i = len(bases)
-            srcs = {k: draw_source(k, base, rest, rng_for(cfg.seed, "varmap", task, "source", i, skipped, k)) for k in SOURCE_TYPES[task]}
-            if any(v is None for v in srcs.values()):
-                skipped += 1
-                self.rejections.add("source", task, "no valid source of some type", {"base": base.text(),
-                                    "missing": [k for k, v in srcs.items() if v is None]})
-                continue
-            bases.append(base)
-            sources.append(srcs)
-            r = rng_for(cfg.seed, "varmap", task, "demos", i)
-            demos.append([demo_pool[j] for j in r.choice(len(demo_pool), size=cfg.n_shots, replace=False)])
-        self.metadata.setdefault("sampling", {})[task] = {"n_expressions": len(exprs), "skipped_without_source": skipped,
-                                                          "n_bases": len(bases)}
+        bases, sources, demos, info = sample_bases(cfg.seed, task, cfg.n_bases, cfg.n_shots, cfg.n_demo_pool, self.rejections)
+        self.metadata.setdefault("sampling", {})[task] = info
         return bases, sources, demos
 
     def _task(self, task: str) -> dict[str, Any]:

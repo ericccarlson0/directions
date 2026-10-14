@@ -2892,3 +2892,60 @@ Decision (the first map; exploratory):
   least-squares readout of them needs a code aligned with the sum. It stays at 0.18–0.21 before G while the digits
   read at 0.9 and above, then jumps to 0.62–0.86, like the two-lane test. It is reported as supporting evidence, not
   as the pre-registered test.
+
+## 2026-10-14 — Splitting the block where the sums appear
+
+### D47. Attention or MLP, and which heads carry which bracket
+
+* **Why.** D46 found the sums of `(a+b) - (c+d)` linearly readable at the answer token from the block that brings
+  in the operands (4B: block 24, S1 given Y 0.39 → 0.85, then 0.97 after block 25), or from the next one (1.7B:
+  operands in block 21, sums in block 22, 0.60 → 0.86). The answer follows one to three blocks later. A block does
+  two things to the answer token in order: attention reads the earlier tokens and adds a summary, then the MLP
+  works on the token's own vector and adds its result. Two questions:
+  - Is the sum formed by attention (a head that averages two digits' number codes writes their sum, scaled), or by
+    the MLP after attention has delivered the digits?
+  - Do the two brackets arrive through separate heads (lanes) or through one channel?
+  Block b maps read point b−1 to read point b.
+* **Part 1, the sub-layer probe.** The D46 expressions, prompts and gate (the same sampling streams, so the same
+  examples). At the answer token and for each block b of a window around the gather, three states and two writes:
+  - the states h(b−1); mid(b) = h(b−1) + attention write of block b; h(b);
+  - the writes alone (attention, MLP).
+  The D46 probe runs on each with D46's targets and settings (five folds, the λ grid, 200 permutations within the
+  conditioning classes, family-wise over the states of the window). Readout per block, for two-lane S1 given Y and
+  for Y: the *attention share* of the block's gain, (acc mid(b) − acc h(b−1)) / (acc h(b) − acc h(b−1)), with a
+  paired bootstrap 95% interval over examples (per-example cross-validated correctness, 1000 resamples). It is read
+  only for blocks whose gain is ≥ 0.1.
+  - Reading (fixed here): attention forms it when the interval's lower bound exceeds 0.5; the MLP does when its upper
+    bound is below 0.5; mixed otherwise.
+  - Check: h(b) − h(b−1) must equal the two writes (relative error recorded).
+* **Part 2, swapping single heads.** The D45 bases and sources (the same sampling streams; 64 bases per task; the
+  gate per source type). At the answer token, for each block b of a head window, each head's output (the input of
+  the output projection, `HeadPatch`) is replaced by the same head's output in the source run; every other head and
+  block is the model's own. All heads of b at once is the reference. Source types:
+  - S1, S2 and both (values change; the D45 predictions);
+  - S1_same and S2_same (digits change, sums kept).
+  - A no-op row per base patches a head with its own output in the same batches. Bases whose no-op answer is not the
+    gated answer are dropped and logged (the D45 lesson).
+* **Readouts per head.**
+  - For the value-changing types, the *transfer*: Σ(d patched − d no-op) / Σ(d source − d no-op), with
+    d = log p(prediction) − log p(base answer) over the ten digits, and a bootstrap 95% interval over bases. Also
+    the flip rate.
+  - For the same-sum types, the change rate of the answer.
+* **Reading (judgement thresholds, fixed here).**
+  - A head *carries* a variable when the lower bound of its transfer is ≥ 0.1.
+  - *Lanes*: some head carries S1 with an S2 transfer upper bound < 0.05, and some head carries S2 with an S1 transfer
+    upper bound < 0.05. *One channel*: every carrier carries both. Otherwise *mixed*.
+  - A carrier that changes the answer under a same-sum swap of its bracket (change-rate lower bound ≥ 0.25) carries
+    a digit of it, not the whole bracket. The same-sum reading is descriptive: other heads may hold the same digit.
+* **Windows** (per model, around the D45 gather G).
+  - Part 1: blocks G−1 to G+3 (4B: 23–27; 1.7B and 0.6B: 20–24).
+  - Part 2: blocks G to G+2 (4B: 24–26; 1.7B and 0.6B: 21–23).
+  - D45 showed every operand entering the answer token in block G (the digit tokens stop mattering from read point
+    G). Heads of later blocks can only move what the answer token already holds.
+* **Runs.** Qwen3 0.6B (one-lane; two-lane fails the gate, D46), 1.7B and 4B Base, seed 20260916, one job on an RTX
+  4090 (EUR-NO-1).
+* **What it cannot show.** A head's transfer is one head's share with the others intact: a role shared redundantly
+  between heads shows as small single-head transfers and a large all-heads one; their sum is reported beside it.
+  Where the attention pattern points is not measured; which bracket a head moves is read off the source types.
+* **Checks** (D23): the first capture batch is repeated and must be bit-identical; one head-patch batch is repeated
+  and must be bit-identical; a no-op patch of a whole batch must reproduce the unpatched batch bit-exactly.

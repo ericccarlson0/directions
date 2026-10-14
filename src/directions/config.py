@@ -1061,6 +1061,65 @@ class VarprobeConfig:
     marks: dict[str, int] = field(default_factory=dict)
 
 
+@dataclass
+class VarsplitConfig:
+    """Splitting the block where the sums appear (docs/DECISIONS.md D47): the D46 probe at the states before a block,
+    after its attention and after its MLP (and on the two writes alone), and single attention heads of the answer
+    token swapped between the D45 bases and sources.
+
+    split_blocks     blocks probed (block b maps read point b-1 to b): D47 sets G-1..G+3 around the D45 gather G
+    head_blocks      blocks whose heads are swapped one at a time: G..G+2
+    gather           the D45 gather read point (figure annotation)
+    share_gain_min   a block's attention share is read only where its accuracy gain is at least this
+    carry_lower      a head carries a variable when its transfer's lower bound reaches this (judgement, D47)
+    not_carry_upper  ... and not a variable when that transfer's upper bound stays below this
+    digit_change     a carrier holds a digit of its bracket when the same-sum swap's change-rate lower bound reaches this
+    """
+
+    name: str = "varsplit"
+    seed: int = 20260916
+    output_dir: str = "results"
+    model: ModelConfig = field(default_factory=ModelConfig)
+    expressions: list[str] = field(default_factory=lambda: ["two_lane", "one_lane"])
+    n_examples: int = 2048
+    n_bases: int = 64
+    n_shots: int = 8
+    n_demo_pool: int = 96
+    split_blocks: list[int] = field(default_factory=list)
+    head_blocks: list[int] = field(default_factory=list)
+    gather: int | None = None
+    n_folds: int = 5
+    lambdas: list[float] = field(default_factory=lambda: [0.1, 1.0, 10.0, 100.0])
+    n_perm: int = 200
+    alpha: float = 0.05
+    n_boot: int = 1000
+    min_accuracy: float = 0.5
+    gate: bool = True
+    share_gain_min: float = 0.1
+    carry_lower: float = 0.1
+    not_carry_upper: float = 0.05
+    digit_change: float = 0.25
+    determinism_check: bool = True
+    figures: bool = True
+
+
+def load_varsplit_config(path: str | Path) -> VarsplitConfig:
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    cfg = _from_dict(VarsplitConfig, data)
+    if not cfg.expressions or any(t not in ("two_lane", "one_lane") for t in cfg.expressions):
+        raise ValueError("expressions must be a non-empty subset of two_lane, one_lane")
+    if not cfg.split_blocks or not cfg.head_blocks or min(cfg.split_blocks + cfg.head_blocks) < 1:
+        raise ValueError("split_blocks and head_blocks must be non-empty lists of blocks >= 1")
+    if list(cfg.split_blocks) != list(range(cfg.split_blocks[0], cfg.split_blocks[-1] + 1)):
+        raise ValueError("split_blocks must be consecutive")
+    if cfg.n_examples < 2 * cfg.n_folds or cfg.n_bases < 2 or cfg.n_demo_pool < cfg.n_shots:
+        raise ValueError("n_examples must be at least twice n_folds, n_bases at least 2, n_demo_pool at least n_shots")
+    if not cfg.lambdas or any(x <= 0 for x in cfg.lambdas) or list(cfg.lambdas) != sorted(cfg.lambdas):
+        raise ValueError("lambdas must be positive and increasing")
+    return cfg
+
+
 def load_varprobe_config(path: str | Path) -> VarprobeConfig:
     with open(path) as f:
         data = yaml.safe_load(f) or {}
