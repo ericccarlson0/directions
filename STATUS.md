@@ -49,6 +49,13 @@ Last updated: 2026-09-11.
   selected heads' mean outputs through `o_proj`, per-seed stability;
   `extraction.control` selects it as the control (PC1 stays the readout
   direction and is reported beside it).
+- `varmap.py`, `model.py` site patches (D45) — the variable map: the
+  expression tasks `(a+b) - (c+d) = ` and `(a+b) - c = `, sources that change
+  one sub-result, both or neither, whole-vector (or subspace) swaps of the
+  residual at any (read point × query token) site with multi-position
+  capture, flip/change/transfer rates with bootstrap bounds, the D45
+  presence/value reading, identity and determinism checks
+  (`directions varmap`).
 - `figures.py`, `pipeline.py` (two phases, D15), `runinfo.py`, `cli.py`
   (`validate | pilot | check | compare | aggregate`, `--seed`).
 
@@ -4513,8 +4520,75 @@ reading and the near-identical flag; `scripts/d44_summary.py` applies it to the 
   probe) does not hold. The weight-decayed vectors of different positions are less orthogonal than D31's (43–69°
   against 78–88°) and still switch.
 
+### D45: the first variable maps (Qwen3 0.6B, 1.7B, 4B Base, seed 20260916)
+
+Whole-vector swaps between real inputs at every (read point × query token) site, on `(a+b) - (c+d) = ` (two-lane)
+and its twin `(a+b) - c = ` (one-lane), 64 bases per task, 8-shot; the gate per swap type (D45).
+
+```
+# workflow run 38502381471 (request d45_varmap_qwen3_0.6b_1.7b_4b_seed20260916_retry1; the first request, run
+# 38502301778, failed at the deploy: RunPod answered "Specified flash build for promotion not found" for a build it had
+# just accepted, and the unchanged re-request deployed), commit e416c81, RTX 4090 (ADA_24), EUR-NO-1; stages 3.7, 9.5
+# and 38 min, 51 min in all (about 0.95 USD); determinism (a repeated swap batch) and identity swaps identical on all
+uv run python scripts/stages.py \
+  'uv run directions varmap --config configs/varmap_qwen3_0.6b.yaml --run-id varmap_qwen3_0.6b_seed20260916' \
+  'uv run directions varmap --config configs/varmap_qwen3_1.7b.yaml --run-id varmap_qwen3_1.7b_seed20260916' \
+  'uv run directions varmap --config configs/varmap_qwen3_4b.yaml --run-id varmap_qwen3_4b_seed20260916'
+# on the download (scripts/runpod_log.py 38502381471 --download results/remote/run-38502381471):
+uv run python scripts/varmap_summary.py results/remote/run-38502381471 --out docs/varmap/summary.json --figure docs/varmap/depth.png
+```
+
+Figures: `docs/varmap/qwen3_<size>_<task>.png` (the maps), `docs/varmap/depth.png` (all six, by depth).
+
+| model, task | few-shot accuracy | bases kept per swap type | last read point at which a digit token carries the operands | gather: first read point with both sub-results at the answer token (fraction of the stack) | swap of both at the gather gives the source's answer | single-control hand-over / heads' write depth (D44) |
+|---|---|---|---|---|---|---|
+| 0.6B two-lane | 0.52 | 13–22 | 19 | 24 (0.86)* | 0.54 | 20 / 19 |
+| 0.6B one-lane | 0.94 | 55–57 | 20 | 21 (0.75) | 0.95 | 20 / 19 |
+| 1.7B two-lane | 0.72 | 29–38 | 20 | 21 (0.75) | 0.79 | 20 / 18.5 |
+| 1.7B one-lane | 0.91 | 56–58 | 20 | 21 (0.75) | 1.00 | 20 / 18.5 |
+| 4B two-lane | 0.98 | 60–62 | 23 | 24 (0.67) | 0.94 | 24 / 23 |
+| 4B one-lane | 1.00 | 64 | 23 | 24 (0.67) | 0.95 | 24 / 23 |
+
+(*The 0.6B two-lane map is weak: its rates move at 20 → 21 like the others, but with 13–19 bases the flip-rate lower
+bound for S1 sits at 0.50 from read point 21 and clears the presence threshold only at 24. "Last digit read point" is
+the last at which a same-value swap at a digit token changes the answer in more than half the bases; the gather and
+the digit read point are descriptive summaries of the preregistered maps, not readouts of their own.)
+
+- **No sub-result has a site of its own.** In all six maps neither S1 nor S2 is present at any token other than the
+  digits and the answer token, at any read point: not at the closing bracket, the minus, the second opening
+  bracket or `=`. Before the gather the operands sit at their digit tokens as digits: a same-sum swap at a digit
+  token changes the answer in 0.8–0.95 of the bases (4B), so what is stored there is the digit, not its bracket's
+  sum. (A swap at one digit carries the source's sum only when the source differs in that digit alone, hence flip
+  rates of 0.1–0.3 at the digit tokens.)
+- **One block moves everything to the answer token.** Between two consecutive read points (4B: 23 → 24; 1.7B and
+  0.6B one-lane: 20 → 21) the digit tokens stop mattering and the answer token starts to carry both sub-results; from
+  there a swap at the answer token gives the source's answer and same-value swaps change nothing. The second bracket
+  of the two-lane task adds no stage: its gather is at the same read point as the one-lane twin's on 1.7B and 4B.
+- **The gather is at the single-control hand-over.** The read point at which the operands arrive at the answer token
+  is the hand-over of the single-control line (D44: 20, 20, 24) or one past it, and one to 2.5 read points past the
+  in-context heads' write depth (19, 18.5, 23). The answer position takes in the task (from the demonstrations) and
+  the operands (from the query) at one depth. Three models of one family, one task family; an observation.
+- **Just before the gather** a swap at the answer token mixes source and base: same-sum sources change the answer more
+  often than sum-changing sources carry their sum (1.7B two-lane, read point 20: same-S1 change 0.53, S1 flip 0.18;
+  4B two-lane, read points 22–23: same-S2 change 0.21–0.23, S2 flip 0.07). The answer token receives the digits
+  before it holds any sum, which fits the sums being formed at the answer token rather than upstream.
+- **What the map leaves open.** After the gather the answer token reads "present" and "held as a value" for both S1
+  and S2, but holding only the answer Y gives the same reading (a sum-changing source's answer is the predicted one,
+  a same-sum source's is the base's). Whether S1, S2 and Y exist as separate variables in the last third, and in
+  what order, is invisible to whole-vector swaps. That is the D45 next step (DAS at the answer token with RAVEL's
+  Cause/Isolate and a random-init null), now confined to one token and the read points from the gather on (4B:
+  24–36; 1.7B: 21–28).
+- **A built-in no-op control.** The first query token is identical in base and source (they share their
+  demonstrations), so a swap there changes nothing. 0–2 bases per map (21 rows of 1,272 in all) give a different answer
+  there than in the gating batch: bases whose answer moves with the batch's padding in bf16. Dropping them leaves
+  every gather and digit read point unchanged (`scripts/varmap_summary.py`, `fragile_dropped` in
+  `docs/varmap/summary.json`).
+
 ## Not yet run / known limitations
 
+- The variable map (D45) has run once per model (Qwen3 0.6B, 1.7B, 4B Base; seed 20260916) on two expression tasks
+  with whole-vector swaps only. The 0.6B two-lane map rests on 13–22 bases per swap type (few-shot accuracy 0.52).
+  The 8B and the other families are not mapped; the subspace (DAS) step is not built.
 - The weight-decayed learned vector (D43) has run once per Qwen3 Base model (seed 20260916) with one weight decay,
   one step size and one budget fixed on a CPU probe of one task; the hand-over, the source test and the geometry
   test have run on it (D44), the all-to-all trajectories (D32–D34), the composition tests (D41, D42) and OLMo 3 and
@@ -4656,6 +4730,9 @@ uv run pytest                                                           # 246 te
 gh run list --workflow=run-gpu.yml --branch fable --limit 1 && gh run watch <RUN_ID>
 gh run download <RUN_ID> --dir results/remote/<name>
 uv run --with boto3 python scripts/runpod_log.py <RUN_ID> --follow      # the live worker log
+# D45, the variable map (one job, run 38502381471), then the summary on the download:
+uv run python scripts/stages.py 'uv run directions varmap --config configs/varmap_qwen3_0.6b.yaml --run-id varmap_qwen3_0.6b_seed20260916' 'uv run directions varmap --config configs/varmap_qwen3_1.7b.yaml --run-id varmap_qwen3_1.7b_seed20260916' 'uv run directions varmap --config configs/varmap_qwen3_4b.yaml --run-id varmap_qwen3_4b_seed20260916'
+uv run python scripts/varmap_summary.py results/remote/run-38502381471 --out docs/varmap/summary.json --figure docs/varmap/depth.png
 # iteration 10 (D33 amended: quarter strength, the neighbouring candidate layers, the patch test at every compared
 # layer on eighths of the depth for the learned and the head-mean vector, per-block writing), on a second seed,
 # as run (workflow runs in the iteration-10 entry): first the learned-vector protocol (D31) at seed 20260916 on

@@ -2805,6 +2805,11 @@ Decision (the first map; exploratory):
   type's map reports its own count of bases kept. (A CPU smoke on 0.6B kept 0 of 6 two-lane bases under an all-five
   gate.) On a kept row the base answer is Y, so the change rate is read against the base run's own argmax.
 * **Runs.** Qwen3 0.6B, 1.7B and 4B Base, seed 20260916, 64 bases per task, one job on an RTX 4090 (EUR-NO-1).
+* **After the first run (2026-10-14).** The first query token is identical in base and source, so its column is a
+  no-op control. On 0–2 bases per map it disagrees with the gated base answer, because the gate's batch is padded
+  and the swap batches are not, and a nearly tied answer moves with that in bf16. The summary
+  (`scripts/varmap_summary.py`) re-reads every map without those bases; the conclusions do not change. The DAS step
+  gates on a no-op swap run in the swap batches' own geometry instead of on the base run.
 * **Checks** (D23):
   - a patched batch is repeated and must be bit-identical;
   - swapping a run's own states back into it must reproduce its scores bit-exactly. This is checked on the model in
