@@ -1,0 +1,420 @@
+{
+ "varsplit_pre_qwen3_0.6b_seed20260916": {
+  "one_lane": {
+   "gather": 21,
+   "probe": {},
+   "heads": {
+    "18": {
+     "reading": "no carrier",
+     "carries_S1": [],
+     "carries_S2": [],
+     "S1_only": [],
+     "S2_only": [],
+     "all_heads": {
+      "S1": 0.06,
+      "S2": 0.16,
+      "both": 0.1
+     },
+     "sum_of_heads": {
+      "S1": 0.05,
+      "S2": 0.1,
+      "both": 0.07
+     },
+     "n": {
+      "S1": 57,
+      "S1_same": 55,
+      "S2": 56,
+      "both": 56
+     },
+     "S1_carriers_holding_a_digit": []
+    },
+    "19": {
+     "reading": "no carrier",
+     "carries_S1": [],
+     "carries_S2": [],
+     "S1_only": [],
+     "S2_only": [],
+     "all_heads": {
+      "S1": 0.01,
+      "S2": 0.0,
+      "both": -0.0
+     },
+     "sum_of_heads": {
+      "S1": 0.01,
+      "S2": 0.0,
+      "both": -0.01
+     },
+     "n": {
+      "S1": 57,
+      "S1_same": 55,
+      "S2": 56,
+      "both": 56
+     },
+     "S1_carriers_holding_a_digit": []
+    },
+    "20": {
+     "reading": "mixed",
+     "carries_S1": [
+      3
+     ],
+     "carries_S2": [],
+     "S1_only": [
+      3
+     ],
+     "S2_only": [],
+     "all_heads": {
+      "S1": 0.13,
+      "S2": 0.0,
+      "both": 0.09
+     },
+     "sum_of_heads": {
+      "S1": 0.14,
+      "S2": 0.02,
+      "both": 0.11
+     },
+     "n": {
+      "S1": 57,
+      "S1_same": 55,
+      "S2": 56,
+      "both": 56
+     },
+     "S1_carriers_holding_a_digit": [
+      3
+     ]
+    }
+   }
+  }
+ },
+ "varsplit_pre_qwen3_1.7b_seed20260916": {
+  "one_lane": {
+   "gather": 21,
+   "probe": {},
+   "heads": {
+    "18": {
+     "reading": "no carrier",
+     "carries_S1": [],
+     "carries_S2": [],
+     "S1_only": [],
+     "S2_only": [],
+     "all_heads": {
+      "S1": 0.06,
+      "S2": 0.11,
+      "both": 0.11
+     },
+     "sum_of_heads": {
+      "S1": 0.02,
+      "S2": 0.06,
+      "both": 0.08
+     },
+     "n": {
+      "S1": 57,
+      "S1_same": 58,
+      "S2": 56,
+      "both": 57
+     },
+     "S1_carriers_holding_a_digit": []
+    },
+    "19": {
+     "reading": "no carrier",
+     "carries_S1": [],
+     "carries_S2": [],
+     "S1_only": [],
+     "S2_only": [],
+     "all_heads": {
+      "S1": 0.0,
+      "S2": -0.0,
+      "both": 0.0
+     },
+     "sum_of_heads": {
+      "S1": -0.0,
+      "S2": -0.0,
+      "both": 0.0
+     },
+     "n": {
+      "S1": 57,
+      "S1_same": 58,
+      "S2": 56,
+      "both": 57
+     },
+     "S1_carriers_holding_a_digit": []
+    },
+    "20": {
+     "reading": "mixed",
+     "carries_S1": [
+      3
+     ],
+     "carries_S2": [],
+     "S1_only": [
+      3
+     ],
+     "S2_only": [],
+     "all_heads": {
+      "S1": 0.23,
+      "S2": 0.01,
+      "both": 0.26
+     },
+     "sum_of_heads": {
+      "S1": 0.2,
+      "S2": 0.03,
+      "both": 0.21
+     },
+     "n": {
+      "S1": 57,
+      "S1_same": 58,
+      "S2": 56,
+      "both": 57
+     },
+     "S1_carriers_holding_a_digit": []
+    }
+   }
+  },
+  "two_lane": {
+   "gather": 21,
+   "probe": {},
+   "heads": {
+    "18": {
+     "reading": "no carrier",
+     "carries_S1": [],
+     "carries_S2": [],
+     "S1_only": [],
+     "S2_only": [],
+     "all_heads": {
+      "S1": 0.09,
+      "S2": 0.13,
+      "both": 0.15
+     },
+     "sum_of_heads": {
+      "S1": 0.03,
+      "S2": 0.09,
+      "both": 0.06
+     },
+     "n": {
+      "S1": 37,
+      "S1_same": 34,
+      "S2": 33,
+      "S2_same": 35,
+      "both": 28
+     },
+     "S1_carriers_holding_a_digit": [],
+     "S2_carriers_holding_a_digit": []
+    },
+    "19": {
+     "reading": "no carrier",
+     "carries_S1": [],
+     "carries_S2": [],
+     "S1_only": [],
+     "S2_only": [],
+     "all_heads": {
+      "S1": -0.0,
+      "S2": 0.0,
+      "both": 0.0
+     },
+     "sum_of_heads": {
+      "S1": 0.01,
+      "S2": 0.04,
+      "both": 0.04
+     },
+     "n": {
+      "S1": 38,
+      "S1_same": 36,
+      "S2": 34,
+      "S2_same": 36,
+      "both": 29
+     },
+     "S1_carriers_holding_a_digit": [],
+     "S2_carriers_holding_a_digit": []
+    },
+    "20": {
+     "reading": "no carrier",
+     "carries_S1": [],
+     "carries_S2": [],
+     "S1_only": [],
+     "S2_only": [],
+     "all_heads": {
+      "S1": 0.19,
+      "S2": 0.0,
+      "both": 0.14
+     },
+     "sum_of_heads": {
+      "S1": 0.14,
+      "S2": 0.01,
+      "both": 0.13
+     },
+     "n": {
+      "S1": 38,
+      "S1_same": 35,
+      "S2": 33,
+      "S2_same": 36,
+      "both": 28
+     },
+     "S1_carriers_holding_a_digit": [],
+     "S2_carriers_holding_a_digit": []
+    }
+   }
+  }
+ },
+ "varsplit_pre_qwen3_4b_seed20260916": {
+  "one_lane": {
+   "gather": 24,
+   "probe": {},
+   "heads": {
+    "21": {
+     "reading": "no carrier",
+     "carries_S1": [],
+     "carries_S2": [],
+     "S1_only": [],
+     "S2_only": [],
+     "all_heads": {
+      "S1": 0.0,
+      "S2": 0.0,
+      "both": -0.0
+     },
+     "sum_of_heads": {
+      "S1": 0.02,
+      "S2": 0.01,
+      "both": 0.02
+     },
+     "n": {
+      "S1": 64,
+      "S1_same": 64,
+      "S2": 64,
+      "both": 64
+     },
+     "S1_carriers_holding_a_digit": []
+    },
+    "22": {
+     "reading": "no carrier",
+     "carries_S1": [],
+     "carries_S2": [],
+     "S1_only": [],
+     "S2_only": [],
+     "all_heads": {
+      "S1": 0.0,
+      "S2": 0.03,
+      "both": 0.02
+     },
+     "sum_of_heads": {
+      "S1": 0.01,
+      "S2": 0.02,
+      "both": 0.01
+     },
+     "n": {
+      "S1": 64,
+      "S1_same": 64,
+      "S2": 64,
+      "both": 64
+     },
+     "S1_carriers_holding_a_digit": []
+    },
+    "23": {
+     "reading": "no carrier",
+     "carries_S1": [],
+     "carries_S2": [],
+     "S1_only": [],
+     "S2_only": [],
+     "all_heads": {
+      "S1": 0.0,
+      "S2": 0.0,
+      "both": 0.0
+     },
+     "sum_of_heads": {
+      "S1": 0.02,
+      "S2": 0.02,
+      "both": 0.02
+     },
+     "n": {
+      "S1": 64,
+      "S1_same": 64,
+      "S2": 64,
+      "both": 64
+     },
+     "S1_carriers_holding_a_digit": []
+    }
+   }
+  },
+  "two_lane": {
+   "gather": 24,
+   "probe": {},
+   "heads": {
+    "21": {
+     "reading": "no carrier",
+     "carries_S1": [],
+     "carries_S2": [],
+     "S1_only": [],
+     "S2_only": [],
+     "all_heads": {
+      "S1": 0.0,
+      "S2": 0.0,
+      "both": 0.0
+     },
+     "sum_of_heads": {
+      "S1": 0.02,
+      "S2": 0.01,
+      "both": 0.0
+     },
+     "n": {
+      "S1": 62,
+      "S1_same": 60,
+      "S2": 61,
+      "S2_same": 61,
+      "both": 62
+     },
+     "S1_carriers_holding_a_digit": [],
+     "S2_carriers_holding_a_digit": []
+    },
+    "22": {
+     "reading": "no carrier",
+     "carries_S1": [],
+     "carries_S2": [],
+     "S1_only": [],
+     "S2_only": [],
+     "all_heads": {
+      "S1": 0.01,
+      "S2": 0.08,
+      "both": 0.12
+     },
+     "sum_of_heads": {
+      "S1": 0.02,
+      "S2": 0.04,
+      "both": 0.07
+     },
+     "n": {
+      "S1": 62,
+      "S1_same": 60,
+      "S2": 61,
+      "S2_same": 61,
+      "both": 62
+     },
+     "S1_carriers_holding_a_digit": [],
+     "S2_carriers_holding_a_digit": []
+    },
+    "23": {
+     "reading": "no carrier",
+     "carries_S1": [],
+     "carries_S2": [],
+     "S1_only": [],
+     "S2_only": [],
+     "all_heads": {
+      "S1": 0.0,
+      "S2": 0.0,
+      "both": 0.01
+     },
+     "sum_of_heads": {
+      "S1": 0.0,
+      "S2": 0.03,
+      "both": -0.0
+     },
+     "n": {
+      "S1": 62,
+      "S1_same": 60,
+      "S2": 61,
+      "S2_same": 61,
+      "both": 62
+     },
+     "S1_carriers_holding_a_digit": [],
+     "S2_carriers_holding_a_digit": []
+    }
+   }
+  }
+ }
+}

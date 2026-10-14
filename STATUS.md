@@ -4636,12 +4636,91 @@ family-wise null except the means before G, which are descriptive. Positive cont
 - **Limits.** Decodable is not used: the digits are decodable exactly where D45 shows the token unused, so only the
   causal step can say whether the sums are used. The probe is one linear readout (least-squares classes).
 
+### D47: splitting the block where the sums appear (Qwen3 0.6B, 1.7B, 4B Base, seed 20260916)
+
+Part 1: the D46 probe before a block, after its attention and after its MLP, at the answer token, on the D46
+expressions. Part 2: single attention heads of the answer token swapped between the D45 bases and their sources
+(64 per task), in blocks G..G+2; an exploratory extension then swapped heads in G−3..G−1.
+
+```
+# workflow run 38654038341 (request d47_varsplit_qwen3_0.6b_1.7b_4b_seed20260916), commit 9a14667, RTX 4090 (ADA_24),
+# EUR-NO-1, 14.9 min; extension run 38655900367 (request d47_varsplit_pre_qwen3_0.6b_1.7b_4b_seed20260916), commit
+# 37c71b7, 10.7 min; about 0.45 USD together; every determinism, no-op and capture check identical
+uv run python scripts/stages.py \
+  'uv run directions varsplit --config configs/varsplit_qwen3_0.6b.yaml --run-id varsplit_qwen3_0.6b_seed20260916' \
+  'uv run directions varsplit --config configs/varsplit_qwen3_1.7b.yaml --run-id varsplit_qwen3_1.7b_seed20260916' \
+  'uv run directions varsplit --config configs/varsplit_qwen3_4b.yaml --run-id varsplit_qwen3_4b_seed20260916'
+uv run python scripts/stages.py \
+  'uv run directions varsplit --config configs/varsplit_pre_qwen3_0.6b.yaml --run-id varsplit_pre_qwen3_0.6b_seed20260916' \
+  'uv run directions varsplit --config configs/varsplit_pre_qwen3_1.7b.yaml --run-id varsplit_pre_qwen3_1.7b_seed20260916' \
+  'uv run directions varsplit --config configs/varsplit_pre_qwen3_4b.yaml --run-id varsplit_pre_qwen3_4b_seed20260916'
+# on the downloads (scripts/runpod_log.py <run> --download results/remote/run-<run>):
+uv run python scripts/varsplit_summary.py results/remote/run-38654038341 --out docs/varsplit/summary.json --figures docs/varsplit
+uv run python scripts/varsplit_summary.py results/remote/run-38655900367 --out docs/varsplit/summary_pre.json --figures docs/varsplit
+```
+
+Figures: `docs/varsplit/qwen3_<size>_<task>.png` (both parts), `docs/varsplit/pre_qwen3_<size>_<task>.png` (the
+extension). 0.6B is read on one-lane only (two-lane fails the gate, D46).
+
+**Part 1: S1 given Y (and Y) across each block's attention step and MLP step** (probe accuracy before → after
+attention → after MLP; attention's share of the block's gain with its 95% paired-bootstrap interval; D47 reading)
+
+| model, task | S1 given Y: the block(s) where it rises | Y: the blocks where it rises |
+|---|---|---|
+| 4B two-lane | 24: 0.41 → 0.61 → 0.85, share 0.45 [0.41, 0.49], MLP; 25: 0.85 → 0.89 → 0.97, share 0.30 [0.22, 0.38], MLP | 25: 0.36 → 0.36 → 0.70, share 0.00; 26: 0.70 → 0.70 → 0.97, share 0.00; MLP |
+| 4B one-lane | 24: 0.22 → 0.31 → 0.51, 0.29 [0.18, 0.38]; 25: 0.51 → 0.55 → 0.86, 0.09 [0.01, 0.17]; MLP | 25: 0.32 → 0.42 → 0.90, 0.17 [0.11, 0.22]; 26: 0.00; MLP |
+| 1.7B two-lane | 20: gain 0.12, share 0.41 [0.24, 0.54], mixed; 22: 0.60 → 0.61 → 0.87, 0.01 [−0.04, 0.07], MLP | 23: 0.40 → 0.68, share 0.02; 24: 0.00; MLP |
+| 1.7B one-lane | 22: 0.38 → 0.37 → 0.84, 0.00 [−0.05, 0.05], MLP | 22: −0.05; 23: 0.04; MLP |
+| 0.6B one-lane | 22: 0.24 → 0.24 → 0.56, −0.02 [−0.09, 0.04], MLP | 22: 0.08; 23: 0.19; 24: 0.12; MLP |
+
+(A block's residual step equals its two writes to a relative error of 0.010–0.015 at most, float32 sums of bf16
+states.)
+
+**Part 2: single heads of the answer token** (transfer: 0 = nothing moves, 1 = as much as swapping the whole source
+run; D47 carrier = lower bound ≥ 0.1)
+
+| model, task | block G: the first bracket (S1) | block G: the second (S2, or c) | all of G's heads: S1 / S2 | earlier blocks (extension) |
+|---|---|---|---|---|
+| 4B two-lane (G 24) | head 4 0.25 [0.20, 0.31], head 31 0.10 | head 7 0.15 [0.11, 0.19] | 0.67 / 0.36 | 21–23: ≤ 0.01 / ≤ 0.08 |
+| 4B one-lane | head 4 0.13 [0.09], head 31 0.05 | head 7 0.12 [0.08] | 0.66 / 0.35 | ≤ 0.03 |
+| 1.7B two-lane (G 21) | head 14 0.09 [0.05] | head 8 0.38 [0.30, 0.46], head 12 0.09 | 0.25 / 0.56 | 20: head 3 0.11, all 0.19 / 0.00; 18: 0.09 / 0.13 |
+| 1.7B one-lane | head 14 0.09 [0.06] | head 8 0.54 [0.46, 0.62] | 0.36 / 0.69 | 20: head 3 0.17 [0.12], all 0.23 / 0.01 |
+| 0.6B one-lane (G 21) | head 13 0.19 [0.15, 0.25], head 14 0.10 | head 8 0.49 [0.41, 0.57] | 0.53 / 0.61 | 20: head 3 0.15 [0.11], all 0.13 / 0.00 |
+
+Blocks G+1 and G+2: no head and no set of heads moves anything (all-heads transfer ≤ 0.02 everywhere).
+
+- **The MLP does the adding.** The sum becomes readable mostly across MLP steps. On 1.7B and 0.6B, block 22's
+  attention adds nothing to S1 given Y (share 0.00, −0.02) and its MLP takes it from about 0.6 to 0.87 (0.24 → 0.56
+  on 0.6B), one block after the operands arrive. On 4B, block 24's attention, which brings the operands, makes the
+  sum partly readable (45% of that block's gain, [0.41, 0.49]); its MLP and block 25's finish it. The answer is
+  formed by MLPs alone (attention's share at most 0.19 in every block where Y rises). In the picture of D47: story B,
+  with a share of A on 4B.
+- **The brackets travel in lanes.** In the block that brings them, different heads carry the first bracket and the
+  second: 4B two-lane heads 4 and 31 against head 7 (the D47 reading "lanes"); 0.6B heads 13 and 14 against head 8
+  ("lanes"); 1.7B head 14 against head 8 (head 14 below the carrier threshold, "mixed"). No head carries both.
+- **A head carries a digit, not a bracket.** Swapped alone from a source with the same first sum and other digits,
+  4B's head 4 changes the answer in 0.53 of the bases (0.6B's head 13: 0.35); all of block 24's heads together, in
+  0.02. The digits of one bracket arrive through separate heads and the MLP adds them.
+- **On 1.7B and 0.6B the first bracket's lane opens a block earlier.** In block 20 one head (head 3 on both models)
+  carries part of the first bracket and none of the second, and a same-sum swap of all of block 20's heads changes
+  the answer in 0.38–0.60 of the bases (one digit arrives there, the other in block 21). This is the first operand
+  the D46 lens reads at read point 20. On 4B both lanes open in block 24.
+- **Not all of it is in these heads.** Swapping all of block G's heads moves 0.25–0.69 of a bracket. Blocks G−3..G−1
+  add 0.2 for 1.7B's first bracket and about nothing for 4B's second (0.08 in block 22). The rest of 4B's second
+  bracket is not delivered by any block's heads at the answer token within G−3..G+2. The likeliest carrier is the
+  digit traces the answer token holds from early layers (D46: c given S2 readable from read point 2; D45: a
+  same-sum swap of the whole answer-token state at read point 23 changes the answer in 0.23 of the bases), used
+  together with block 24's heads.
+- **Limits.** A head's transfer is its share with the other heads intact. Head indices are per model (that 0.6B and
+  1.7B share heads 3, 8 and 13/14 in these roles is noted, not explained). The G−3..G−1 extension was decided after
+  the first run.
+
 ## Not yet run / known limitations
 
 - The variable map (D45) has run once per model (Qwen3 0.6B, 1.7B, 4B Base; seed 20260916) on two expression tasks
   with whole-vector swaps only. The 0.6B two-lane map rests on 13–22 bases per swap type (few-shot accuracy 0.52;
-  0.40 on D46's 2048 expressions, where it is skipped). The D46 probe and lens have run once (seed 20260916). The
-  8B and the other families are not mapped; the subspace (DAS) step is not built.
+  0.40 on D46's 2048 expressions, where it is skipped). The D46 probe and lens and the D47 block split have run once
+  (seed 20260916). The 8B and the other families are not mapped; the subspace (DAS) step is not built.
 - The weight-decayed learned vector (D43) has run once per Qwen3 Base model (seed 20260916) with one weight decay,
   one step size and one budget fixed on a CPU probe of one task; the hand-over, the source test and the geometry
   test have run on it (D44), the all-to-all trajectories (D32–D34), the composition tests (D41, D42) and OLMo 3 and
@@ -4789,6 +4868,11 @@ uv run python scripts/varmap_summary.py results/remote/run-38502381471 --out doc
 # D46, the conditional probe and the logit lens (one job, run 38587101804), then the summary on the download:
 uv run python scripts/stages.py 'uv run directions varprobe --config configs/varprobe_qwen3_0.6b.yaml --run-id varprobe_qwen3_0.6b_seed20260916' 'uv run directions varprobe --config configs/varprobe_qwen3_1.7b.yaml --run-id varprobe_qwen3_1.7b_seed20260916' 'uv run directions varprobe --config configs/varprobe_qwen3_4b.yaml --run-id varprobe_qwen3_4b_seed20260916'
 uv run python scripts/varprobe_summary.py results/remote/run-38587101804 --out docs/varprobe/summary.json --figure docs/varprobe/depth.png
+# D47, the block split (run 38654038341) and its extension before the gather (run 38655900367), then the summaries:
+uv run python scripts/stages.py 'uv run directions varsplit --config configs/varsplit_qwen3_0.6b.yaml --run-id varsplit_qwen3_0.6b_seed20260916' 'uv run directions varsplit --config configs/varsplit_qwen3_1.7b.yaml --run-id varsplit_qwen3_1.7b_seed20260916' 'uv run directions varsplit --config configs/varsplit_qwen3_4b.yaml --run-id varsplit_qwen3_4b_seed20260916'
+uv run python scripts/stages.py 'uv run directions varsplit --config configs/varsplit_pre_qwen3_0.6b.yaml --run-id varsplit_pre_qwen3_0.6b_seed20260916' 'uv run directions varsplit --config configs/varsplit_pre_qwen3_1.7b.yaml --run-id varsplit_pre_qwen3_1.7b_seed20260916' 'uv run directions varsplit --config configs/varsplit_pre_qwen3_4b.yaml --run-id varsplit_pre_qwen3_4b_seed20260916'
+uv run python scripts/varsplit_summary.py results/remote/run-38654038341 --out docs/varsplit/summary.json --figures docs/varsplit
+uv run python scripts/varsplit_summary.py results/remote/run-38655900367 --out docs/varsplit/summary_pre.json --figures docs/varsplit
 # iteration 10 (D33 amended: quarter strength, the neighbouring candidate layers, the patch test at every compared
 # layer on eighths of the depth for the learned and the head-mean vector, per-block writing), on a second seed,
 # as run (workflow runs in the iteration-10 entry): first the learned-vector protocol (D31) at seed 20260916 on

@@ -2958,3 +2958,12 @@ Decision (the first map; exploratory):
   So part of that bracket reaches the token before G, though D45 found the token causally empty there (whole-vector
   swaps). The head swaps of Part 2 are extended to blocks G−3..G−1 (`configs/varsplit_pre_qwen3_*.yaml`, Part 2
   only, the same readouts and thresholds). The extension is not pre-registered.
+* **Outcome (runs 38654038341 and 38655900367).**
+  - Part 1: the MLP. Every block where two-lane S1 given Y gains ≥ 0.1 reads "mlp" or "mixed". On 4B, block 24's
+    attention, which brings the operands, still carries 0.45 [0.41, 0.49] of that block's gain. Y is formed by MLPs
+    alone.
+  - Part 2: lanes on 4B two-lane (heads 4 and 31 against 7) and on 0.6B one-lane (13 and 14 against 8); mixed on
+    1.7B (head 8 carries the second bracket, the first is below threshold at G). No carriers in G+1 and G+2.
+  - The extension finds 1.7B's and 0.6B's first-bracket lane partly in block G−1 (head 3), and almost nothing before
+    G on 4B.
+  - Details: STATUS, D47 entry.

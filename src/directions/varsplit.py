@@ -381,7 +381,7 @@ def plot_task(result: dict[str, Any], path: Path, model_name: str) -> None:
         for b, s in probe["targets"][t]["shares"].items():
             if s["reading"] != "no gain":
                 i = names.index(f"h{b}")
-                ax.text(i - 0.5, 1.02, f"{s['share']:.2f}", fontsize=6.5, color=INK2, ha="center", va="bottom",
+                ax.text(i - 0.5, 0.03, f"{s['share']:.2f}", fontsize=6.5, color=INK2, ha="center", va="bottom",
                         transform=ax.get_xaxis_transform())
         ax.tick_params(labelsize=6.5, length=2, colors=INK2)
         ax.grid(axis="y", color="#ecebe7", lw=0.6)
@@ -392,8 +392,8 @@ def plot_task(result: dict[str, Any], path: Path, model_name: str) -> None:
                plt.Rectangle((0, 0), 1, 1, color=NULL_FILL), plt.Rectangle((0, 0), 1, 1, color=ATTN_BAND)]
     fig.legend(handles, ["probe accuracy", "null mean", "family-wise null band", "a block's attention step (the next is its MLP)"],
                loc="upper left", bbox_to_anchor=(0.06, 0.035), ncol=4, fontsize=6.5, frameon=False)
-    fig.text(0.06, 0.0, "'+attn b' = the state after block b's attention, before its MLP. Numbers above a block: "
-             "attention's share of that block's gain in probe accuracy.", fontsize=6.5, color=INK2, ha="left", va="top")
+    fig.text(0.06, 0.0, "'+attn b' = the state after block b's attention, before its MLP. Numbers at the foot of a block: "
+             "attention's share of that block's gain in probe accuracy (blocks gaining at least 0.1).", fontsize=6.5, color=INK2, ha="left", va="top")
     cmap = LinearSegmentedColormap.from_list("seq", SEQ)
     for r, b in enumerate(hb):
         ax = fig.add_subplot(gs[top + r, :])

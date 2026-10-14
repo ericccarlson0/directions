@@ -54,10 +54,23 @@ def summarise(r: dict) -> dict:
     return out
 
 
+def replot(task_json: Path, out: Path, model_name: str) -> None:
+    """Re-render a run's figure from its stored varsplit.json (block keys come back from JSON as strings)."""
+    from directions.varsplit import plot_task
+
+    r = json.loads(task_json.read_text())
+    if "blocks" in r["heads"]:
+        r["heads"]["blocks"] = {int(k): v for k, v in r["heads"]["blocks"].items()}
+    for t in r["probe"].get("targets", {}).values():
+        t["shares"] = {int(k): v for k, v in t["shares"].items()}
+    plot_task(r, out, model_name)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("root", type=Path)
     ap.add_argument("--out", type=Path)
+    ap.add_argument("--figures", type=Path, help="re-render each run's figures into this directory")
     args = ap.parse_args(argv)
     summary: dict = {}
     for run in sorted(args.root.glob("varsplit_*")):
@@ -87,6 +100,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps(summary, indent=1) + "\n")
+    if args.figures:
+        args.figures.mkdir(parents=True, exist_ok=True)
+        for run in sorted(args.root.glob("varsplit_*")):
+            meta = json.loads((run / "metadata.json").read_text())
+            name = meta["model"]["name"].split("/")[-1] if "model" in meta else run.name
+            stem = run.name.removesuffix("_seed20260916").removeprefix("varsplit_")
+            for task_dir in sorted((run / "core" / "tasks").glob("*")):
+                replot(task_dir / "varsplit.json", args.figures / f"{stem}_{task_dir.name}.png", name)
     return 0
 
 
