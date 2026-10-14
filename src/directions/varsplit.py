@@ -186,27 +186,21 @@ class VarSplit:
         vk = {k: x[keep] for k, x in v.items()}
         blocks = list(cfg.split_blocks)
         lo = blocks[0] - 1  # only the window's layers are kept: read points lo..blocks[-1], blocks' writes
+        # read point m is resid[m - lo]; block b's writes are attn[b - 1 - lo] and mlp[b - 1 - lo]
         resid = res.residuals[lo : blocks[-1] + 1][:, keep]
-        attn = res.attn_writes[lo : blocks[-1]][:, keep]
-        mlp = res.mlp_writes[lo : blocks[-1]][:, keep]
+        writes_of = {"attn": res.attn_writes[lo : blocks[-1]][:, keep], "mlp": res.mlp_writes[lo : blocks[-1]][:, keep]}
         del res
-
-        def h(m: int) -> np.ndarray:  # the state at read point m
-            return resid[m - lo]
-
-        def w(kind: str, b: int) -> np.ndarray:  # block b's attention or MLP write
-            return (attn if kind == "attn" else mlp)[b - 1 - lo]
-
         # the residual step of each block is its two writes (float32 sums of bf16 states)
-        step = np.stack([h(b) - h(b - 1) for b in blocks])
-        parts = np.stack([w("attn", b) + w("mlp", b) for b in blocks])
+        step = np.stack([resid[b - lo] - resid[b - 1 - lo] for b in blocks])
+        parts = np.stack([writes_of["attn"][b - 1 - lo] + writes_of["mlp"][b - 1 - lo] for b in blocks])
         rel = np.linalg.norm(step - parts, axis=-1) / np.maximum(np.linalg.norm(step, axis=-1), 1e-12)
         additivity = {"median": float(np.median(rel)), "max": float(rel.max())}
         names, recipe = state_sequence(blocks)
-        states = np.stack([h(m) if kind == "h" else h(m - 1) + w("attn", m) for kind, m in recipe]).astype(np.float32)
+        states = np.stack([resid[m - lo] if kind == "h" else resid[m - 1 - lo] + writes_of["attn"][m - 1 - lo]
+                           for kind, m in recipe]).astype(np.float32)
         wnames = [f"{kind}{b}" for b in blocks for kind in ("attn", "mlp")]
-        writes = np.stack([w(kind, b) for b in blocks for kind in ("attn", "mlp")])
-        del resid, attn, mlp
+        writes = np.stack([writes_of[kind][b - 1 - lo] for b in blocks for kind in ("attn", "mlp")])
+        del resid, writes_of, step, parts
         targets: dict[str, Any] = {}
         for name in TARGETS[task]:
             t0 = time.time()
