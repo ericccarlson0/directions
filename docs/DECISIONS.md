@@ -2884,3 +2884,11 @@ Decision (the first map; exploratory):
     unused there.
   Rules 1, 2 and 5 stand, read on the two-lane "S1 given Y" and the lens. Also read, descriptively: the first read
   point at which the Y probe reaches 0.9 of its accuracy at L (where the answer is linearly formed).
+* **Outcome (run 38587101804, 2026-10-14).** Rule 1 fails (two-lane "S1 given Y" is carried after G on 1.7B and 4B,
+  peaking at 0.87 and 0.97), and so does rule 2 (it is still carried at L, 0.73 and 0.81). Rule 5: the lens reads Y in
+  half the examples only at G+2 (4B) and G+3 (1.7B), so the subtraction is not inside the gather block. DAS at the
+  answer token follows, its window set by these readings (STATUS, D46 entry). One correction to the amendment above:
+  the one-lane "S1 given Y" carries the same information as c given Y, but the probe's classes are S1 values, and a
+  least-squares readout of them needs a code aligned with the sum. It stays at 0.18–0.21 before G while the digits
+  read at 0.9 and above, then jumps to 0.62–0.86, like the two-lane test. It is reported as supporting evidence, not
+  as the pre-registered test.

@@ -1,0 +1,442 @@
+{
+ "qwen3_0.6b": {
+  "one_lane": {
+   "accuracy": 0.9094076655052264,
+   "n_kept": 522,
+   "gather": 21,
+   "L": 28,
+   "probes": {
+    "S1|Y": {
+     "pre_mean": 0.182,
+     "at_G_minus_1": 0.176,
+     "peak_after": 0.619,
+     "peak_at": 25,
+     "at_L": 0.6,
+     "null_mean": 0.133,
+     "carried_after_G": true,
+     "carried_at_L": true
+    },
+    "Y": {
+     "pre_mean": 0.182,
+     "at_G_minus_1": 0.276,
+     "peak_after": 0.996,
+     "peak_at": 28,
+     "at_L": 0.996,
+     "null_mean": 0.095,
+     "carried_after_G": true,
+     "carried_at_L": true
+    },
+    "a|S1": {
+     "pre_mean": 0.908,
+     "at_G_minus_1": 0.977,
+     "peak_after": 0.971,
+     "peak_at": 21,
+     "at_L": 0.659,
+     "null_mean": 0.137,
+     "carried_after_G": true,
+     "carried_at_L": true
+    }
+   },
+   "lens": {
+    "S1": {
+     "peak": 0.205,
+     "at": 21,
+     "null": 0.099,
+     "carried_at": [
+      20,
+      21
+     ]
+    },
+    "S2": {
+     "peak": 0.293,
+     "at": 21,
+     "null": 0.104,
+     "carried_at": [
+      21
+     ]
+    },
+    "a": {
+     "peak": 0.716,
+     "at": 20,
+     "null": 0.098,
+     "carried_at": [
+      20,
+      21
+     ]
+    },
+    "b": {
+     "peak": 0.256,
+     "at": 21,
+     "null": 0.105,
+     "carried_at": [
+      21
+     ]
+    },
+    "c": {
+     "peak": 0.293,
+     "at": 21,
+     "null": 0.105,
+     "carried_at": [
+      21
+     ]
+    }
+   },
+   "y_probe_formed_at": 24,
+   "lens_reads_y_from": 24
+  },
+  "two_lane": {
+   "skipped": {
+    "accuracy": 0.39697265625,
+    "reason": "few-shot accuracy below the minimum"
+   }
+  }
+ },
+ "qwen3_1.7b": {
+  "one_lane": {
+   "accuracy": 0.9616724738675958,
+   "n_kept": 552,
+   "gather": 21,
+   "L": 28,
+   "probes": {
+    "S1|Y": {
+     "pre_mean": 0.213,
+     "at_G_minus_1": 0.279,
+     "peak_after": 0.815,
+     "peak_at": 22,
+     "at_L": 0.732,
+     "null_mean": 0.134,
+     "carried_after_G": true,
+     "carried_at_L": true
+    },
+    "Y": {
+     "pre_mean": 0.182,
+     "at_G_minus_1": 0.31,
+     "peak_after": 0.996,
+     "peak_at": 28,
+     "at_L": 0.996,
+     "null_mean": 0.094,
+     "carried_after_G": true,
+     "carried_at_L": true
+    },
+    "a|S1": {
+     "pre_mean": 0.94,
+     "at_G_minus_1": 1.0,
+     "peak_after": 0.996,
+     "peak_at": 21,
+     "at_L": 0.873,
+     "null_mean": 0.132,
+     "carried_after_G": true,
+     "carried_at_L": true
+    }
+   },
+   "lens": {
+    "S1": {
+     "peak": 0.227,
+     "at": 21,
+     "null": 0.106,
+     "carried_at": [
+      20,
+      21,
+      22,
+      23
+     ]
+    },
+    "a": {
+     "peak": 0.543,
+     "at": 20,
+     "null": 0.103,
+     "carried_at": [
+      20,
+      21
+     ]
+    },
+    "b": {
+     "peak": 0.437,
+     "at": 21,
+     "null": 0.106,
+     "carried_at": [
+      20,
+      21
+     ]
+    }
+   },
+   "y_probe_formed_at": 24,
+   "lens_reads_y_from": 24
+  },
+  "two_lane": {
+   "accuracy": 0.70654296875,
+   "n_kept": 1447,
+   "gather": 21,
+   "L": 28,
+   "probes": {
+    "S1|Y": {
+     "pre_mean": 0.367,
+     "at_G_minus_1": 0.505,
+     "peak_after": 0.87,
+     "peak_at": 23,
+     "at_L": 0.728,
+     "null_mean": 0.134,
+     "carried_after_G": true,
+     "carried_at_L": true
+    },
+    "Y": {
+     "pre_mean": 0.25,
+     "at_G_minus_1": 0.326,
+     "peak_after": 0.966,
+     "peak_at": 28,
+     "at_L": 0.966,
+     "null_mean": 0.15,
+     "carried_after_G": true,
+     "carried_at_L": true
+    },
+    "a|S1": {
+     "pre_mean": 0.967,
+     "at_G_minus_1": 0.997,
+     "peak_after": 0.997,
+     "peak_at": 21,
+     "at_L": 0.976,
+     "null_mean": 0.167,
+     "carried_after_G": true,
+     "carried_at_L": true
+    },
+    "c|S2": {
+     "pre_mean": 0.981,
+     "at_G_minus_1": 0.959,
+     "peak_after": 0.999,
+     "peak_at": 21,
+     "at_L": 0.903,
+     "null_mean": 0.177,
+     "carried_after_G": true,
+     "carried_at_L": true
+    }
+   },
+   "lens": {
+    "S1": {
+     "peak": 0.204,
+     "at": 21,
+     "null": 0.095,
+     "carried_at": [
+      20,
+      21,
+      22
+     ]
+    },
+    "S2": {
+     "peak": 0.087,
+     "at": 19,
+     "null": 0.058,
+     "carried_at": [
+      19
+     ]
+    },
+    "a": {
+     "peak": 0.64,
+     "at": 20,
+     "null": 0.099,
+     "carried_at": [
+      20,
+      21
+     ]
+    },
+    "b": {
+     "peak": 0.303,
+     "at": 21,
+     "null": 0.113,
+     "carried_at": [
+      21
+     ]
+    }
+   },
+   "y_probe_formed_at": 25,
+   "lens_reads_y_from": 24,
+   "rules": {
+    "rule_1_answer_only": false,
+    "rule_2_discarded_before_L": false,
+    "carried_to_L": true
+   }
+  }
+ },
+ "qwen3_4b": {
+  "one_lane": {
+   "accuracy": 1.0,
+   "n_kept": 574,
+   "gather": 24,
+   "L": 36,
+   "probes": {
+    "S1|Y": {
+     "pre_mean": 0.208,
+     "at_G_minus_1": 0.225,
+     "peak_after": 0.864,
+     "peak_at": 26,
+     "at_L": 0.768,
+     "null_mean": 0.132,
+     "carried_after_G": true,
+     "carried_at_L": true
+    },
+    "Y": {
+     "pre_mean": 0.175,
+     "at_G_minus_1": 0.228,
+     "peak_after": 1.0,
+     "peak_at": 27,
+     "at_L": 1.0,
+     "null_mean": 0.095,
+     "carried_after_G": true,
+     "carried_at_L": true
+    },
+    "a|S1": {
+     "pre_mean": 0.971,
+     "at_G_minus_1": 0.953,
+     "peak_after": 1.0,
+     "peak_at": 24,
+     "at_L": 0.908,
+     "null_mean": 0.131,
+     "carried_after_G": true,
+     "carried_at_L": true
+    }
+   },
+   "lens": {
+    "S2": {
+     "peak": 0.343,
+     "at": 24,
+     "null": 0.102,
+     "carried_at": [
+      22,
+      23,
+      24
+     ]
+    },
+    "a": {
+     "peak": 0.243,
+     "at": 24,
+     "null": 0.106,
+     "carried_at": [
+      22,
+      23,
+      24
+     ]
+    },
+    "b": {
+     "peak": 0.134,
+     "at": 23,
+     "null": 0.096,
+     "carried_at": [
+      22,
+      23
+     ]
+    },
+    "c": {
+     "peak": 0.343,
+     "at": 24,
+     "null": 0.101,
+     "carried_at": [
+      22,
+      23,
+      24
+     ]
+    }
+   },
+   "y_probe_formed_at": 26,
+   "lens_reads_y_from": 25
+  },
+  "two_lane": {
+   "accuracy": 0.9736328125,
+   "n_kept": 1994,
+   "gather": 24,
+   "L": 36,
+   "probes": {
+    "S1|Y": {
+     "pre_mean": 0.354,
+     "at_G_minus_1": 0.395,
+     "peak_after": 0.969,
+     "peak_at": 26,
+     "at_L": 0.808,
+     "null_mean": 0.115,
+     "carried_after_G": true,
+     "carried_at_L": true
+    },
+    "Y": {
+     "pre_mean": 0.243,
+     "at_G_minus_1": 0.328,
+     "peak_after": 0.999,
+     "peak_at": 36,
+     "at_L": 0.999,
+     "null_mean": 0.121,
+     "carried_after_G": true,
+     "carried_at_L": true
+    },
+    "a|S1": {
+     "pre_mean": 0.979,
+     "at_G_minus_1": 0.994,
+     "peak_after": 0.998,
+     "peak_at": 25,
+     "at_L": 0.988,
+     "null_mean": 0.172,
+     "carried_after_G": true,
+     "carried_at_L": true
+    },
+    "c|S2": {
+     "pre_mean": 0.995,
+     "at_G_minus_1": 0.999,
+     "peak_after": 1.0,
+     "peak_at": 24,
+     "at_L": 0.981,
+     "null_mean": 0.171,
+     "carried_after_G": true,
+     "carried_at_L": true
+    }
+   },
+   "lens": {
+    "S1": {
+     "peak": 0.073,
+     "at": 25,
+     "null": 0.048,
+     "carried_at": [
+      25
+     ]
+    },
+    "S2": {
+     "peak": 0.13,
+     "at": 24,
+     "null": 0.086,
+     "carried_at": [
+      22,
+      24
+     ]
+    },
+    "a": {
+     "peak": 0.188,
+     "at": 24,
+     "null": 0.09,
+     "carried_at": [
+      24,
+      25
+     ]
+    },
+    "c": {
+     "peak": 0.158,
+     "at": 24,
+     "null": 0.112,
+     "carried_at": [
+      24
+     ]
+    },
+    "d": {
+     "peak": 0.172,
+     "at": 24,
+     "null": 0.107,
+     "carried_at": [
+      22,
+      24
+     ]
+    }
+   },
+   "y_probe_formed_at": 26,
+   "lens_reads_y_from": 26,
+   "rules": {
+    "rule_1_answer_only": false,
+    "rule_2_discarded_before_L": false,
+    "carried_to_L": true
+   }
+  }
+ }
+}

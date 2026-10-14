@@ -4584,11 +4584,64 @@ the digit read point are descriptive summaries of the preregistered maps, not re
   every gather and digit read point unchanged (`scripts/varmap_summary.py`, `fragile_dropped` in
   `docs/varmap/summary.json`).
 
+### D46: the conditional probe and the logit lens at the answer token (Qwen3 0.6B, 1.7B, 4B Base, seed 20260916)
+
+The answer token's residual at every read point, read by a conditional linear probe (Y; S1 given Y; a given S1; c
+given S2; family-wise permutation nulls over read points) and by the logit lens over the digits, on the D45 tasks:
+2048 two-lane and 574 one-lane expressions, 8-shot, the answered ones only.
+
+```
+# workflow run 38587101804 (request d46_varprobe_qwen3_0.6b_1.7b_4b_seed20260916), commit 4d942c0, RTX 4090 (ADA_24),
+# EUR-NO-1; stages 1.7, 2.8 and 6.2 min, 11 min in all (about 0.20 USD); determinism (a repeated capture batch, a
+# repeated probe) identical on all three
+uv run python scripts/stages.py \
+  'uv run directions varprobe --config configs/varprobe_qwen3_0.6b.yaml --run-id varprobe_qwen3_0.6b_seed20260916' \
+  'uv run directions varprobe --config configs/varprobe_qwen3_1.7b.yaml --run-id varprobe_qwen3_1.7b_seed20260916' \
+  'uv run directions varprobe --config configs/varprobe_qwen3_4b.yaml --run-id varprobe_qwen3_4b_seed20260916'
+# on the download (scripts/runpod_log.py 38587101804 --download results/remote/run-38587101804):
+uv run python scripts/varprobe_summary.py results/remote/run-38587101804 --out docs/varprobe/summary.json --figure docs/varprobe/depth.png
+```
+
+Figures: `docs/varprobe/qwen3_<size>_<task>.png` (per model), `docs/varprobe/depth.png` (two-lane, 1.7B and 4B).
+
+| model, task | accuracy (answered) | G (D45) | probe Y: mean before G → 0.9 of final at | S1 given Y: before G → peak (read point) → at L | a given S1, before G / after | lens reads Y in ≥ half from | lens above its null around G |
+|---|---|---|---|---|---|---|---|
+| 0.6B two-lane | 0.40 (skipped, gate 0.5) | – | – | – | – | – | – |
+| 0.6B one-lane | 0.91 (522) | 21 | 0.18 → 24 | 0.18 → 0.62 (25) → 0.60 | 0.91 / 0.97 | 24 | a 0.72 at 20; S2 = c 0.29, b 0.26, S1 0.21 at 21 |
+| 1.7B two-lane | 0.71 (1447) | 21 | 0.25 → 25 | 0.37 → 0.87 (23) → 0.73 | 0.97 / 1.00 | 24 | a 0.64 at 20; a 0.48, b 0.30, S1 0.20 at 21 |
+| 1.7B one-lane | 0.96 (552) | 21 | 0.18 → 24 | 0.21 → 0.82 (22) → 0.73 | 0.94 / 1.00 | 24 | a 0.54 at 20; b 0.44, S1 0.23 at 21 |
+| 4B two-lane | 0.97 (1994) | 24 | 0.24 → 26 | 0.35 → 0.97 (25) → 0.81 | 0.98 / 1.00 | 26 | a 0.19, S2 0.13 at 24; S1 0.07 at 25 |
+| 4B one-lane | 1.00 (574) | 24 | 0.17 → 26 | 0.21 → 0.86 (26) → 0.77 | 0.97 / 1.00 | 25 | S2 = c 0.34, a 0.24 at 24 |
+
+(Probe nulls 0.10–0.18, lens nulls about 0.1 (S1 on 4B: 0.03–0.05); every value in the table is above its
+family-wise null except the means before G, which are descriptive. Positive control, a given S1 at the a token:
+0.998–1.000 against 0.14–0.17. The lens at L agrees with the model's answer on 0.979–1.000.)
+
+- **The digits are at the answer token long before they are used.** a given S1 and c given S2 read at 0.91–0.99
+  from read point 2 on, where D45 shows the token causally unused; a random toy model does the same (attention mixes
+  the earlier tokens into the last).
+- **The sums become linearly readable at the gather.** With the digits equally readable before and after, S1 given
+  Y jumps within a block or two of G: 4B two-lane 0.39 (read point 23) → 0.85 → 0.97; 1.7B two-lane 0.51 (20) →
+  0.60 → 0.86. What changes there is the form: a code from which a linear readout gets the sum. The one-lane test,
+  read as a digit test in the amendment, behaves the same way (D46 outcome note).
+- **The answer forms one to three blocks after the sums.** The Y probe reaches 0.9 of its final accuracy at G+2 (4B),
+  G+3 or G+4 (1.7B); the lens reads Y in half the examples at G+1 to G+3. In depth: the operands arrive (G), the sums
+  become readable (G on 4B, G+1 on 1.7B), the difference follows. The subtraction is not inside the gather block
+  (D46 rule 5).
+- **In output space, operands, then a sum, then the answer** (0.6B and 1.7B): the lens reads the first operand a in
+  0.54–0.72 of the examples one read point before G, b and S1 at G (S1 0.20–0.23 against 0.10), Y from G+3. On 4B the
+  same readings at G are weak (0.13–0.34 against 0.1; S1 0.07 against 0.03).
+- **The decomposition persists to the end.** S1 given Y falls from its peak but is carried at L (0.73–0.81): neither
+  D46 rule 1 (answer only) nor rule 2 (discarded before L) holds. DAS at the answer token follows.
+- **Limits.** Decodable is not used: the digits are decodable exactly where D45 shows the token unused, so only the
+  causal step can say whether the sums are used. The probe is one linear readout (least-squares classes).
+
 ## Not yet run / known limitations
 
 - The variable map (D45) has run once per model (Qwen3 0.6B, 1.7B, 4B Base; seed 20260916) on two expression tasks
-  with whole-vector swaps only. The 0.6B two-lane map rests on 13–22 bases per swap type (few-shot accuracy 0.52).
-  The 8B and the other families are not mapped; the subspace (DAS) step is not built.
+  with whole-vector swaps only. The 0.6B two-lane map rests on 13–22 bases per swap type (few-shot accuracy 0.52;
+  0.40 on D46's 2048 expressions, where it is skipped). The D46 probe and lens have run once (seed 20260916). The
+  8B and the other families are not mapped; the subspace (DAS) step is not built.
 - The weight-decayed learned vector (D43) has run once per Qwen3 Base model (seed 20260916) with one weight decay,
   one step size and one budget fixed on a CPU probe of one task; the hand-over, the source test and the geometry
   test have run on it (D44), the all-to-all trajectories (D32–D34), the composition tests (D41, D42) and OLMo 3 and
@@ -4733,6 +4786,9 @@ uv run --with boto3 python scripts/runpod_log.py <RUN_ID> --follow      # the li
 # D45, the variable map (one job, run 38502381471), then the summary on the download:
 uv run python scripts/stages.py 'uv run directions varmap --config configs/varmap_qwen3_0.6b.yaml --run-id varmap_qwen3_0.6b_seed20260916' 'uv run directions varmap --config configs/varmap_qwen3_1.7b.yaml --run-id varmap_qwen3_1.7b_seed20260916' 'uv run directions varmap --config configs/varmap_qwen3_4b.yaml --run-id varmap_qwen3_4b_seed20260916'
 uv run python scripts/varmap_summary.py results/remote/run-38502381471 --out docs/varmap/summary.json --figure docs/varmap/depth.png
+# D46, the conditional probe and the logit lens (one job, run 38587101804), then the summary on the download:
+uv run python scripts/stages.py 'uv run directions varprobe --config configs/varprobe_qwen3_0.6b.yaml --run-id varprobe_qwen3_0.6b_seed20260916' 'uv run directions varprobe --config configs/varprobe_qwen3_1.7b.yaml --run-id varprobe_qwen3_1.7b_seed20260916' 'uv run directions varprobe --config configs/varprobe_qwen3_4b.yaml --run-id varprobe_qwen3_4b_seed20260916'
+uv run python scripts/varprobe_summary.py results/remote/run-38587101804 --out docs/varprobe/summary.json --figure docs/varprobe/depth.png
 # iteration 10 (D33 amended: quarter strength, the neighbouring candidate layers, the patch test at every compared
 # layer on eighths of the depth for the learned and the head-mean vector, per-block writing), on a second seed,
 # as run (workflow runs in the iteration-10 entry): first the learned-vector protocol (D31) at seed 20260916 on
