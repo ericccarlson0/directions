@@ -362,5 +362,5 @@ hands over where the learned vector does (D37); away from it, it is a
 weaker push (a median 0.35 of the gap) whose keep curve plateaus near the
 threshold. Whether the head mean's drift disappears at a matched strength
 per layer is the one open item on the fixed read point. The next stage
-(the subroutine census) inherits the composition question of D41/D42 and
+(the variable map) inherits the composition question of D41/D42 and
 the tools listed under "What carries over" in the close-out.

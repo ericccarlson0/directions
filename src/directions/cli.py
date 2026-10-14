@@ -5,6 +5,7 @@
     uv run directions check    --config configs/pilot_qwen3_0.6b.yaml
     uv run directions compare  results/<run_a> results/<run_b>
     uv run directions aggregate results/<run_1> results/<run_2> ... --out results/aggregate.json
+    uv run directions varmap   --config configs/varmap_qwen3_4b.yaml --run-id varmap_qwen3_4b_seed20260916
 """
 
 from __future__ import annotations
@@ -196,6 +197,21 @@ def _cmd_source(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_varmap(args: argparse.Namespace) -> int:
+    """The variable map (docs/DECISIONS.md D45): where the sub-results of an arithmetic expression live."""
+    from .config import load_varmap_config
+    from .varmap import run_varmap
+
+    cfg = load_varmap_config(args.config)
+    if args.output_dir:
+        cfg.output_dir = args.output_dir
+    if args.seed is not None:
+        cfg.seed = int(args.seed)
+    root = run_varmap(cfg, run_id=args.run_id, config_path=str(args.config))
+    print(root)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="directions", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -263,6 +279,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--output-dir", default=None, help="override output_dir from the config")
     p.add_argument("--run-id", default=None, help="explicit run directory name")
     p.add_argument("--seed", type=int, default=None, help="override the test's own seed from the config")
+    p = sub.add_parser("varmap", help="the variable map (D45): whole-vector swaps between real inputs at every (read point x "
+                                      "query token) site of the arithmetic expression tasks, read as the answer")
+    p.add_argument("--config", required=True, help="YAML config of the map (configs/varmap_<model>.yaml)")
+    p.add_argument("--output-dir", default=None, help="override output_dir from the config")
+    p.add_argument("--run-id", default=None, help="explicit run directory name")
+    p.add_argument("--seed", type=int, default=None, help="override the map's seed (its draws: expressions, sources, demonstrations, bootstraps)")
     args = parser.parse_args(argv)
     if args.command in ("validate", "pilot"):
         return _cmd_run(args, args.command)
@@ -282,6 +304,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_serial(args)
     if args.command == "staging":
         return _cmd_staging(args)
+    if args.command == "varmap":
+        return _cmd_varmap(args)
     parser.error("unknown command")
     return 2
 

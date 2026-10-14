@@ -973,3 +973,54 @@ def load_staging_config(path: str | Path) -> StagingConfig:
         if not c.intermediates or any(not x.steps for x in c.intermediates):
             raise ValueError(f"composition {c.task}: at least one intermediate, each with at least one step")
     return cfg
+
+
+@dataclass
+class VarmapConfig:
+    """The variable map (docs/DECISIONS.md D45): whole-vector swaps between base and source runs of the arithmetic
+    expression tasks at every (read point x query token) site, read as the answer the swapped run gives.
+
+    expressions      "two_lane" ((a+b) - (c+d) = ) and/or "one_lane" ((a+b) - c = , the twin)
+    n_bases          base expressions per task; one source per base and source type
+    n_shots          demonstrations per prompt, from a pool disjoint from the bases (shared by a base and its sources)
+    n_demo_pool      the demonstration pool's size
+    read_points      the read points swapped at (None: all, 0..L)
+    present_flip     a variable is present at a site when its flip rate's lower bound reaches this (judgement, D45)
+    value_change     ... and held as a value when the same-value swap's change rate's upper bound stays at or below this
+    min_accuracy     few-shot accuracy on the bases below which a task is skipped
+    gate             drop the bases whose base or any source the model answers wrongly
+    identity_check   swap the run's own states back at three sites; bit identity required
+    determinism_check  one swap batch repeated; bit identity required (D23)
+    """
+
+    name: str = "varmap"
+    seed: int = 20260916
+    output_dir: str = "results"
+    model: ModelConfig = field(default_factory=ModelConfig)
+    expressions: list[str] = field(default_factory=lambda: ["two_lane", "one_lane"])
+    n_bases: int = 64
+    n_shots: int = 8
+    n_demo_pool: int = 96
+    read_points: list[int] | None = None
+    n_boot: int = 1000
+    alpha: float = 0.05
+    present_flip: float = 0.5
+    value_change: float = 0.25
+    min_accuracy: float = 0.5
+    gate: bool = True
+    identity_check: bool = True
+    determinism_check: bool = True
+    figures: bool = True
+
+
+def load_varmap_config(path: str | Path) -> VarmapConfig:
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    cfg = _from_dict(VarmapConfig, data)
+    if not cfg.expressions or any(t not in ("two_lane", "one_lane") for t in cfg.expressions):
+        raise ValueError("expressions must be a non-empty subset of two_lane, one_lane")
+    if cfg.n_bases < 2 or cfg.n_shots < 0 or cfg.n_demo_pool < cfg.n_shots:
+        raise ValueError("n_bases must be at least 2 and n_demo_pool at least n_shots")
+    if not (0 < cfg.present_flip <= 1 and 0 <= cfg.value_change < 1 and 0 < cfg.alpha < 1):
+        raise ValueError("present_flip in (0, 1], value_change in [0, 1), alpha in (0, 1)")
+    return cfg

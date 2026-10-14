@@ -31,6 +31,12 @@ def test_all_configs_load():
             cfg = load_serial_config(p)
             assert cfg.compositions and all(len(c.steps) == 2 for c in cfg.compositions), p
             continue
+        if "varmap" in p.name:  # the variable map's own configs (D45)
+            from directions.config import load_varmap_config
+
+            cfg = load_varmap_config(p)
+            assert cfg.expressions and cfg.n_bases >= 2, p
+            continue
         if p.name in ("staging.yaml", "smoke_toy_staging.yaml"):  # the composition test re-run's own config (D42)
             from directions.config import load_staging_config
 
@@ -340,3 +346,21 @@ def test_family_learned_wd_configs_are_the_family_learned_configs_with_the_weigh
                 x["extraction"].pop("control")
                 x["extraction"].pop("learned_vector_wd")
             assert a == ref, (fam, m)
+
+
+def test_varmap_configs_differ_only_in_model_name():
+    """The variable map's family (D45): the Qwen3 files differ only in `model.name`, and carry D45's settings."""
+    from dataclasses import asdict
+
+    from directions.config import load_varmap_config
+
+    cfgs = {p.name: asdict(load_varmap_config(p)) for p in sorted(CONFIGS.glob("varmap_qwen3_*.yaml"))}
+    assert set(cfgs) == {"varmap_qwen3_0.6b.yaml", "varmap_qwen3_1.7b.yaml", "varmap_qwen3_4b.yaml"}
+    ref = next(iter(cfgs.values()))
+    for name, c in cfgs.items():
+        a = dict(c, model=dict(c["model"], name=None))
+        b = dict(ref, model=dict(ref["model"], name=None))
+        assert a == b, name
+    assert ref["expressions"] == ["two_lane", "one_lane"] and ref["n_bases"] == 64 and ref["n_shots"] == 8
+    assert ref["present_flip"] == 0.5 and ref["value_change"] == 0.25 and ref["read_points"] is None
+    assert ref["model"]["device"] == "cuda" and ref["seed"] == 20260916

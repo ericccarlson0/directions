@@ -123,6 +123,23 @@ class ContextMask:
 
 
 @dataclass
+class SitePatch:
+    """Replace the residual stream at one site per example: an interchange intervention (docs/DECISIONS.md D45).
+
+    Row ``i`` of the prompt list has ``resid[layers[i]]`` at token ``positions[i]`` (an absolute index into the
+    prompt's tokens) replaced by ``values[i]``; a row with layer ``-1`` is left alone. ``values`` is ``(N, d)``,
+    a tensor in the model's dtype (states captured by :meth:`ModelBackend.capture_sites`, so a state swapped back
+    into its own run is reproduced bit-exactly) or an array. With ``basis`` (``(k, d)``, orthonormal rows) only the
+    component in its span is replaced, ``h + (v - h) B^T B``; without it the whole vector is.
+    """
+
+    layers: np.ndarray
+    positions: np.ndarray
+    values: Any
+    basis: np.ndarray | None = None
+
+
+@dataclass
 class ForwardResult:
     logprob_sum: np.ndarray  # (N,) teacher-forced log-probability of the target
     logprob_per_token: np.ndarray  # (N,) logprob_sum / n_target_tokens
@@ -142,6 +159,9 @@ class ForwardResult:
     kl_from_reference: np.ndarray | None = None  # (N,) KL(reference || this run) at the query token
     collateral_kl: np.ndarray | None = None  # (N,) the same KL with the first target token removed from both (renormalised)
     argmax_changed: np.ndarray | None = None  # (N,) bool: the most likely next token differs from the reference's
+    # At the query token, if token ids were given (D45): their log-probabilities and the most likely token
+    token_logprobs: np.ndarray | None = None  # (N, K) float32
+    query_argmax: np.ndarray | None = None  # (N,) int64
 
     def metrics_dict(self) -> dict[str, float]:
         out = {
@@ -556,13 +576,17 @@ class ModelBackend:
         reference_logprobs: Any = None,
         capture_sublayers: bool = False,
         context_mask: ContextMask | None = None,
+        site_patch: SitePatch | None = None,
+        token_ids: np.ndarray | None = None,
     ) -> ForwardResult:
         """Teacher-forced forward over ``prompts`` with optional interventions/patches/capture.
 
         ``capture_logprobs`` keeps the full next-token log-probabilities at the query token (``(N, V)``);
         ``reference_logprobs`` (the same array from an unsteered run of the same prompts, as returned by
         :meth:`reference_tensor` or as a NumPy array) makes the run record the KL divergence from that
-        distribution and whether the most likely token changed (the damage check, D24).
+        distribution and whether the most likely token changed (the damage check, D24). ``site_patch`` swaps
+        states at one (read point, token) site per row (D45); ``token_ids`` (``(K,)`` shared or ``(N, K)``) records
+        those tokens' log-probabilities at the query token and the most likely token.
         """
         bs = batch_size or self.cfg.batch_size
         outs: list[ForwardResult] = []
@@ -588,8 +612,41 @@ class ModelBackend:
             ]
             ref = None if reference_logprobs is None else reference_logprobs[start : start + bs]
             cm = None if context_mask is None else ContextMask(context_mask.from_layer, np.asarray(context_mask.spans)[start : start + bs])
-            outs.append(self._run_batch(batch, sliced, capture, patches, capture_heads, capture_logprobs, ref, capture_sublayers, cm))
+            sp = None if site_patch is None else SitePatch(np.asarray(site_patch.layers)[start : start + bs],
+                                                           np.asarray(site_patch.positions)[start : start + bs],
+                                                           site_patch.values[start : start + bs], site_patch.basis)
+            tid = None if token_ids is None else (np.asarray(token_ids) if np.ndim(token_ids) == 1 else np.asarray(token_ids)[start : start + bs])
+            outs.append(self._run_batch(batch, sliced, capture, patches, capture_heads, capture_logprobs, ref, capture_sublayers, cm,
+                                        sp, tid))
         return _concat_results(outs)
+
+    @torch.inference_mode()
+    def capture_sites(self, prompts: Sequence[Prompt], positions: np.ndarray, batch_size: int | None = None,
+                      site_patch: SitePatch | None = None) -> torch.Tensor:
+        """The residual stream at every read point and at the given token positions of each prompt, in the model's
+        dtype on its device: ``(N, L+1, P, d)`` for ``positions`` ``(N, P)`` (absolute token indices). These are the
+        values a :class:`SitePatch` swaps in (D45); kept in the model's dtype so that a swap of a run's own state
+        changes nothing."""
+        pos = np.asarray(positions, dtype=np.int64)
+        if pos.ndim != 2 or pos.shape[0] != len(prompts):
+            raise ValueError("positions must be (n_prompts, P)")
+        bs = batch_size or self.cfg.batch_size
+        parts = []
+        for start in range(0, len(prompts), bs):
+            batch = self._prepare_batch(prompts[start : start + bs])
+            self.counters["forward_examples"] += len(prompts[start : start + bs])
+            self.counters["forward_batches"] += 1
+            if int(pos[start : start + bs].max()) >= int(batch["T"]) or int(pos[start : start + bs].min()) < 0:
+                raise ValueError("a capture position lies outside its prompt")
+            sp = None if site_patch is None else SitePatch(np.asarray(site_patch.layers)[start : start + bs],
+                                                           np.asarray(site_patch.positions)[start : start + bs],
+                                                           site_patch.values[start : start + bs], site_patch.basis)
+            session = _HookSession(n_layers=self.n_layers, query_pos=batch["query_pos"], interventions=(), capture=False,
+                                   device=self.device, site_patch=sp,
+                                   capture_positions=torch.as_tensor(pos[start : start + bs], device=self.device))
+            self._forward_scores(batch, session)
+            parts.append(session.stacked_positions())
+        return torch.cat(parts, dim=0)
 
     def reference_tensor(self, query_logprobs: np.ndarray) -> torch.Tensor:
         """``query_logprobs`` of a captured run as a float32 tensor on the model's device (kept for several runs)."""
@@ -678,7 +735,7 @@ class ModelBackend:
         return mask if any(mask) else [True] * len(target_ids)
 
     def _forward_scores(self, batch: dict[str, Any], session: _HookSession, capture_logprobs: bool = False,
-                        reference: torch.Tensor | None = None) -> dict[str, torch.Tensor]:
+                        reference: torch.Tensor | None = None, token_ids: np.ndarray | None = None) -> dict[str, torch.Tensor]:
         """Teacher-forced forward with ``session`` installed; target-position scores."""
         T, Tt = batch["T"], batch["Tt"]
         query_pos_dev = batch["query_pos"]
@@ -713,6 +770,12 @@ class ModelBackend:
         query_lp = logprobs[:, 0, :]  # the next-token distribution at the query token
         if capture_logprobs:
             out["query_logprobs"] = query_lp
+        if token_ids is not None:
+            tid = torch.as_tensor(np.asarray(token_ids, dtype=np.int64), device=self.device)
+            if tid.ndim == 1:
+                tid = tid[None, :].expand(query_lp.shape[0], -1)
+            out["token_lp"] = torch.gather(query_lp, 1, tid)
+            out["argmax"] = query_lp.argmax(dim=1)
         if reference is not None:
             ref = reference.to(query_lp.dtype)
             out["kl"] = (ref.exp() * (ref - query_lp)).sum(dim=1)
@@ -738,6 +801,8 @@ class ModelBackend:
         reference: torch.Tensor | None = None,
         capture_sublayers: bool = False,
         context_mask: ContextMask | None = None,
+        site_patch: SitePatch | None = None,
+        token_ids: np.ndarray | None = None,
     ) -> ForwardResult:
         batch = self._prepare_batch(prompts)
         if context_mask is not None and np.asarray(context_mask.spans).shape != (len(prompts), 2):
@@ -756,8 +821,13 @@ class ModelBackend:
             capture_sublayers=capture_sublayers,
             context_mask=context_mask,
             key_padding=batch["attn"],
+            site_patch=site_patch,
         )
-        sc = self._forward_scores(batch, session, capture_logprobs, reference)
+        if site_patch is not None and len(site_patch.layers):
+            rows = np.asarray(site_patch.layers) >= 0
+            if rows.any() and int(np.asarray(site_patch.positions)[rows].max()) >= int(batch["T"]):
+                raise ValueError("a site patch position lies outside its prompt")
+        sc = self._forward_scores(batch, session, capture_logprobs, reference, token_ids)
         residuals = session.stacked() if capture else None
         heads = session.stacked_heads() if capture_heads else None
         return ForwardResult(
@@ -775,6 +845,8 @@ class ModelBackend:
             kl_from_reference=sc["kl"].cpu().numpy().astype(np.float64) if reference is not None else None,
             collateral_kl=sc["collateral_kl"].cpu().numpy().astype(np.float64) if reference is not None else None,
             argmax_changed=sc["argmax_changed"].cpu().numpy().astype(bool) if reference is not None else None,
+            token_logprobs=sc["token_lp"].cpu().numpy().astype(np.float32) if token_ids is not None else None,
+            query_argmax=sc["argmax"].cpu().numpy().astype(np.int64) if token_ids is not None else None,
         )
 
     def _gradient_batch(self, prompts: Sequence[Prompt], interventions: Sequence[Intervention] = (),
@@ -813,6 +885,8 @@ class _HookSession:
         capture_sublayers: bool = False,
         context_mask: ContextMask | None = None,
         key_padding: torch.Tensor | None = None,
+        site_patch: SitePatch | None = None,
+        capture_positions: torch.Tensor | None = None,
     ) -> None:
         self.n_layers = n_layers
         self.capture_sublayers = capture_sublayers
@@ -843,6 +917,21 @@ class _HookSession:
             if not (0 <= hp.layer < n_layers):
                 raise ValueError(f"head patch layer {hp.layer} outside 0..{n_layers - 1}")
             self.patches_by_layer.setdefault(hp.layer, []).append(hp)
+        # D45: per-row site swaps and capture at many token positions
+        self.site_patch = site_patch
+        if site_patch is not None:
+            sl = np.asarray(site_patch.layers, dtype=np.int64)
+            if sl.shape != (query_pos.shape[0],) or np.asarray(site_patch.positions).shape != sl.shape:
+                raise ValueError("site_patch.layers and .positions must have one entry per prompt")
+            if ((sl < -1) | (sl > n_layers)).any():
+                raise ValueError(f"site patch layer outside -1..{n_layers}")
+            self.sp_layers = torch.as_tensor(sl, device=device)
+            self.sp_positions = torch.as_tensor(np.asarray(site_patch.positions, dtype=np.int64), device=device)
+            vals = site_patch.values
+            self.sp_values = vals.to(device) if isinstance(vals, torch.Tensor) else torch.as_tensor(np.asarray(vals), device=device)
+            self.sp_basis = None if site_patch.basis is None else torch.as_tensor(np.asarray(site_patch.basis, dtype=np.float32), device=device)
+        self.capture_positions = capture_positions
+        self.captured_positions: dict[int, torch.Tensor] = {}
 
     def process_heads(self, layer: int, x: torch.Tensor) -> torch.Tensor:
         """Patch/capture per-head outputs (the input of the attention output projection) at the query token."""
@@ -917,8 +1006,10 @@ class _HookSession:
 
     def process(self, layer: int, hidden: torch.Tensor) -> torch.Tensor:
         ivs = self.by_layer.get(layer, ())
+        cloned = False
         if ivs:
             hidden = hidden.clone()
+            cloned = True
             current = hidden[self.batch_idx, self.query_pos].float()
             for iv in ivs:
                 vec = torch.as_tensor(np.asarray(iv.vectors, dtype=np.float32), device=self.device)
@@ -926,6 +1017,21 @@ class _HookSession:
                     vec = vec[None, :]
                 current = current + iv.scale * vec
             hidden[self.batch_idx, self.query_pos] = current.to(hidden.dtype)
+        if self.site_patch is not None:
+            rows = (self.sp_layers == layer).nonzero().flatten()
+            if rows.numel():
+                if not cloned:
+                    hidden = hidden.clone()
+                pos = self.sp_positions[rows]
+                vals = self.sp_values[rows].to(hidden.dtype)
+                if self.sp_basis is None:
+                    hidden[rows, pos] = vals
+                else:
+                    h = hidden[rows, pos].float()
+                    B = self.sp_basis
+                    hidden[rows, pos] = (h + ((vals.float() - h) @ B.T) @ B).to(hidden.dtype)
+        if self.capture_positions is not None:
+            self.captured_positions[layer] = hidden[self.batch_idx[:, None], self.capture_positions].detach()
         if self.capture:
             self.captured[layer] = hidden[self.batch_idx, self.query_pos].detach().float().cpu()
         if self.grad_capture:
@@ -948,6 +1054,13 @@ class _HookSession:
             raise RuntimeError(f"gradients not available at layers {missing}")
         grads = [self.grad_tensors[l].grad[self.batch_idx, self.query_pos].detach().float().cpu() for l in points]
         return torch.stack(grads).numpy().astype(np.float32)
+
+    def stacked_positions(self) -> torch.Tensor:
+        """The states captured at the session's token positions, ``(B, L+1, P, d)`` in the model's dtype."""
+        missing = [l for l in range(self.n_layers + 1) if l not in self.captured_positions]
+        if missing:
+            raise RuntimeError(f"position states not captured at layers {missing}")
+        return torch.stack([self.captured_positions[l] for l in range(self.n_layers + 1)], dim=1)
 
     def stacked(self) -> np.ndarray:
         missing = [l for l in range(self.n_layers + 1) if l not in self.captured]
@@ -972,6 +1085,8 @@ def _concat_results(parts: list[ForwardResult]) -> ForwardResult:
         kl_from_reference=None if parts[0].kl_from_reference is None else np.concatenate([p.kl_from_reference for p in parts]),
         collateral_kl=None if parts[0].collateral_kl is None else np.concatenate([p.collateral_kl for p in parts]),
         argmax_changed=None if parts[0].argmax_changed is None else np.concatenate([p.argmax_changed for p in parts]),
+        token_logprobs=None if parts[0].token_logprobs is None else np.concatenate([p.token_logprobs for p in parts]),
+        query_argmax=None if parts[0].query_argmax is None else np.concatenate([p.query_argmax for p in parts]),
     )
 
 

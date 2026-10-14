@@ -2,7 +2,7 @@
 
 Written 2026-10-12. Closes the line of `fable` decisions D1–D44 (2026-09-07 to 2026-10-03): one low-dimensional
 control injected at the final query token and followed through depth. The line is closed: no further runs are
-planned for it. Its tools carry over to the next stage (the subroutine census; see the end). Numbers come from the
+planned for it. Its tools carry over to the next stage (the variable map; see the end). Numbers come from the
 run directories on the RunPod volumes, re-read for this note by `scripts/single_control_summary.py`. Where a run
 directory no longer exists, the number comes from `STATUS.md` and is marked as such. Tables and figures are in
 `docs/single_control/`.

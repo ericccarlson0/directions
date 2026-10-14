@@ -2739,3 +2739,70 @@ fits genuinely differ (13 on the 0.6B and 1.7B, 2 each on the 4B and 8B), all co
 that are modest where the null keeps more than half the effect; the D31 within-label readings are informative on
 the 0.6B (13 connected, 2 isolated, 3 uninformative) and on 10 paths of the larger models (2, 4 and 4).
 
+
+## 2026-10-14 — The variable map
+
+### D45. The variable map: which sub-results of a computation live where, read by swapping states between real inputs
+
+Context: the single-control line is closed (`docs/SINGLE_CONTROL.md`). Its instruments read one token column (the
+final query token) and follow one injected control. The project's broader question is how many sub-computations a
+routine runs, where each lives, and where one splits into two or two merge. That needs three things the line did
+not have:
+- tasks whose sub-results are known and can be varied one at a time;
+- readouts at every token, not only the last;
+- perturbations that stay on the model's own distribution. The positive causal results of D33–D44 all came from
+  patching the model's own natural states, while added vectors drag in the generic response (D17,
+  `docs/GENERIC_RESPONSE.md`).
+
+The method is the interchange intervention of causal abstraction (Geiger et al. 2021; Geiger et al., JMLR 2025),
+applied at every (read point × token) site. Written before any run.
+
+Decision (the first map; exploratory):
+
+* **Tasks** (`src/directions/varmap.py`, `directions varmap`):
+  - **two-lane** `(a+b) - (c+d) = `, with S1 = a+b, S2 = c+d and the answer Y = S1 − S2.
+  - **one-lane** `(a+b) - c = `, its twin, with S1 = a+b, the digit c and Y = S1 − c.
+
+  Digits are 0–9 and Y is a single digit 0–9. A prompt is 8 demonstrations, `{expression} = {Y}`, one per line,
+  then the query `{expression} = `, whose target is the digit. On the Qwen3 tokenizer the two-lane query is 13
+  tokens, with every operand, both closing brackets, `=` and the answer position each their own token (checked
+  2026-10-14). The demonstrations come from a pool disjoint from the evaluated expressions, and a base prompt and
+  all its sources share them, so the tokens of base and source align position by position. A misaligned pair is
+  rejected and logged.
+* **Swaps.** For every base, one source per type, each drawn so that every prediction is a digit:
+  - `S1`: a and b change, S1 changes, the rest stays; the answer becomes S1′ − S2.
+  - `S2`: c and d change (the digit c on the one-lane twin); the answer becomes S1 − S2′.
+  - `S1_same` and `S2_same`: the digits change with the sum kept (the one-lane task has `S1_same` only); the
+    answer is unchanged.
+  - `both`: S1 and S2 change such that S1′ − S2, S1 − S2′, S1′ − S2′ and Y are pairwise distinct; a site holding
+    both predicts S1′ − S2′.
+
+  The swap replaces `resid[m]` at query token p with the source run's `resid[m]` at p, the whole vector, at every
+  read point m ∈ 0..L and every query token p. The forward pass is otherwise the model's own.
+* **Readouts** per (type, m, p), over the base examples whose base and source prompts the model answers correctly
+  (argmax at the answer position):
+  - the *flip rate*: the swapped run's argmax equals the prediction;
+  - for the same-value types, the *change rate*: the argmax differs from the base answer;
+  - the *transfer*: the shift of logit(prediction) − logit(base answer) as a ratio of means against the source run's
+    own shift.
+
+  Rates carry 95% bootstrap intervals over examples (1000 resamples, seeded from the run seed).
+* **Reading (judgement thresholds, fixed here).**
+  - S1 (or S2) is *present* at (m, p) when the lower bound of its flip rate is ≥ 0.5.
+  - It is *held as a value* there when it is present and the upper bound of the same-value type's change rate is
+    ≤ 0.25. A present variable whose same-value swap changes the answer is held as its digits.
+  - The *count* at a site is the number of S1 and S2 present there.
+  - On the two-lane task the reading compares the S1 and S2 maps (one lane per bracket, or both at one site) and
+    locates the merge (where the `both` swap flips to S1′ − S2′ while the single swaps still flip). The one-lane
+    twin is the built-in control: its count must not exceed one bracket variable plus the digit c.
+* **What this map cannot show.** A site where S1 and S2 are both present may hold them as two variables or already
+  as their combination. Whole-vector swaps cannot tell these apart. That is the next step: subspace swaps fitted per
+  variable (DAS) and scored by RAVEL's Cause and Isolate (Huang et al., ACL 2024), with a randomly initialised model
+  as the null against over-flexible fits (Sutter et al. 2025). It is decided after this map is read.
+* **Gate.** A task is mapped on a model only if few-shot accuracy on its bases is ≥ 0.5. Rows whose base or source
+  the model gets wrong are dropped and logged.
+* **Runs.** Qwen3 0.6B, 1.7B and 4B Base, seed 20260916, 64 bases per task, one job on an RTX 4090 (EUR-NO-1).
+* **Checks** (D23):
+  - a patched batch is repeated and must be bit-identical;
+  - swapping a run's own states back into it must reproduce its scores bit-exactly. This is checked on the model in
+    every run, and on the toy model in the tests, together with batched swaps against one-at-a-time ones.
