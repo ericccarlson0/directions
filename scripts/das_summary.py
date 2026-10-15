@@ -34,7 +34,7 @@ def summarise(r: dict) -> dict:
                 "untrained": _r(g["untrained_cause"]), "null": _r(c["null_cause"]["mean"]),
                 "decodability": _r(c["projection_decodability"]["accuracy"]),
                 "decodability_chance": _r(c["projection_decodability"]["chance"]),
-                "cause_by_k": {k: _r(x["cause"]["mean"]) for k, x in c["grid"].items()},
+                "cause_by_k": {k: _r(x["cause"]["mean"]) for k, x in sorted(c["grid"].items(), key=lambda kx: int(kx[0]))},
             }
         out["sites"][s] = row
     return out
