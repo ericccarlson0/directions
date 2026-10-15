@@ -3061,3 +3061,31 @@ Decision (the first map; exploratory):
     this, and the run cannot separate them.
   The stage now stores each fit's kept basis (`das_bases.npz`; the test predictions move to `das_predictions.npz`).
   The two runs above stored only the predictions, under the old name.
+
+## 2026-10-15 — The variable-map line on Qwen3-8B Base
+
+### D49. D45–D48 on the 8B, with the DAS design fixed before any 8B data
+
+* **Why.** On 4B, the one sub-result held as a separate variable (S1 at the gather, for one block) came from D48's
+  exploratory extension. 1.7B holds none. Whether the largest Qwen3 Base model holds the sums as variables, and for
+  how long, tests whether that is a trend with scale or a 4B particular. The protocols are unchanged. This entry
+  fixes what the 8B runs are and how DAS is set up there, before the 8B is mapped.
+* **Job 1: D45 and D46 unchanged.** `configs/varmap_qwen3_8b.yaml` and `configs/varprobe_qwen3_8b.yaml` differ
+  from the 4B files only in the model (and the probe's figure mark, left empty because G is not known yet). Seed
+  20260916, one RTX 4090 job (EUR-NO-1). 16.4 GB of bf16 weights plus 25 % is about 20.5 GB, the 24 GB tier. The
+  EUR-NO-1 volume cannot hold the 8B next to the OLMo 3 7B cache (34.8 of 50 GB in use), so the job first deletes
+  that cache (its runs are finished and downloaded).
+* **Job 2: D47 and DAS, from G alone.** G is D45's gather on the 8B two-lane task.
+  - D47: split blocks G−1..G+3, head blocks G..G+2, as the family test requires.
+  - DAS sites: G, G+1 and G+2, the window where the sums become readable and the answer forms on 1.7B and 4B
+    (D46); the control site G−2, if D45 shows the operands not causally present at the answer token there (otherwise
+    the latest read point before G that it shows so).
+  - DAS fits: S1, S2, Y and a; k ∈ {8, 16, 32}, the shuffled-target null at k = 32; 20 epochs (the 4B S1 fit rose
+    only after epoch 6, D48 extension); learning rate 0.05, batch 32; the D48 splits, gate, Cause and Isolate
+    sources and reading (held: Cause lower bound ≥ 0.5 and Isolate lower bound ≥ 0.75 at k*).
+  - Read with D48's amendments: "Y held" is read as Y only where Y decodes from its subspace, and a held subspace
+    with low decodability is reported as such.
+  - Descriptive, from the stored bases: the overlap (principal angles) of the S1, S2 and Y subspaces at each site
+    where two of them are held.
+* **Runs.** Seed 20260916, RTX 4090 (ADA_24), EUR-NO-1. The next tier (RTX 5090, 32 GB) is used only after an
+  out-of-memory failure, and noted.

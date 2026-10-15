@@ -373,7 +373,7 @@ def test_varmap_configs_differ_only_in_model_name():
     from directions.config import load_varmap_config
 
     cfgs = {p.name: asdict(load_varmap_config(p)) for p in sorted(CONFIGS.glob("varmap_qwen3_*.yaml"))}
-    assert set(cfgs) == {"varmap_qwen3_0.6b.yaml", "varmap_qwen3_1.7b.yaml", "varmap_qwen3_4b.yaml"}
+    assert set(cfgs) == {"varmap_qwen3_0.6b.yaml", "varmap_qwen3_1.7b.yaml", "varmap_qwen3_4b.yaml", "varmap_qwen3_8b.yaml"}
     ref = next(iter(cfgs.values()))
     for name, c in cfgs.items():
         a = dict(c, model=dict(c["model"], name=None))
@@ -391,7 +391,7 @@ def test_varprobe_configs_differ_only_in_model_name_and_marks():
     from directions.config import load_varprobe_config
 
     cfgs = {p.name: asdict(load_varprobe_config(p)) for p in sorted(CONFIGS.glob("varprobe_qwen3_*.yaml"))}
-    assert set(cfgs) == {"varprobe_qwen3_0.6b.yaml", "varprobe_qwen3_1.7b.yaml", "varprobe_qwen3_4b.yaml"}
+    assert set(cfgs) == {"varprobe_qwen3_0.6b.yaml", "varprobe_qwen3_1.7b.yaml", "varprobe_qwen3_4b.yaml", "varprobe_qwen3_8b.yaml"}
     ref = next(iter(cfgs.values()))
     for name, c in cfgs.items():
         assert dict(c, model=dict(c["model"], name=None), marks=None) == dict(ref, model=dict(ref["model"], name=None), marks=None), name
