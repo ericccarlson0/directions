@@ -4853,14 +4853,75 @@ results with the gather marked), and the 8B rows of both `depth.png`.
   across block 24, Y 0.32 → 0.77 → 0.98 at read points 24 → 25 → 26. The decomposition is carried to L (S1 given Y
   0.92), so neither D46 rule 1 nor rule 2 holds.
 
+**Job 2: the block split and DAS on the 8B**
+
+```
+# workflow run 38748328299 (request d49_varsplit_das_qwen3_8b_seed20260916), commit 214a1a4, RTX 4090 (ADA_24),
+# EUR-NO-1; stages 22 and 116 min (about 2.6 USD; the 8B line in all about 3.9 USD); determinism identical in both
+# (block split: the repeated captures and swaps; DAS: a repeated test evaluation, a fit trained twice for two steps)
+uv run python scripts/stages.py \
+  'uv run directions varsplit --config configs/varsplit_qwen3_8b.yaml --run-id varsplit_qwen3_8b_seed20260916' \
+  'uv run directions das --config configs/das_d49_qwen3_8b.yaml --run-id das_d49_qwen3_8b_seed20260916'
+# on the download (scripts/runpod_log.py 38748328299 --download results/remote/run-38748328299):
+uv run python scripts/varsplit_summary.py results/remote/run-38748328299 --out docs/varsplit/summary_8b.json --figures docs/varsplit
+uv run python scripts/das_summary.py <a directory holding only the das_d49 run> --out docs/das/summary_8b.json
+```
+
+Figures: `docs/varsplit/qwen3_8b_<task>.png`, `docs/das/qwen3_8b.png`. DAS kept 1519 / 254 / 505 Cause pairs.
+
+| DAS, 8B read point | S1 | S2 | Y | a | held |
+|---|---|---|---|---|---|
+| 21 (control) | 0.05 (Iso lo 0.67) | 0.06 (0.82) | 0.03 (0.75) | 0.06 (0.66) | – |
+| 24 (G) | **0.71 [0.67, 0.74]**, Iso 0.94 (0.90), k 16, dec 0.28 (0.12) | **0.58 [0.54, 0.62]**, Iso 0.87 (0.83), k 32, dec 0.47 (0.11) | 0.91 [0.88, 0.93], Iso 0.94 (0.92), k 16, dec 0.28 (0.14) | 0.14–0.18, dec 0.65 | S1, S2, Y |
+| 25 | 0.11–0.13 | 0.12–0.17 | 0.95 [0.93, 0.97], Iso 0.97, k 32, dec 0.60 | 0.08–0.10 | Y |
+| 26 | 0.06–0.16 | 0.15–0.17 | 0.95 [0.93, 0.96], Iso 1.00, k 16, dec 0.97 | 0.09–0.15 | Y |
+
+(Test Cause at k*, 95% bootstrap interval, Isolate and its lower bound, k*, and the variable's decodability from
+the fitted subspace against chance; for the cells not held, the range over k. Shuffled-target nulls at k = 32:
+0.03–0.08 for S1, S2 and a, 0.04–0.19 for Y. The untrained subspace's Cause 0.00 in every cell.)
+
+Block split (D47) on the 8B, two-lane: S1 given Y 0.48 → 0.73 → 0.90 across block 24 (before → after attention →
+after the MLP), attention's share 0.61 [0.57, 0.64], the D47 reading "attention"; then 0.90 → 0.98 in block 25. Y
+forms across the MLPs of blocks 25 (0.33 → 0.76) and 26 (→ 0.99), attention's share 0.00–0.02. One-lane: block 24's
+share 0.28 [0.22, 0.35] ("MLP"). Heads: no single head of blocks 24–26 carries a bracket (no carrier, lower bound
+≥ 0.1). Block 24's heads together move 0.62 of the first bracket and 0.14 of the second; the single heads add up to
+0.25 and 0.06. Blocks 25–26: nothing.
+
+- **The 8B holds both sums as separate variables at the gather, for one block.** At read point 24, S1 (Cause 0.71,
+  Isolate 0.94) and S2 (0.58, 0.87) each pass D48's criteria. The digit a does not (0.14–0.18), though it decodes
+  from its fitted subspace at 0.65. One block later both are gone (S1 and S2 at most 0.17 at read points 25–26),
+  where the answer forms in the MLPs of blocks 25 and 26. This was preregistered (D49): sites relative to G,
+  20 epochs, k ≤ 32. Across the three models: 1.7B no sum at any k ≤ 64 (D48); 4B the first sum only, in the
+  exploratory extension; 8B both. The count of separately held sub-results at the gather rises with scale: 0, 1, 2.
+- **The two sum subspaces are mostly distinct.** At read point 24, 17% of S1's 16 dimensions lie in S2's 32 (a
+  random pair: 0.8%; largest principal cosine 0.75). The Y subspace there overlaps each (24% and 23%). 37% of it
+  lies inside the span of the two sum subspaces (random 1.2%), and Y decodes from it at only 0.28. Read with D48's
+  amendment, the "Y held" at G is mostly the two sums and other answer-determining content, not Y itself, which
+  decodes from its subspace only from read point 26 (0.97).
+- **The second sum needs a larger subspace.** S2's Cause at read point 24 is 0.20, 0.23 and 0.58 at k = 8, 16
+  and 32, so its k* sits at the top of the grid. S1's is 0.16, 0.71 and 0.60. Both fits had levelled off in
+  validation by the last epochs (S1 about 0.65, S2 about 0.59).
+- **How the brackets arrive differs from the 4B.** On the 8B, block 24's attention makes S1 given Y mostly
+  readable (share 0.61, against 0.45 on the 4B). Its heads together deliver the first bracket (0.62), spread over
+  many heads, none a carrier alone. The second bracket comes mostly from elsewhere: the heads deliver only 0.14,
+  and D45 shows S2 already moving the answer in 0.30 of the bases at read points 22–23. Yet S2 is a separately
+  swappable variable at read point 24, so wherever its digits come from, they are combined into one sum by the end
+  of block 24.
+- **Checks.** The control site holds nothing (Cause ≤ 0.07); determinism identical. The illusion check is mixed:
+  S2's held subspace decodes S2 at 0.47 (chance 0.11), S1's decodes S1 at 0.28 (0.12). DAS subspaces are not unique
+  (any subspace whose swap does the job fits), so the overlaps are of the subspaces found, not of the model's.
+- **Limits.** One seed, one task. The 4B S1 result that this extends is exploratory, so the scale trend has one
+  preregistered point with both sums (8B) and one preregistered null at k ≤ 16 (1.7B and 4B, 6 epochs).
+
 ## Not yet run / known limitations
 
 - The variable map (D45) has run once per model (Qwen3 0.6B, 1.7B, 4B Base; seed 20260916) on two expression tasks
   with whole-vector swaps only. The 0.6B two-lane map rests on 13–22 bases per swap type (few-shot accuracy 0.52;
   0.40 on D46's 2048 expressions, where it is skipped). The D46 probe and lens, the D47 block split and the D48 DAS
   grid (1.7B and 4B, with the exploratory extension) have run once (seed 20260916). The one sum held as a separate
-  variable (S1 at 4B read point 24) comes from the extension and is unreplicated. The 8B and the other families are
-  not mapped.
+  variable on 4B (S1 at read point 24) comes from the extension and is unreplicated. The 8B (D49) has run D45–D48
+  once, with both sums held at its gather; the 1.7B and 4B DAS grids at the 8B's design (20 epochs, k ≤ 32 from
+  the start) have not. The other families are not mapped.
 - The weight-decayed learned vector (D43) has run once per Qwen3 Base model (seed 20260916) with one weight decay,
   one step size and one budget fixed on a CPU probe of one task; the hand-over, the source test and the geometry
   test have run on it (D44), the all-to-all trajectories (D32–D34), the composition tests (D41, D42) and OLMo 3 and
@@ -5018,6 +5079,9 @@ uv run python scripts/stages.py 'uv run directions das --config configs/das_qwen
 uv run python scripts/stages.py 'uv run directions das --config configs/das_long_qwen3_1.7b.yaml --run-id das_long_qwen3_1.7b_seed20260916' 'uv run directions das --config configs/das_long_qwen3_4b.yaml --run-id das_long_qwen3_4b_seed20260916'
 uv run python scripts/das_summary.py results/remote/run-38664560239 --out docs/das/summary.json
 uv run python scripts/das_summary.py results/remote/run-38672212264 --out docs/das/summary_long.json
+# D49, the 8B: job 1 (run 38738001665), job 2 (run 38748328299):
+uv run python scripts/stages.py 'uv run python scripts/volume_cleanup.py --delete-model allenai/Olmo-3-1025-7B --delete-incomplete --yes' 'uv run directions varmap --config configs/varmap_qwen3_8b.yaml --run-id varmap_qwen3_8b_seed20260916' 'uv run directions varprobe --config configs/varprobe_qwen3_8b.yaml --run-id varprobe_qwen3_8b_seed20260916'
+uv run python scripts/stages.py 'uv run directions varsplit --config configs/varsplit_qwen3_8b.yaml --run-id varsplit_qwen3_8b_seed20260916' 'uv run directions das --config configs/das_d49_qwen3_8b.yaml --run-id das_d49_qwen3_8b_seed20260916'
 # iteration 10 (D33 amended: quarter strength, the neighbouring candidate layers, the patch test at every compared
 # layer on eighths of the depth for the learned and the head-mean vector, per-block writing), on a second seed,
 # as run (workflow runs in the iteration-10 entry): first the learned-vector protocol (D31) at seed 20260916 on

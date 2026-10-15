@@ -3097,3 +3097,9 @@ Decision (the first map; exploratory):
   21 (control), 24, 25 and 26 (`configs/das_d49_qwen3_8b.yaml`). D46 on the 8B places the window where it was
   expected: S1 given Y 0.45 → 0.90 across block 24, Y 0.32 → 0.77 → 0.98 at read points 24 → 25 → 26. The D47
   file `configs/varsplit_qwen3_8b.yaml` equals the 4B one but for the model (G = 24 on both).
+* **Outcome (2026-10-15; STATUS, D49).** Run 38748328299: at the 8B's gather (read point 24) S1 and S2 are both held
+  (Cause 0.71 [0.67, 0.74] at k = 16 and 0.58 [0.54, 0.62] at k = 32; Isolate lower bounds 0.90 and 0.83), with Y;
+  a is not (0.14–0.18). From read point 25 on only Y is held, and the control (21) holds nothing. The count of
+  separately held sums at the gather is 0, 1 and 2 on 1.7B, 4B (exploratory) and 8B. The stored bases give the
+  descriptive overlaps: the two sum subspaces mostly distinct (17% shared against 0.8% at random), 37% of the Y
+  subspace inside their span. S2's k* is the grid's top (k = 32).
