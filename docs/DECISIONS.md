@@ -3037,3 +3037,12 @@ Decision (the first map; exploratory):
   accuracy was 0.65–0.81 at read points 22 and 28, against 1.0 by step 40–60 at 0.05 and by step 20 at 0.2. The runs
   use learning rate 0.05 and 6 epochs (about 150 steps on 1.7B, 270 on 4B). The epoch with the best validation Cause
   is still the one kept.
+* **Extension after the run (exploratory, 2026-10-15).** Run 38664560239 held Y and nothing else on either model
+  (S1, S2 and a: test Cause 0.02–0.23 against nulls of 0.03–0.12). But the S1, S2 and a fits were still climbing
+  slowly at the last epoch (1.7B read point 21: S1 0.08 → 0.21, S2 0.15 → 0.28), as were some Y fits, so a
+  negative for the sums needs a larger budget before it stands. The extension:
+  - the sites where the sums are readable (1.7B: 21–23; 4B: 24–25) and each control;
+  - k ∈ {16, 32, 64}, with the shuffled-target null at k = 64;
+  - 20 epochs;
+  - `configs/das_long_qwen3_*.yaml`, otherwise the D48 settings and reading.
+  The extension is not pre-registered.
