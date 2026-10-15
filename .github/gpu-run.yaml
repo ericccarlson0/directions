@@ -1,11 +1,11 @@
 # Request a GPU run: change this file, commit, push. The run-gpu workflow triggers on every push that changes
 # this file and runs `command` at the repository root on a RunPod worker. To re-request an identical command,
 # there needs to be a new `request` label. A manual workflow_dispatch ignores this file.
-request: d49_varmap_varprobe_qwen3_8b_seed20260916 # note that a new label re-requests the same command
-command: uv run python scripts/stages.py 'uv run python scripts/volume_cleanup.py --delete-model allenai/Olmo-3-1025-7B --delete-incomplete --yes' 'uv run directions varmap --config configs/varmap_qwen3_8b.yaml --run-id varmap_qwen3_8b_seed20260916' 'uv run directions varprobe --config configs/varprobe_qwen3_8b.yaml --run-id varprobe_qwen3_8b_seed20260916'
+request: d49_varsplit_das_qwen3_8b_seed20260916 # note that a new label re-requests the same command
+command: uv run python scripts/stages.py 'uv run directions varsplit --config configs/varsplit_qwen3_8b.yaml --run-id varsplit_qwen3_8b_seed20260916' 'uv run directions das --config configs/das_d49_qwen3_8b.yaml --run-id das_d49_qwen3_8b_seed20260916'
 gpu_tier: ADA_24          # memory class ("tier")
 gpu_type: ""              # exact device name to pin instead of the tier, e.g. "NVIDIA RTX A4500"
 datacenter: EUR-NO-1      # data center of the `directions` network volume
 flash_env: ci-b             # Flash environment; one run at a time per environment
-timeout_minutes: 180
-max_output_mb: 8
+timeout_minutes: 330
+max_output_mb: 32
