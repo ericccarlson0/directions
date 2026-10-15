@@ -1123,6 +1123,64 @@ def load_varsplit_config(path: str | Path) -> VarsplitConfig:
     return cfg
 
 
+@dataclass
+class DasConfig:
+    """Distributed alignment search at the answer token, scored by Cause and Isolate (docs/DECISIONS.md D48), on the
+    two-lane expression task.
+
+    sites            read points of the answer token fitted at (the control site among them)
+    control_site     where the operands are not causally present (D45): nothing may be held there
+    variables        S1, S2, Y and the digit a (the control variable)
+    ks               subspace dimensions; null_k the shuffled-target null's
+    n_train/val/test bases per split (disjoint expressions); each with one Cause source, test bases with Isolate sources
+    batch_size       bases per training/evaluation batch on the single-token path (the model's batch_size is for captures)
+    k_tolerance      k* = the smallest k whose validation Cause is within this of the best
+    cause_lower, isolate_lower   a variable is held when Cause's and Isolate's lower bounds reach these (D48)
+    """
+
+    name: str = "das"
+    seed: int = 20260916
+    output_dir: str = "results"
+    model: ModelConfig = field(default_factory=ModelConfig)
+    sites: list[int] = field(default_factory=list)
+    control_site: int = 0
+    variables: list[str] = field(default_factory=lambda: ["S1", "S2", "Y", "a"])
+    ks: list[int] = field(default_factory=lambda: [1, 2, 4, 8, 16])
+    null_k: int = 16
+    n_train: int = 1536
+    n_val: int = 256
+    n_test: int = 512
+    n_shots: int = 8
+    n_demo_pool: int = 96
+    batch_size: int = 32
+    epochs: int = 4
+    lr: float = 0.01
+    lambdas: list[float] = field(default_factory=lambda: [0.1, 1.0, 10.0, 100.0])
+    n_boot: int = 1000
+    alpha: float = 0.05
+    k_tolerance: float = 0.05
+    cause_lower: float = 0.5
+    isolate_lower: float = 0.75
+    gate: bool = True             # keep only answered bases and sources (off for the toy smoke)
+    determinism_check: bool = True
+    figures: bool = True
+
+
+def load_das_config(path: str | Path) -> DasConfig:
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    cfg = _from_dict(DasConfig, data)
+    if not cfg.sites or cfg.control_site not in cfg.sites or list(cfg.sites) != sorted(set(cfg.sites)):
+        raise ValueError("sites must be increasing, distinct and include control_site")
+    if not cfg.variables or any(v not in ("S1", "S2", "Y", "a") for v in cfg.variables):
+        raise ValueError("variables must be a non-empty subset of S1, S2, Y, a")
+    if not cfg.ks or any(k < 1 for k in cfg.ks) or list(cfg.ks) != sorted(set(cfg.ks)) or cfg.null_k < 1:
+        raise ValueError("ks must be increasing positive integers; null_k positive")
+    if min(cfg.n_train, cfg.n_val, cfg.n_test) < 2 or cfg.batch_size < 1 or cfg.epochs < 1 or cfg.lr <= 0:
+        raise ValueError("n_train, n_val, n_test >= 2; batch_size, epochs >= 1; lr > 0")
+    return cfg
+
+
 def load_varprobe_config(path: str | Path) -> VarprobeConfig:
     with open(path) as f:
         data = yaml.safe_load(f) or {}

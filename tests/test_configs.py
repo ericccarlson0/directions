@@ -31,6 +31,12 @@ def test_all_configs_load():
             cfg = load_serial_config(p)
             assert cfg.compositions and all(len(c.steps) == 2 for c in cfg.compositions), p
             continue
+        if p.name.startswith("das_") or p.name == "smoke_toy_das.yaml":  # DAS at the answer token (D48)
+            from directions.config import load_das_config
+
+            cfg = load_das_config(p)
+            assert cfg.sites and cfg.control_site in cfg.sites, p
+            continue
         if "varsplit" in p.name:  # splitting the block where the sums appear (D47)
             from directions.config import load_varsplit_config
 
@@ -414,3 +420,22 @@ def test_varsplit_configs_differ_only_in_model_tasks_and_blocks():
     assert cfgs["varsplit_qwen3_0.6b.yaml"]["expressions"] == ["one_lane"]
     assert {c["gather"] for n, c in cfgs.items() if "4b" in n} == {24}
     assert ref["n_examples"] == 2048 and ref["n_bases"] == 64 and ref["n_perm"] == 200 and ref["model"]["device"] == "cuda"
+
+
+def test_das_configs_differ_only_in_model_and_sites():
+    """DAS (D48): the Qwen3 files differ only in `model.name`, the sites and the control site, which D48 fixes."""
+    from dataclasses import asdict
+
+    from directions.config import load_das_config
+
+    cfgs = {p.name: asdict(load_das_config(p)) for p in sorted(CONFIGS.glob("das_qwen3_*.yaml"))}
+    assert set(cfgs) == {"das_qwen3_1.7b.yaml", "das_qwen3_4b.yaml"}
+    assert cfgs["das_qwen3_1.7b.yaml"]["sites"] == [19, 21, 22, 23, 24, 28] and cfgs["das_qwen3_1.7b.yaml"]["control_site"] == 19
+    assert cfgs["das_qwen3_4b.yaml"]["sites"] == [22, 24, 25, 26, 36] and cfgs["das_qwen3_4b.yaml"]["control_site"] == 22
+    ref = cfgs["das_qwen3_1.7b.yaml"]
+    for name, c in cfgs.items():
+        strip = dict(model=dict(c["model"], name=None), sites=None, control_site=None)
+        assert dict(c, **strip) == dict(ref, **dict(model=dict(ref["model"], name=None), sites=None, control_site=None)), name
+    assert ref["variables"] == ["S1", "S2", "Y", "a"] and ref["ks"] == [1, 2, 4, 8, 16] and ref["null_k"] == 16
+    assert (ref["n_train"], ref["n_val"], ref["n_test"]) == (1536, 256, 512) and ref["gate"] and ref["model"]["device"] == "cuda"
+    assert (ref["cause_lower"], ref["isolate_lower"], ref["k_tolerance"]) == (0.5, 0.75, 0.05)

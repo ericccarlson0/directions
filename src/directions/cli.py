@@ -8,6 +8,7 @@
     uv run directions varmap   --config configs/varmap_qwen3_4b.yaml --run-id varmap_qwen3_4b_seed20260916
     uv run directions varprobe --config configs/varprobe_qwen3_4b.yaml --run-id varprobe_qwen3_4b_seed20260916
     uv run directions varsplit --config configs/varsplit_qwen3_4b.yaml --run-id varsplit_qwen3_4b_seed20260916
+    uv run directions das      --config configs/das_qwen3_4b.yaml --run-id das_qwen3_4b_seed20260916
 """
 
 from __future__ import annotations
@@ -244,6 +245,21 @@ def _cmd_varsplit(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_das(args: argparse.Namespace) -> int:
+    """Distributed alignment search at the answer token (docs/DECISIONS.md D48)."""
+    from .config import load_das_config
+    from .das import run_das
+
+    cfg = load_das_config(args.config)
+    if args.output_dir:
+        cfg.output_dir = args.output_dir
+    if args.seed is not None:
+        cfg.seed = int(args.seed)
+    root = run_das(cfg, run_id=args.run_id, config_path=str(args.config))
+    print(root)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="directions", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -329,6 +345,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--output-dir", default=None, help="override output_dir from the config")
     p.add_argument("--run-id", default=None, help="explicit run directory name")
     p.add_argument("--seed", type=int, default=None, help="override the seed (the D45/D46 draws, folds, permutations, bootstraps)")
+    p = sub.add_parser("das", help="distributed alignment search at the answer token, scored by Cause and Isolate (D48)")
+    p.add_argument("--config", required=True, help="YAML config (configs/das_<model>.yaml)")
+    p.add_argument("--output-dir", default=None, help="override output_dir from the config")
+    p.add_argument("--run-id", default=None, help="explicit run directory name")
+    p.add_argument("--seed", type=int, default=None, help="override the seed (splits, sources, fits, shuffles, bootstraps)")
     args = parser.parse_args(argv)
     if args.command in ("validate", "pilot"):
         return _cmd_run(args, args.command)
@@ -354,6 +375,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_varprobe(args)
     if args.command == "varsplit":
         return _cmd_varsplit(args)
+    if args.command == "das":
+        return _cmd_das(args)
     parser.error("unknown command")
     return 2
 

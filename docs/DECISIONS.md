@@ -2967,3 +2967,68 @@ Decision (the first map; exploratory):
   - The extension finds 1.7B's and 0.6B's first-bracket lane partly in block G−1 (head 3), and almost nothing before
     G on 4B.
   - Details: STATUS, D47 entry.
+
+## 2026-10-15 — Distributed alignment search at the answer token
+
+### D48. Which sub-results the answer token holds as separate variables, depth by depth
+
+* **Why.** D45–D47 put the whole computation of `(a+b) - (c+d) = ` at the answer token from the gather on.
+  Attention brings the operands in lanes (one head per digit), the MLPs add (1.7B: block 22; 4B: blocks 24–25),
+  and later MLPs subtract. Whole-vector swaps cannot say what the state holds as separate variables, and D46's
+  probes only say what is readable. Distributed alignment search (DAS; Geiger et al. 2024) swaps a fitted
+  k-dimensional subspace between two runs and asks whether the answer then follows a hypothesis. Each fitted
+  subspace is scored by RAVEL's Cause and Isolate (Huang et al., ACL 2024).
+* **Sites.** The answer token's residual stream at chosen read points, two-lane task only (one-lane cannot tell S2
+  from the digit c).
+  - Qwen3-1.7B: 19 (control: the operands are not causally there, D45), 21 (operands in, sums not yet readable),
+    22 (after the adding MLP; block 22's attention adds nothing, D47, so 21 → 22 is that MLP alone), 23 and 24 (the
+    answer forms), 28 (the end).
+  - Qwen3-4B: 22 (control), 24 (operands in, after block 24's MLP), 25 (sums done, answer forming), 26 (answer
+    done), 36 (the end).
+  - Fitting between a block's attention and its MLP would need a new hook. It is left to a second round.
+* **Variables, and the sources that train and test them.** One source per base for the Cause pairs. Its four
+  digits all differ in the ways that matter (a′ ≠ a, b′ ≠ b, S1′ ≠ S1, S2′ ≠ S2), and the five answers that tell
+  the hypotheses apart are single digits and pairwise distinct: Y; S1′ − S2; S1 − S2′; Y′; (a′ + b) − S2.
+  - S1: the swap should give S1′ − S2. Isolate: a source changing only S2, and a source with the same S1 and other
+    digits, leave the answer at Y.
+  - S2: the swap should give S1 − S2′. Isolate: a source changing only S1; a source with the same S2.
+  - Y: the swap should give Y′. Isolate: a source with the same Y and other sums.
+  - a (the control variable): the swap should give (a′ + b) − S2. Isolate: a source changing only S2; a source
+    changing only b.
+  - Cause is the share of held-out Cause pairs whose answer (argmax over the vocabulary) is the hypothesis' answer;
+    Isolate is the share of Isolate pairs whose answer stays Y.
+  - A correction to the plan given before D48: a subspace holding both digits of a bracket also passes the
+    same-sum Isolate test (the MLP adds them to the same sum), so that test does not separate digits from sums.
+    The digit variable a does: where a can be swapped on its own, the digits are still in use; where S1 can be and
+    a cannot, a sum has replaced them.
+* **Fits.** A k-dimensional subspace (orthonormal basis B, from the QR of a free d × k matrix):
+  h ← h + ((h_source − h) Bᵀ) B, at the answer token at one read point; everything else is the model's own.
+  - Trained on the Cause pairs of the training bases by cross-entropy toward the hypothesis' answer. Adam,
+    learning rate 0.01, batch 32, 4 epochs; the epoch with the best validation Cause is kept.
+  - The grid: k ∈ {1, 2, 4, 8, 16} at every site for every variable (1.7B 6 × 4 × 5 = 120 fits; 4B 100).
+  - Computation: the answer token is the last prompt token, so a swap there changes nothing at earlier positions.
+    Each pass reruns only that token, with the earlier positions' keys and values cached (checked against the
+    full-sequence swap of D45 in the tests).
+* **Data.** The two-lane expressions outside a demonstration pool of 96; 8 demonstrations per base, shared with its
+  sources.
+  - Bases split by expression into train (1536), validation (256) and test (512), with no expression in two splits.
+  - Gate: the base and its Cause source answered correctly, the base also in the single-token pass (the D45 no-op
+    lesson). An Isolate pair needs its source answered too.
+* **Selection and reading (fixed here).**
+  - Per site and variable, k* is the smallest k whose validation Cause is within 0.05 of the best over k. Test
+    scores are reported at k* with 95% bootstrap intervals over bases (1000 resamples), and the whole grid is
+    reported.
+  - A variable is *separately held* at a site when, at k*, the test Cause lower bound is ≥ 0.5 and the test Isolate
+    lower bound is ≥ 0.75. The *count* at a site is the number of S1, S2 and Y held. a held marks the digits as
+    still in use.
+* **Nulls and checks.**
+  - The control site must show no held variable. If one shows there, the fitting is flexible enough to manufacture
+    it and the site readings are discounted.
+  - Each site and variable gets a fit at k = 16 trained on shuffled targets, scored on the true test targets: the
+    floor a fit reaches by chance.
+  - The untrained (random) subspace's test Cause is reported per cell.
+  - The illusion check (Makelov et al. 2024): the variable's cross-validated linear decodability from the natural
+    test states projected onto the fitted subspace, at k*.
+  - D23: one fit's test predictions are recomputed and must be bit-identical; one fit is trained twice for two
+    steps from the same seed and must come out bit-identical.
+* **Runs.** Qwen3-1.7B and 4B Base, seed 20260916, one RTX 4090 job (EUR-NO-1).

@@ -1,0 +1,593 @@
+"""Distributed alignment search at the answer token, scored by Cause and Isolate (docs/DECISIONS.md D48).
+
+A k-dimensional subspace (orthonormal basis B, k x d) of the answer token's residual stream at one read point is
+swapped from a source run into a base run, h <- h + ((h_source - h) B^T) B, and the answer is read. The subspace is
+fitted so that the answer follows a hypothesis about one variable (S1, S2, Y or the digit a): its Cause score is the
+share of held-out pairs where it does; its Isolate score the share of pairs whose source differs in other things
+only, where the answer must stay. Fits run on the last prompt token alone: a swap there changes nothing at earlier
+positions, so their keys and values are computed once per batch and every pass reruns one token.
+
+    uv run directions das --config configs/das_qwen3_1.7b.yaml --run-id das_qwen3_1.7b_seed20260916
+"""
+
+from __future__ import annotations
+
+import contextlib
+import time
+from collections.abc import Sequence
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import torch
+
+from ._version import __version__
+from .config import DasConfig
+from .determinism import compare_arrays
+from .model import ModelBackend, environment_metadata, set_torch_determinism
+from .probes import fold_ids, ridge_cv_accuracy
+from .prompts import Prompt
+from .runinfo import RejectionLog, git_info, setup_logging, write_json
+from .seeds import derive_seed, rng_for
+from .varmap import Expr, all_exprs, bootstrap_rate, render
+from .varprobe import _jsonable
+
+VARIABLES = ("S1", "S2", "Y", "a")
+# the Isolate sources of each variable: the answer must stay at the base's when the variable's subspace is swapped
+ISOLATE = {"S1": ("only_S2", "same_S1"), "S2": ("only_S1", "same_S2"), "Y": ("same_Y",), "a": ("only_S2", "only_b")}
+SOURCE_KINDS = ("cause", "only_S1", "only_S2", "same_S1", "same_S2", "only_b", "same_Y")
+N_CLASSES = {"S1": 19, "S2": 19, "Y": 10, "a": 10}
+
+
+# --------------------------------------------------------------------------- #
+# The pairs
+# --------------------------------------------------------------------------- #
+
+
+def digits_of(exprs: Sequence[Expr]) -> np.ndarray:
+    return np.array([[e.a, e.b, e.c, e.d] for e in exprs], dtype=np.int64)
+
+
+def source_mask(kind: str, base: Expr, D: np.ndarray) -> np.ndarray:
+    """Which candidate expressions (digits ``D``, (N, 4)) are valid sources of ``kind`` for ``base`` (D48)."""
+    a, b, c, d = D.T
+    S1, S2 = a + b, c + d
+    Y = S1 - S2
+    in_range = (Y >= 0) & (Y <= 9)
+    if kind == "cause":
+        t = np.stack([np.full(len(D), base.Y), S1 - base.S2, base.S1 - S2, Y, a + base.b - base.S2])
+        ok = (a != base.a) & (b != base.b) & (S1 != base.S1) & (S2 != base.S2) & ((t >= 0) & (t <= 9)).all(axis=0)
+        distinct = np.ones(len(D), dtype=bool)
+        for i in range(5):
+            for j in range(i + 1, 5):
+                distinct &= t[i] != t[j]
+        return ok & distinct
+    same12 = (a == base.a) & (b == base.b)
+    same34 = (c == base.c) & (d == base.d)
+    if kind == "only_S1":
+        return same34 & (S1 != base.S1) & in_range
+    if kind == "only_S2":
+        return same12 & (S2 != base.S2) & in_range
+    if kind == "same_S1":
+        return same34 & ~same12 & (S1 == base.S1)
+    if kind == "same_S2":
+        return same12 & ~same34 & (S2 == base.S2)
+    if kind == "only_b":
+        return (a == base.a) & same34 & (b != base.b) & in_range
+    if kind == "same_Y":
+        return (S1 != base.S1) & (S2 != base.S2) & (Y == base.Y)
+    raise ValueError(f"unknown source kind {kind!r}")
+
+
+def targets(var: str, base: Expr, src: Expr) -> int:
+    """The answer a Cause swap of ``var`` predicts (D48)."""
+    return {"S1": src.S1 - base.S2, "S2": base.S1 - src.S2, "Y": src.Y, "a": src.a + base.b - base.S2}[var]
+
+
+def variable_value(var: str, e: Expr) -> int:
+    return {"S1": e.S1, "S2": e.S2, "Y": e.Y, "a": e.a}[var]
+
+
+@dataclass
+class Split:
+    bases: list[Expr]
+    demos: list[list[Expr]]
+    sources: dict[str, list[Expr]] = field(default_factory=dict)  # kind -> one per base
+
+
+def sample_splits(seed: int, sizes: dict[str, int], n_shots: int, n_demo_pool: int, kinds: dict[str, Sequence[str]],
+                  rejections: RejectionLog | None = None) -> tuple[dict[str, Split], dict[str, Any]]:
+    """Bases split by expression (train, val, test; disjoint), each with its demonstrations and one source per kind."""
+    exprs = all_exprs("two_lane")
+    order = rng_for(seed, "das", "split").permutation(len(exprs))
+    pool = [exprs[i] for i in order[:n_demo_pool]]
+    rest = [exprs[i] for i in order[n_demo_pool:]]
+    D = digits_of(rest)
+    splits: dict[str, Split] = {}
+    cursor, skipped = 0, 0
+    for name, n in sizes.items():
+        sp = Split([], [])
+        sp.sources = {k: [] for k in kinds[name]}
+        while len(sp.bases) < n and cursor < len(rest):
+            base = rest[cursor]
+            cursor += 1
+            masks = {k: source_mask(k, base, D) for k in kinds[name]}
+            if not all(m.any() for m in masks.values()):
+                skipped += 1
+                if rejections is not None:
+                    rejections.add("source", name, "no valid source of some kind", {"base": base.text()})
+                continue
+            i = len(sp.bases)
+            for k, m in masks.items():
+                cand = np.flatnonzero(m)
+                sp.sources[k].append(rest[int(cand[rng_for(seed, "das", name, i, k).integers(len(cand))])])
+            r = rng_for(seed, "das", "demos", name, i)
+            sp.demos.append([pool[j] for j in r.choice(len(pool), size=n_shots, replace=False)])
+            sp.bases.append(base)
+        splits[name] = sp
+    return splits, {"n_expressions": len(exprs), "skipped_without_source": skipped,
+                    **{f"n_{k}": len(v.bases) for k, v in splits.items()}}
+
+
+# --------------------------------------------------------------------------- #
+# The engine: one token, many swaps
+# --------------------------------------------------------------------------- #
+
+
+def _math_attention():
+    """The plain (deterministic) attention kernel for the single-token passes."""
+    try:
+        from torch.nn.attention import SDPBackend, sdpa_kernel
+
+        return sdpa_kernel([SDPBackend.MATH])
+    except Exception:  # older torch: nothing to select
+        return contextlib.nullcontext()
+
+
+class LastToken:
+    """A batch of prompts with every token but the last run once (keys and values cached), and passes of the last
+    prompt token alone, optionally with a subspace swap at one read point."""
+
+    def __init__(self, backend: ModelBackend, prompts: Sequence[Prompt]) -> None:
+        self.backend = backend
+        ids = [backend._encode_prompt(p)[0] for p in prompts]
+        if not ids:
+            raise ValueError("an empty batch")
+        if len({len(x) for x in ids}) != 1:
+            raise ValueError("the prompts of a batch must have the same length (no padding on this path)")
+        self.ids = torch.as_tensor(np.array(ids, dtype=np.int64), device=backend.device)
+        self.T = self.ids.shape[1]
+        with torch.no_grad(), _math_attention():
+            out = backend.model.model(input_ids=self.ids[:, :-1], use_cache=True)
+        self.cache = out.past_key_values
+        # every pass appends the last token to the cache; restoring each layer's state (the prefix tensors, with no
+        # autograd history, and any counters) afterwards keeps one pass's graph out of the next
+        self._saved = [dict(layer.__dict__) for layer in self.cache.layers]
+
+    def logits(self, read_point: int | None = None, values: torch.Tensor | None = None,
+               basis: torch.Tensor | None = None) -> torch.Tensor:
+        """Next-token logits (B, V) float32 at the last prompt token. With ``read_point``, its state there is replaced
+        by ``h + ((values - h) B^T) B`` (``basis`` (k, d)), or by ``values`` when ``basis`` is None."""
+        backend = self.backend
+        L = backend.n_layers
+        handle = None
+        if read_point is not None:
+            def swap(hidden: torch.Tensor) -> torch.Tensor:
+                h = hidden[:, -1].float()
+                v = values.to(h.device).float()
+                new = v if basis is None else h + ((v - h) @ basis.T) @ basis
+                return torch.cat([hidden[:, :-1], new[:, None].to(hidden.dtype)], dim=1)
+
+            if read_point < L:
+                def pre(module, args, kwargs):
+                    if args:
+                        return (swap(args[0]),) + tuple(args[1:]), kwargs
+                    kwargs = dict(kwargs)
+                    kwargs["hidden_states"] = swap(kwargs["hidden_states"])
+                    return args, kwargs
+
+                handle = backend.blocks[read_point].register_forward_pre_hook(pre, with_kwargs=True)
+            else:
+                def post(module, args, output):
+                    if isinstance(output, tuple):
+                        return (swap(output[0]),) + tuple(output[1:])
+                    return swap(output)
+
+                handle = backend.blocks[L - 1].register_forward_hook(post)
+        try:
+            with _math_attention():
+                out = backend.model.model(input_ids=self.ids[:, -1:], past_key_values=self.cache, use_cache=True)
+        finally:
+            if handle is not None:
+                handle.remove()
+            for layer, saved in zip(self.cache.layers, self._saved):
+                layer.__dict__.clear()
+                layer.__dict__.update(saved)
+        return backend._lm_logits(out.last_hidden_state[:, -1]).float()
+
+
+class Fit:
+    """One subspace: a free d x k matrix whose QR gives the basis, with its own optimizer."""
+
+    def __init__(self, site: int, var: str, k: int, d: int, device: torch.device, seed: int, lr: float,
+                 shuffled: bool = False) -> None:
+        self.site, self.var, self.k, self.shuffled = site, var, k, shuffled
+        g = torch.Generator(device="cpu").manual_seed(int(seed % (2**63 - 1)))
+        self.W = torch.nn.Parameter(torch.randn(d, k, generator=g, dtype=torch.float32).to(device))
+        self.opt = torch.optim.Adam([self.W], lr=lr)
+        self.best: torch.Tensor = self.W.detach().clone()
+        self.best_val = -1.0
+        self.history: list[float] = []
+
+    @property
+    def key(self) -> str:
+        return f"{self.site}/{self.var}/{self.k}" + ("/shuffled" if self.shuffled else "")
+
+    def basis(self, W: torch.Tensor | None = None) -> torch.Tensor:
+        return torch.linalg.qr(self.W if W is None else W).Q.T  # (k, d)
+
+
+# --------------------------------------------------------------------------- #
+# The stage
+# --------------------------------------------------------------------------- #
+
+
+class DAS:
+    def __init__(self, cfg: DasConfig, run_id: str | None = None, config_path: str | None = None) -> None:
+        self.cfg = cfg
+        slug = cfg.model.name.split("/")[-1].lower() if cfg.model.backend == "hf" else "toy"
+        run_id = run_id or f"{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}_das_{slug}_seed{cfg.seed}"
+        self.root = Path(cfg.output_dir) / run_id
+        if self.root.exists():
+            raise FileExistsError(f"run directory already exists: {self.root}")
+        (self.root / "core").mkdir(parents=True)
+        (self.root / "figures").mkdir()
+        self.log = setup_logging(self.root / "log.txt")
+        self.rejections = RejectionLog(self.root / "rejections.jsonl")
+        self.metadata: dict[str, Any] = {
+            "version": __version__, "config": asdict(cfg), "config_path": config_path, "run_id": run_id, "seed": cfg.seed,
+            "git": git_info(), "environment": environment_metadata(),
+            "started_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+
+    # ------------------------------------------------------------------ #
+
+    def run(self) -> Path:
+        cfg, log = self.cfg, self.log
+        set_torch_determinism(derive_seed(cfg.seed, "torch"))
+        backend = self.backend = ModelBackend(cfg.model, run_seed=cfg.seed)
+        for p in backend.model.parameters():
+            p.requires_grad_(False)
+        L = backend.n_layers
+        if max(cfg.sites) > L or min(cfg.sites) < 0 or cfg.control_site not in cfg.sites:
+            raise ValueError(f"sites must lie in 0..{L} and include the control site")
+        self.metadata["model"] = backend.metadata()
+        self.tid = np.array([self._single_token(str(k)) for k in range(10)], dtype=np.int64)
+        t0 = time.time()
+        kinds = {"train": ("cause",), "val": ("cause",), "test": SOURCE_KINDS}
+        splits, info = sample_splits(cfg.seed, {"train": cfg.n_train, "val": cfg.n_val, "test": cfg.n_test}, cfg.n_shots,
+                                     cfg.n_demo_pool, kinds, self.rejections)
+        self.metadata["sampling"] = info
+        data = {name: self._prepare(name, sp) for name, sp in splits.items()}
+        self.metadata.setdefault("timings_seconds", {})["prepare"] = round(time.time() - t0, 1)
+        for name, dd in data.items():
+            log.info("%s: %d bases, %d kept for the Cause pairs (base answered in both passes, source answered)", name,
+                     len(dd["bases"]), int(dd["keep"].sum()))
+
+        fits = [Fit(s, v, k, backend.hidden_size, backend.device, derive_seed(cfg.seed, "das", "fit", s, v, k), cfg.lr)
+                for s in cfg.sites for v in cfg.variables for k in cfg.ks]
+        fits += [Fit(s, v, cfg.null_k, backend.hidden_size, backend.device, derive_seed(cfg.seed, "das", "null", s, v), cfg.lr,
+                     shuffled=True) for s in cfg.sites for v in cfg.variables]
+        t0 = time.time()
+        init_test = self._evaluate(data["test"], fits, cause_only=True, use_best=False)  # the untrained subspaces
+        if cfg.determinism_check:
+            self._determinism_check(data, fits[len(fits) // 2])
+        self._train(data, fits)
+        self.metadata["timings_seconds"]["train"] = round(time.time() - t0, 1)
+        t0 = time.time()
+        test = self._evaluate(data["test"], fits, cause_only=False, use_best=True)
+        if cfg.determinism_check:
+            again = self._evaluate(data["test"], [fits[0]], cause_only=False, use_best=True)
+            cmp = compare_arrays({k: np.asarray(v) for k, v in test["pred"][fits[0].key].items()},
+                                 {k: np.asarray(v) for k, v in again["pred"][fits[0].key].items()})
+            self.metadata.setdefault("determinism_check", {})["evaluation"] = {"identical": cmp["identical"]}
+            if not cmp["identical"]:
+                raise RuntimeError("determinism check failed: a repeated evaluation differs")
+        self.metadata["timings_seconds"]["evaluate"] = round(time.time() - t0, 1)
+        result = self._read(data, fits, test, init_test)
+        write_json(self.root / "core" / "das.json", _jsonable(result))
+        np.savez_compressed(self.root / "core" / "das_bases.npz",
+                            **{f"{k}__{fk}": np.asarray(v) for fk, preds in test["pred"].items() for k, v in preds.items()})
+        if cfg.figures:
+            try:
+                plot(result, self.root / "figures" / "das.png",
+                     cfg.model.name.split("/")[-1] if cfg.model.backend == "hf" else f"toy {cfg.model.toy.family}")
+            except Exception as exc:  # a figure never fails a run
+                log.warning("figure failed: %s", exc)
+        self.metadata["finished_utc"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        write_json(self.root / "metadata.json", self.metadata)
+        log.info("done -> %s", self.root)
+        return self.root
+
+    def _single_token(self, text: str) -> int:
+        enc = self.backend.tokenizer.encode(text, add_special_tokens=False)
+        if len(enc) != 1:
+            raise ValueError(f"{text!r} is not a single token on this tokenizer: {enc}")
+        return enc[0]
+
+    # ------------------------------------------------------------------ #
+
+    def _states(self, prompts: list[Prompt], sites: Sequence[int]) -> tuple[dict[int, torch.Tensor], np.ndarray]:
+        """The answer token's states at the sites (on the device, float32) and the model's answer, in chunks."""
+        backend = self.backend
+        parts: dict[int, list[np.ndarray]] = {s: [] for s in sites}
+        am = []
+        for start in range(0, len(prompts), 512):
+            r = backend.run(prompts[start : start + 512], capture=True, token_ids=self.tid)
+            for s in sites:
+                parts[s].append(r.residuals[s])
+            am.append(r.query_argmax)
+        return ({s: torch.as_tensor(np.concatenate(v), device=backend.device) for s, v in parts.items()},
+                np.concatenate(am))
+
+    def _prepare(self, name: str, sp: Split) -> dict[str, Any]:
+        cfg = self.cfg
+        prompts = [render(sp.demos[i], b) for i, b in enumerate(sp.bases)]
+        base_states, base_am = self._states(prompts, cfg.sites)
+        Y = np.array([b.Y for b in sp.bases])
+        ok_full = base_am == self.tid[Y]
+        # the base answered in the single-token pass too (the gate in the geometry the swaps run in)
+        ok_last = np.zeros(len(prompts), dtype=bool)
+        with torch.no_grad():
+            for start in range(0, len(prompts), self.cfg.batch_size):
+                lt = LastToken(self.backend, prompts[start : start + self.cfg.batch_size])
+                ok_last[start : start + len(lt.ids)] = (lt.logits().argmax(dim=1).cpu().numpy() == self.tid[Y[start : start + len(lt.ids)]])
+        if (ok_full != ok_last).any():
+            self.rejections.add("noop", name, "the single-token pass and the full pass disagree on the base answer",
+                                {"n": int((ok_full != ok_last).sum())})
+        src_states, src_ok = {}, {}
+        for kind, srcs in sp.sources.items():
+            sp_prompts = [render(sp.demos[i], s) for i, s in enumerate(srcs)]
+            st, am = self._states(sp_prompts, cfg.sites)
+            src_states[kind], src_ok[kind] = st, am == self.tid[[s.Y for s in srcs]]
+        if not cfg.gate:  # the toy smoke: every base and source enters
+            ok_full = ok_last = np.ones(len(prompts), dtype=bool)
+            src_ok = {k: np.ones(len(prompts), dtype=bool) for k in src_ok}
+        keep = ok_full & ok_last & src_ok["cause"]
+        tgt = {v: np.array([targets(v, b, sp.sources["cause"][i]) for i, b in enumerate(sp.bases)]) for v in VARIABLES}
+        return {"bases": sp.bases, "prompts": prompts, "Y": Y, "keep": keep, "base_ok": ok_full & ok_last,
+                "base_states": base_states, "src_states": src_states, "src_ok": src_ok, "targets": tgt}
+
+    # ------------------------------------------------------------------ #
+
+    def _batches(self, idx: np.ndarray) -> list[np.ndarray]:
+        bs = self.cfg.batch_size
+        return [idx[i : i + bs] for i in range(0, len(idx), bs)]
+
+    def _train(self, data: dict[str, Any], fits: list[Fit]) -> None:
+        cfg, log = self.cfg, self.log
+        tr = data["train"]
+        idx = np.flatnonzero(tr["keep"])
+        tid = torch.as_tensor(self.tid, device=self.backend.device)
+        shuffled = {v: rng_for(cfg.seed, "das", "shuffle", v).permutation(len(idx)) for v in cfg.variables}
+        target_tok = {}  # per fit, the target token of every training base (shuffled among the kept bases for a null)
+        for f in fits:
+            t = tr["targets"][f.var].copy()
+            if f.shuffled:
+                t[idx] = t[idx][shuffled[f.var]]
+            target_tok[f.key] = tid[torch.as_tensor(t, device=tid.device)]
+        for epoch in range(cfg.epochs):
+            order = idx[rng_for(cfg.seed, "das", "epoch", epoch).permutation(len(idx))]
+            losses = {f.key: [] for f in fits}
+            for b in self._batches(order):
+                lt = LastToken(self.backend, [tr["prompts"][i] for i in b])
+                bt = torch.as_tensor(b, device=self.backend.device)
+                for f in fits:
+                    with torch.enable_grad():
+                        logits = lt.logits(f.site, tr["src_states"]["cause"][f.site][bt], f.basis())
+                        y = target_tok[f.key][bt]
+                        loss = torch.nn.functional.cross_entropy(logits, y)
+                        loss.backward()
+                    f.opt.step()
+                    f.opt.zero_grad(set_to_none=True)
+                    losses[f.key].append(float(loss.detach()))
+            val = self._evaluate(data["val"], fits, cause_only=True, use_best=False)
+            for f in fits:
+                c = float(np.mean(val["cause"][f.key])) if len(val["cause"][f.key]) else 0.0
+                f.history.append(c)
+                if c > f.best_val:
+                    f.best_val, f.best = c, f.W.detach().clone()
+            log.info("epoch %d: mean train loss %.3f; validation Cause, best fit per site: %s", epoch,
+                     float(np.mean([np.mean(v) for v in losses.values()])),
+                     {s: round(max(f.history[-1] for f in fits if f.site == s and not f.shuffled), 2) for s in cfg.sites})
+
+    @torch.no_grad()
+    def _evaluate(self, dd: dict[str, Any], fits: list[Fit], cause_only: bool, use_best: bool) -> dict[str, Any]:
+        """Per fit: Cause (the answer is the hypothesis' answer) on the kept bases and, unless ``cause_only``, Isolate
+        (the answer stays) on the bases whose Isolate source was answered too; predictions are kept per base."""
+        tid = self.tid
+        idx = np.flatnonzero(dd["keep"])
+        bases_ok = dd["base_ok"]
+        out: dict[str, Any] = {"cause": {f.key: [] for f in fits}, "isolate": {f.key: {} for f in fits},
+                               "pred": {f.key: {} for f in fits}}
+        bases_eval = np.flatnonzero(bases_ok) if not cause_only else idx
+        preds: dict[str, dict[str, list]] = {f.key: {} for f in fits}
+        for b in self._batches(bases_eval):
+            lt = LastToken(self.backend, [dd["prompts"][i] for i in b])
+            bt = torch.as_tensor(b, device=self.backend.device)
+            for f in fits:
+                basis = f.basis(f.best if use_best else None)
+                kinds = ["cause"] + ([] if cause_only else list(ISOLATE[f.var]))
+                for kind in kinds:
+                    am = lt.logits(f.site, dd["src_states"][kind][f.site][bt], basis).argmax(dim=1).cpu().numpy()
+                    preds[f.key].setdefault(kind, []).append(np.stack([b, am], axis=1))
+        for f in fits:
+            for kind, parts in preds[f.key].items():
+                arr = np.concatenate(parts) if parts else np.zeros((0, 2), dtype=np.int64)
+                rows, am = arr[:, 0], arr[:, 1]
+                if kind == "cause":
+                    sel = dd["keep"][rows]
+                    hit = am[sel] == tid[dd["targets"][f.var][rows[sel]]]
+                    out["cause"][f.key] = hit
+                else:
+                    sel = dd["src_ok"][kind][rows]
+                    out["isolate"][f.key][kind] = am[sel] == tid[dd["Y"][rows[sel]]]
+                out["pred"][f.key][kind] = arr
+        return out
+
+    def _determinism_check(self, data: dict[str, Any], fit: Fit) -> None:
+        """One fit trained twice for two steps from the same start must come out bit-identical."""
+        tr = data["train"]
+        b = np.flatnonzero(tr["keep"])[: self.cfg.batch_size]
+        if len(b) == 0:
+            raise RuntimeError("no training base passed the gate")
+        lt = LastToken(self.backend, [tr["prompts"][i] for i in b])
+        bt = torch.as_tensor(b, device=self.backend.device)
+        tid = torch.as_tensor(self.tid, device=self.backend.device)
+        y = tid[torch.as_tensor(tr["targets"][fit.var][b], device=tid.device)]
+        outs = []
+        for _ in range(2):
+            f = Fit(fit.site, fit.var, fit.k, self.backend.hidden_size, self.backend.device, 12345, self.cfg.lr)
+            for _step in range(2):
+                with torch.enable_grad():
+                    loss = torch.nn.functional.cross_entropy(lt.logits(f.site, tr["src_states"]["cause"][f.site][bt], f.basis()), y)
+                    loss.backward()
+                f.opt.step()
+                f.opt.zero_grad(set_to_none=True)
+            outs.append(f.W.detach().cpu().numpy())
+        cmp = compare_arrays({"W": outs[0]}, {"W": outs[1]})
+        self.metadata.setdefault("determinism_check", {})["training"] = {"identical": cmp["identical"]}
+        if not cmp["identical"]:
+            raise RuntimeError("determinism check failed: a repeated training run differs")
+
+    # ------------------------------------------------------------------ #
+
+    def _read(self, data: dict[str, Any], fits: list[Fit], test: dict[str, Any], init: dict[str, Any]) -> dict[str, Any]:
+        cfg = self.cfg
+        rng = np.random.default_rng(derive_seed(cfg.seed, "das", "bootstrap"))
+
+        def rate(x: np.ndarray) -> dict[str, float]:
+            if len(x) == 0:
+                return {"mean": float("nan"), "lo": float("nan"), "hi": float("nan"), "n": 0}
+            r = bootstrap_rate(np.asarray(x, dtype=float), rng, cfg.n_boot, cfg.alpha)
+            return {"mean": float(r["mean"]), "lo": float(r["lo"]), "hi": float(r["hi"]), "n": int(len(x))}
+
+        cells: dict[str, Any] = {}
+        by_key = {f.key: f for f in fits}
+        te = data["test"]
+        for s in cfg.sites:
+            for v in cfg.variables:
+                grid = {}
+                for k in cfg.ks:
+                    f = by_key[f"{s}/{v}/{k}"]
+                    iso = {kind: rate(x) for kind, x in test["isolate"][f.key].items()}
+                    grid[k] = {"val_cause": f.best_val, "val_history": f.history, "cause": rate(test["cause"][f.key]),
+                               "isolate": iso, "isolate_mean": float(np.nanmean([x["mean"] for x in iso.values()])),
+                               "isolate_lo": float(np.nanmin([x["lo"] for x in iso.values()])),
+                               "untrained_cause": float(np.mean(init["cause"][f.key])) if len(init["cause"][f.key]) else None}
+                best_val = max(grid[k]["val_cause"] for k in cfg.ks)
+                kstar = min(k for k in cfg.ks if grid[k]["val_cause"] >= best_val - cfg.k_tolerance)
+                g = grid[kstar]
+                held = g["cause"]["lo"] >= cfg.cause_lower and g["isolate_lo"] >= cfg.isolate_lower
+                null = by_key[f"{s}/{v}/{cfg.null_k}/shuffled"]
+                cells[f"{s}/{v}"] = {
+                    "site": s, "var": v, "k_star": kstar, "held": bool(held), "grid": grid,
+                    "null_cause": rate(test["cause"][null.key]),
+                    "projection_decodability": self._decodability(te, s, v, by_key[f"{s}/{v}/{kstar}"]),
+                }
+        sites = {}
+        for s in cfg.sites:
+            held = [v for v in cfg.variables if cells[f"{s}/{v}"]["held"]]
+            sites[s] = {"held": held, "count": sum(v in held for v in ("S1", "S2", "Y")), "digits_in_use": "a" in held}
+        control = sites[cfg.control_site]
+        self.log.info("held per site: %s", {s: x["held"] for s, x in sites.items()})
+        return {"sites": cfg.sites, "control_site": cfg.control_site, "variables": list(cfg.variables), "ks": list(cfg.ks),
+                "cells": cells, "per_site": sites, "control_clean": not control["held"],
+                "n": {name: {"bases": len(dd["bases"]), "kept": int(dd["keep"].sum())} for name, dd in data.items()},
+                "thresholds": {"cause_lower": cfg.cause_lower, "isolate_lower": cfg.isolate_lower, "k_tolerance": cfg.k_tolerance}}
+
+    def _decodability(self, dd: dict[str, Any], site: int, var: str, fit: Fit) -> dict[str, float]:
+        """Cross-validated linear decodability of the variable from the natural test states projected onto the fit."""
+        idx = np.flatnonzero(dd["base_ok"])
+        if len(idx) < 10:
+            return {"accuracy": float("nan"), "chance": float("nan")}
+        with torch.no_grad():
+            B = fit.basis(fit.best)
+            x = (dd["base_states"][site][torch.as_tensor(idx, device=B.device)] @ B.T).double()
+        y = np.array([variable_value(var, dd["bases"][i]) for i in idx])
+        C = N_CLASSES[var]
+        allowed = torch.ones(len(idx), C, dtype=torch.bool, device=x.device)
+        acc, _ = ridge_cv_accuracy(x, torch.as_tensor(y, device=x.device)[None], allowed,
+                                   fold_ids(len(idx), 5, rng_for(self.cfg.seed, "das", "decode", site, var)), self.cfg.lambdas)
+        return {"accuracy": float(acc[0]), "chance": float(np.bincount(y, minlength=C).max() / len(y))}
+
+
+# --------------------------------------------------------------------------- #
+# Figure
+# --------------------------------------------------------------------------- #
+
+SEQ = ["#fcfcfb", "#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"]
+INK, INK2 = "#0b0b0b", "#52514e"
+
+
+def plot(result: dict[str, Any], path: Path, model_name: str) -> None:
+    """Left: test Cause at k* per site (rows) and variable (columns), with Isolate and k* in each cell; held cells
+    outlined. Right: test Cause against k, one panel per variable, one line per site."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import LinearSegmentedColormap
+
+    sites, variables, ks = result["sites"], result["variables"], result["ks"]
+    cells = result["cells"]
+    fig = plt.figure(figsize=(11.5, 0.5 * len(sites) + 2.6))
+    gs = fig.add_gridspec(1, 1 + len(variables), width_ratios=[2.2] + [1] * len(variables), wspace=0.35)
+    ax = fig.add_subplot(gs[0, 0])
+    mat = np.array([[cells[f"{s}/{v}"]["grid"][cells[f"{s}/{v}"]["k_star"]]["cause"]["mean"] for v in variables] for s in sites])
+    ax.imshow(mat, cmap=LinearSegmentedColormap.from_list("seq", SEQ), vmin=0, vmax=1, aspect="auto")
+    for i, s in enumerate(sites):
+        for j, v in enumerate(variables):
+            c = cells[f"{s}/{v}"]
+            g = c["grid"][c["k_star"]]
+            ax.text(j, i, f"{g['cause']['mean']:.2f}\nIso {g['isolate_mean']:.2f}\nk={c['k_star']}", ha="center", va="center",
+                    fontsize=6, color="#fcfcfb" if g["cause"]["mean"] > 0.55 else INK)
+            if c["held"]:
+                ax.add_patch(plt.Rectangle((j - 0.48, i - 0.48), 0.96, 0.96, fill=False, ec="#eb6834", lw=1.6))
+    ax.set_xticks(range(len(variables)))
+    ax.set_xticklabels(variables, fontsize=7.5)
+    ax.set_yticks(range(len(sites)))
+    ax.set_yticklabels([f"{s}" + (" (control)" if s == result["control_site"] else "") for s in sites], fontsize=7)
+    ax.set_ylabel("read point (answer token)", fontsize=7, color=INK2)
+    ax.set_title("test Cause at k* (outlined: held,\nCause lo >= 0.5 and Isolate lo >= 0.75)", fontsize=7.5, loc="left")
+    for sp in ax.spines.values():
+        sp.set_visible(False)
+    shades = np.linspace(0.35, 1.0, len(sites))
+    for j, v in enumerate(variables):
+        ax2 = fig.add_subplot(gs[0, 1 + j])
+        for i, s in enumerate(sites):
+            ys = [cells[f"{s}/{v}"]["grid"][k]["cause"]["mean"] for k in ks]
+            ax2.plot(range(len(ks)), ys, color=plt.cm.Blues(shades[i]), lw=1.3, marker="o", ms=2.5,
+                     ls=(0, (2, 1.5)) if s == result["control_site"] else "-", label=str(s))
+            null = cells[f"{s}/{v}"]["null_cause"]["mean"]
+            ax2.plot([len(ks) - 1], [null], marker="x", ms=3, color="#8a8985")
+        ax2.set_xticks(range(len(ks)))
+        ax2.set_xticklabels([str(k) for k in ks], fontsize=6.5)
+        ax2.set_ylim(0, 1)
+        ax2.set_title(f"Cause vs k: {v}", fontsize=7.5, loc="left")
+        ax2.tick_params(labelsize=6.5, length=2, colors=INK2)
+        ax2.grid(axis="y", color="#ecebe7", lw=0.6)
+        for sp in ("top", "right"):
+            ax2.spines[sp].set_visible(False)
+        if j == 0:
+            ax2.legend(title="read point", fontsize=6, title_fontsize=6, frameon=False, loc="upper left")
+        ax2.set_xlabel("k (x: shuffled-target null at k=%d)" % ks[-1], fontsize=6.5, color=INK2)
+    fig.suptitle(f"DAS at the answer token of (a+b) - (c+d) = ({model_name}): which sub-results are held as separate "
+                 f"variables", fontsize=8.5, x=0.01, y=1.06, ha="left")
+    fig.savefig(path, dpi=170, bbox_inches="tight", facecolor="#fcfcfb")
+    plt.close(fig)
+
+
+def run_das(cfg: DasConfig, run_id: str | None = None, config_path: str | None = None) -> Path:
+    return DAS(cfg, run_id, config_path).run()
