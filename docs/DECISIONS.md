@@ -3089,3 +3089,11 @@ Decision (the first map; exploratory):
     where two of them are held.
 * **Runs.** Seed 20260916, RTX 4090 (ADA_24), EUR-NO-1. The next tier (RTX 5090, 32 GB) is used only after an
   out-of-memory failure, and noted.
+* **Fixed after job 1, before job 2 (2026-10-15).** Run 38738001665 gives the 8B gather G = 24 on both tasks
+  (few-shot accuracy 1.000; the probe's two-lane accuracy 0.990 on 2048). At the answer token, the S2 swap changes
+  the answer in 0.30 of the bases already at read points 22–23 (lower bound 0.19–0.20). That is short of D45's
+  "present" but not absent (4B there: 0.07), so G−2 does not qualify as the control. The control is read point 21,
+  where neither bracket swap changes the answer (0.00), as the rule's fallback says. The DAS sites are therefore
+  21 (control), 24, 25 and 26 (`configs/das_d49_qwen3_8b.yaml`). D46 on the 8B places the window where it was
+  expected: S1 given Y 0.45 → 0.90 across block 24, Y 0.32 → 0.77 → 0.98 at read points 24 → 25 → 26. The D47
+  file `configs/varsplit_qwen3_8b.yaml` equals the 4B one but for the model (G = 24 on both).

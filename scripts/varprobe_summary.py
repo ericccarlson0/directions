@@ -20,8 +20,8 @@ from pathlib import Path
 
 import numpy as np
 
-# the D45 gather read point per model (run 38502381471; the configs' marks)
-GATHER = {"qwen3_0.6b": 21, "qwen3_1.7b": 21, "qwen3_4b": 24}
+# the D45 gather read point per model (runs 38502381471 and, for the 8B, 38738001665; the configs' marks)
+GATHER = {"qwen3_0.6b": 21, "qwen3_1.7b": 21, "qwen3_4b": 24, "qwen3_8b": 24}
 
 
 def model_key(run: str) -> str:

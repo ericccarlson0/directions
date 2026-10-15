@@ -408,7 +408,7 @@ def test_varsplit_configs_differ_only_in_model_tasks_and_blocks():
     from directions.config import load_varsplit_config
 
     cfgs = {p.name: asdict(load_varsplit_config(p)) for p in sorted(CONFIGS.glob("varsplit_qwen3_*.yaml"))}
-    assert set(cfgs) == {"varsplit_qwen3_0.6b.yaml", "varsplit_qwen3_1.7b.yaml", "varsplit_qwen3_4b.yaml"}
+    assert set(cfgs) == {"varsplit_qwen3_0.6b.yaml", "varsplit_qwen3_1.7b.yaml", "varsplit_qwen3_4b.yaml", "varsplit_qwen3_8b.yaml"}
     varying = ("expressions", "gather", "split_blocks", "head_blocks")
     ref = next(iter(cfgs.values()))
     for name, c in cfgs.items():
@@ -418,7 +418,7 @@ def test_varsplit_configs_differ_only_in_model_tasks_and_blocks():
         b = dict(ref, model=dict(ref["model"], name=None), **{k: None for k in varying})
         assert a == b, name
     assert cfgs["varsplit_qwen3_0.6b.yaml"]["expressions"] == ["one_lane"]
-    assert {c["gather"] for n, c in cfgs.items() if "4b" in n} == {24}
+    assert {c["gather"] for n, c in cfgs.items() if "4b" in n or "8b" in n} == {24}
     assert ref["n_examples"] == 2048 and ref["n_bases"] == 64 and ref["n_perm"] == 200 and ref["model"]["device"] == "cuda"
 
 
@@ -439,3 +439,18 @@ def test_das_configs_differ_only_in_model_and_sites():
     assert ref["variables"] == ["S1", "S2", "Y", "a"] and ref["ks"] == [1, 2, 4, 8, 16] and ref["null_k"] == 16
     assert (ref["n_train"], ref["n_val"], ref["n_test"]) == (1536, 256, 512) and ref["gate"] and ref["model"]["device"] == "cuda"
     assert (ref["cause_lower"], ref["isolate_lower"], ref["k_tolerance"]) == (0.5, 0.75, 0.05)
+
+
+def test_das_8b_config_is_the_d49_design():
+    """DAS on the 8B (D49): fixed relative to the D45 gather (G = 24) before any 8B DAS data; otherwise D48's settings."""
+    from dataclasses import asdict
+
+    from directions.config import load_das_config
+
+    c = asdict(load_das_config(CONFIGS / "das_d49_qwen3_8b.yaml"))
+    ref = asdict(load_das_config(CONFIGS / "das_qwen3_4b.yaml"))
+    assert c["model"]["name"] == "Qwen/Qwen3-8B-Base" and c["sites"] == [21, 24, 25, 26] and c["control_site"] == 21
+    assert c["ks"] == [8, 16, 32] and c["null_k"] == 32 and c["epochs"] == 20
+    fixed = ("seed", "variables", "n_train", "n_val", "n_test", "n_shots", "n_demo_pool", "batch_size", "lr", "lambdas",
+             "n_boot", "alpha", "k_tolerance", "cause_lower", "isolate_lower", "gate", "determinism_check")
+    assert {k: c[k] for k in fixed} == {k: ref[k] for k in fixed}
