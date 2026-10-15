@@ -22,8 +22,8 @@ n_test: 512
 n_shots: 8
 n_demo_pool: 96
 batch_size: 32
-epochs: 4
-lr: 0.01
+epochs: 6
+lr: 0.05
 lambdas: [0.1, 1.0, 10.0, 100.0]   # the projection-decodability check's ridge grid (D46's probe)
 n_boot: 1000
 alpha: 0.05

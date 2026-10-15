@@ -3032,3 +3032,8 @@ Decision (the first map; exploratory):
   - D23: one fit's test predictions are recomputed and must be bit-identical; one fit is trained twice for two
     steps from the same seed and must come out bit-identical.
 * **Runs.** Qwen3-1.7B and 4B Base, seed 20260916, one RTX 4090 job (EUR-NO-1).
+* **Amended before the run (2026-10-15).** A CPU smoke on Qwen3-0.6B (not a run model; training pairs only, 26
+  pairs, one fit for Y at k = 4) showed learning rate 0.01 too slow for the step budget. After 120 steps, training
+  accuracy was 0.65–0.81 at read points 22 and 28, against 1.0 by step 40–60 at 0.05 and by step 20 at 0.2. The runs
+  use learning rate 0.05 and 6 epochs (about 150 steps on 1.7B, 270 on 4B). The epoch with the best validation Cause
+  is still the one kept.

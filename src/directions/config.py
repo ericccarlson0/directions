@@ -1153,8 +1153,8 @@ class DasConfig:
     n_shots: int = 8
     n_demo_pool: int = 96
     batch_size: int = 32
-    epochs: int = 4
-    lr: float = 0.01
+    epochs: int = 6
+    lr: float = 0.05
     lambdas: list[float] = field(default_factory=lambda: [0.1, 1.0, 10.0, 100.0])
     n_boot: int = 1000
     alpha: float = 0.05
