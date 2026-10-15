@@ -4920,8 +4920,10 @@ share 0.28 [0.22, 0.35] ("MLP"). Heads: no single head of blocks 24–26 carries
   0.40 on D46's 2048 expressions, where it is skipped). The D46 probe and lens, the D47 block split and the D48 DAS
   grid (1.7B and 4B, with the exploratory extension) have run once (seed 20260916). The one sum held as a separate
   variable on 4B (S1 at read point 24) comes from the extension and is unreplicated. The 8B (D49) has run D45–D48
-  once, with both sums held at its gather; the 1.7B and 4B DAS grids at the 8B's design (20 epochs, k ≤ 32 from
-  the start) have not. The other families are not mapped.
+  once, with both sums held at its gather. Every DAS run so far used seed 20260916, which fixes the splits, the
+  demonstrations and each fit's initial subspace: rerunning 1.7B and 4B at the 8B's design on that seed would
+  reproduce the extension's k = 16 and 32 cells exactly, so the replication of the 0 / 1 / 2 count needs a second
+  seed. The other families are not mapped.
 - The weight-decayed learned vector (D43) has run once per Qwen3 Base model (seed 20260916) with one weight decay,
   one step size and one budget fixed on a CPU probe of one task; the hand-over, the source test and the geometry
   test have run on it (D44), the all-to-all trajectories (D32–D34), the composition tests (D41, D42) and OLMo 3 and
