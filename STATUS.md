@@ -4815,6 +4815,44 @@ cells that come near the criteria
   two runs were not stored: their `das_bases.npz` holds the test predictions. Later runs write the predictions to
   `das_predictions.npz` and the kept basis of every fit to `das_bases.npz`.
 
+### D49: the variable-map line on Qwen3-8B Base (seed 20260916)
+
+D45 and D46 unchanged on the 8B (job 1); D47 and DAS with the design D49 fixed before any 8B data (job 2).
+
+```
+# job 1: workflow run 38738001665 (request d49_varmap_varprobe_qwen3_8b_seed20260916), commit c8d2f26, RTX 4090
+# (ADA_24), EUR-NO-1; stages 11 s (the OLMo 3 7B cache deleted to make room), 63 and 5.8 min (about 1.35 USD);
+# determinism (a repeated swap batch, a repeated capture batch and probe) and identity swaps identical
+uv run python scripts/stages.py \
+  'uv run python scripts/volume_cleanup.py --delete-model allenai/Olmo-3-1025-7B --delete-incomplete --yes' \
+  'uv run directions varmap --config configs/varmap_qwen3_8b.yaml --run-id varmap_qwen3_8b_seed20260916' \
+  'uv run directions varprobe --config configs/varprobe_qwen3_8b.yaml --run-id varprobe_qwen3_8b_seed20260916'
+# on the download, the four models' runs side by side (symlinks of results/remote/run-38502381471/varmap_* and
+# run-38738001665/varmap_* in one directory; the same for varprobe with run-38587101804):
+uv run python scripts/varmap_summary.py <varmap dirs> --out docs/varmap/summary.json --figure docs/varmap/depth.png
+uv run python scripts/varprobe_summary.py <varprobe dirs> --out docs/varprobe/summary.json --figure docs/varprobe/depth.png
+```
+
+Figures: `docs/varmap/qwen3_8b_<task>.png`, `docs/varprobe/qwen3_8b_<task>.png` (re-rendered from the stored
+results with the gather marked), and the 8B rows of both `depth.png`.
+
+| 8B task | few-shot accuracy (D45 / D46) | gather G (fraction) | last digit read point | both-swap source answer at G | bracket swaps at the answer token before G | S1 given Y: G−1 → G → peak (read point) → L | Y probe 0.9 of final at; lens reads Y from |
+|---|---|---|---|---|---|---|---|
+| two-lane | 1.000 / 0.990 (2028) | 24 (0.67) | 23 | 0.92 | S2 0.30 at read points 22–23 (lower bound 0.19), S1 0.00 | 0.45 → 0.90 → 0.98 (27) → 0.92 | 26; 26 |
+| one-lane | 1.000 / 1.000 (574) | 24 (0.67) | 23 | 0.95 | S2 (= c) 0.55–0.59 at 22–23 (0.44–0.48), S1 0.00 | 0.25 → 0.64 → 0.95 (27) → 0.88 | 26; 25 |
+
+- **The 8B gathers where the 4B does.** Both have 36 blocks, and on both the operands are at their digit tokens to
+  read point 23 and both sub-results at the answer token from 24 on. The 8B is the most accurate model (two-lane
+  0.99 on 2048 expressions; 4B 0.97). The D44 single-control hand-over (D43 vector) is two read points later than
+  the gather on the 8B (26), at it on the 4B (24); the heads write at 23 on both.
+- **The subtrahend's digits start arriving two blocks before the gather.** At read points 22–23 the S2 swap moves
+  the answer token's answer in 0.30 of the two-lane bases and the c swap in 0.55–0.59 of the one-lane bases, short
+  of D45's "present" (lower bound ≥ 0.5) but not absent; the first bracket moves nothing there. On the 4B the same
+  swaps give 0.07. (On 1.7B and 0.6B it was the first bracket's lane that opened a block early, D47.)
+- **The sums become readable at the gather, the answer two blocks later**, as on the 4B: S1 given Y 0.45 → 0.90
+  across block 24, Y 0.32 → 0.77 → 0.98 at read points 24 → 25 → 26. The decomposition is carried to L (S1 given Y
+  0.92), so neither D46 rule 1 nor rule 2 holds.
+
 ## Not yet run / known limitations
 
 - The variable map (D45) has run once per model (Qwen3 0.6B, 1.7B, 4B Base; seed 20260916) on two expression tasks

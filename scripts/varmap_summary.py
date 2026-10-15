@@ -26,7 +26,7 @@ from directions.varmap import Expr, bootstrap_rate, prediction, reading
 N_BOOT, ALPHA, SEED = 1000, 0.05, 20260916
 # the single-control hand-over (D43 vector, median read point) and the universal heads' median write depth, from the
 # D44 entry of STATUS.md; the figure marks them beside the gather
-HANDOVER = {"qwen3_0.6b": (20, 19.0), "qwen3_1.7b": (20, 18.5), "qwen3_4b": (24, 23.0)}
+HANDOVER = {"qwen3_0.6b": (20, 19.0), "qwen3_1.7b": (20, 18.5), "qwen3_4b": (24, 23.0), "qwen3_8b": (26, 23.0)}
 
 
 def parse_expr(text: str) -> Expr:
