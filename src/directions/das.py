@@ -297,8 +297,11 @@ class DAS:
         self.metadata["timings_seconds"]["evaluate"] = round(time.time() - t0, 1)
         result = self._read(data, fits, test, init_test)
         write_json(self.root / "core" / "das.json", _jsonable(result))
-        np.savez_compressed(self.root / "core" / "das_bases.npz",
+        np.savez_compressed(self.root / "core" / "das_predictions.npz",
                             **{f"{k}__{fk}": np.asarray(v) for fk, preds in test["pred"].items() for k, v in preds.items()})
+        # the kept (best-validation) basis of every fit, (k, d) with orthonormal rows
+        np.savez_compressed(self.root / "core" / "das_bases.npz",
+                            **{f.key: f.basis(f.best).detach().cpu().numpy().astype(np.float32) for f in fits})
         if cfg.figures:
             try:
                 plot(result, self.root / "figures" / "das.png",

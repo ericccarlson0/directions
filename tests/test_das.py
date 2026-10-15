@@ -137,3 +137,10 @@ def test_toy_run_writes_the_grid(tmp_path):
     for c in r["cells"].values():
         assert c["k_star"] in cfg.ks and set(c["grid"]) == {str(k) for k in cfg.ks}
     assert (root / "figures" / "das.png").exists()
+    bases = np.load(root / "core" / "das_bases.npz")
+    for s in cfg.sites:
+        for v in cfg.variables:
+            for k in cfg.ks:
+                B = bases[f"{s}/{v}/{k}"]
+                assert B.shape[0] == k and np.allclose(B @ B.T, np.eye(k), atol=1e-5)
+    assert set(np.load(root / "core" / "das_predictions.npz").files)

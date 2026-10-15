@@ -4715,12 +4715,114 @@ Blocks G+1 and G+2: no head and no set of heads moves anything (all-heads transf
   1.7B share heads 3, 8 and 13/14 in these roles is noted, not explained). The G−3..G−1 extension was decided after
   the first run.
 
+### D48: distributed alignment search at the answer token (Qwen3 1.7B, 4B Base, seed 20260916)
+
+A fitted k-dimensional subspace of the answer token's residual swapped between a base and a source run at chosen
+read points (two-lane task). Each variable (S1, S2, Y and the digit a) gets one fit per k, trained toward the
+hypothesis' answer. Held-out bases score it by Cause (the answer follows the hypothesis) and Isolate (the answer
+stays Y under sources that should not move it). Held = Cause lower bound ≥ 0.5 and Isolate lower bound ≥ 0.75 at
+k*, the smallest k within 0.05 of the best validation Cause. The preregistered run: k ∈ {1, 2, 4, 8, 16}, 6
+epochs. An exploratory extension (D48, decided after that run): k ∈ {16, 32, 64}, 20 epochs, the sites where the
+sums are readable and each control.
+
+```
+# workflow run 38664560239 (request d48_das_qwen3_1.7b_4b_seed20260916), commit c2a33e0, RTX 4090 (ADA_24), EUR-NO-1;
+# stages 27 and 56 min (about 1.6 USD); extension run 38672212264 (request d48_das_long_qwen3_1.7b_4b_seed20260916),
+# commit eb0a80c, stages 38 and 85 min (about 2.3 USD); determinism (a repeated test evaluation, a fit trained twice
+# for two steps) identical in all four stages
+uv run python scripts/stages.py \
+  'uv run directions das --config configs/das_qwen3_1.7b.yaml --run-id das_qwen3_1.7b_seed20260916' \
+  'uv run directions das --config configs/das_qwen3_4b.yaml --run-id das_qwen3_4b_seed20260916'
+uv run python scripts/stages.py \
+  'uv run directions das --config configs/das_long_qwen3_1.7b.yaml --run-id das_long_qwen3_1.7b_seed20260916' \
+  'uv run directions das --config configs/das_long_qwen3_4b.yaml --run-id das_long_qwen3_4b_seed20260916'
+# on the downloads (scripts/runpod_log.py <run> --download results/remote/run-<run>):
+uv run python scripts/das_summary.py results/remote/run-38664560239 --out docs/das/summary.json
+uv run python scripts/das_summary.py results/remote/run-38672212264 --out docs/das/summary_long.json
+```
+
+Figures: `docs/das/qwen3_<size>.png` (the preregistered grid, Cause against k), `docs/das/long_qwen3_<size>.png`
+(the extension). Kept for the Cause pairs (base answered in both passes, source answered): 1.7B 754 / 123 / 274 of
+1536 / 256 / 512 (train / validation / test); 4B 1456 / 243 / 488.
+
+**The preregistered run** (k ≤ 16, 6 epochs): Y at k* with its test Cause [95% bootstrap], Isolate (lower bound),
+k* and Y's linear decodability from the projection onto the fitted subspace (chance 0.14–0.16); for S1, S2 and a the
+best test Cause over k
+
+| model, read point | Y | S1 | S2 | a | held |
+|---|---|---|---|---|---|
+| 1.7B 19 (control) | 0.14, Iso 0.88, k 1 | 0.15 | 0.19 | 0.12 | – |
+| 1.7B 21 (operands in) | 0.39 [0.34, 0.45], Iso 0.58 (0.52), k 16, dec 0.26 | 0.23 | 0.22 | 0.14 | – |
+| 1.7B 22 (after the adding MLP) | 0.54 [0.48, 0.61], Iso 0.73 (0.68), k 16, dec 0.30 | 0.10 | 0.15 | 0.13 | – |
+| 1.7B 23 | 0.59 [0.53, 0.65], Iso 0.72 (0.67), k 16, dec 0.45 | 0.14 | 0.14 | 0.14 | – |
+| 1.7B 24 | 0.79 [0.74, 0.84], Iso 0.88 (0.84), k 16, dec 0.64 | 0.12 | 0.12 | 0.12 | Y |
+| 1.7B 28 (end) | 0.91 [0.87, 0.94], Iso 0.92 (0.88), k 8, dec 0.90 | 0.06 | 0.08 | 0.07 | Y |
+| 4B 22 (control) | 0.04, Iso 0.91, k 1 | 0.10 | 0.12 | 0.09 | – |
+| 4B 24 (after the gather block) | 0.80 [0.77, 0.84], Iso 0.90 (0.87), k 16, dec 0.24 | 0.17 | 0.12 | 0.09 | Y |
+| 4B 25 | 0.83 [0.80, 0.86], Iso 0.92 (0.90), k 16, dec 0.56 | 0.09 | 0.09 | 0.08 | Y |
+| 4B 26 | 0.89 [0.86, 0.92], Iso 0.98 (0.97), k 8, dec 0.91 | 0.10 | 0.11 | 0.09 | Y |
+| 4B 36 (end) | 1.00 [0.99, 1.00], Iso 1.00, k 8, dec 1.00 | 0.03 | 0.03 | 0.03 | Y |
+
+(Shuffled-target nulls at k = 16: S1, S2 and a 0.00–0.12; Y 0.03–0.20, except at the end, 0.38 on 1.7B and 0.50
+on 4B, where a fit trained on shuffled targets still lands in the answer subspace. The untrained subspace's Cause is
+0.00–0.01 in every cell.)
+
+**The extension** (k ∈ {16, 32, 64}, 20 epochs): test Cause at k* (Isolate lower bound); 95% intervals for the
+cells that come near the criteria
+
+| model, read point | S1 | S2 | Y | a | held |
+|---|---|---|---|---|---|
+| 1.7B 19 (control) | 0.18 (0.53) | 0.22 (0.48) | 0.19 (0.50) | 0.15 (0.54) | – |
+| 1.7B 21 | 0.31 [0.25, 0.36] (0.58) | 0.34 [0.28, 0.39] (0.52) | 0.55 [0.49, 0.61] (0.54) | 0.19 (0.49) | – |
+| 1.7B 22 | 0.14 (0.49) | 0.17 (0.44) | 0.74 [0.69, 0.79] (0.69), k 64 | 0.13 (0.48) | – |
+| 1.7B 23 | 0.12 (0.43) | 0.14 (0.32) | 0.77 [0.72, 0.81] (0.747), k 64 | 0.14 (0.44) | – |
+| 4B 22 (control) | 0.09 (0.54) | 0.18 (0.64) | 0.09 (0.57) | 0.09 (0.59) | – |
+| 4B 24 | **0.70 [0.66, 0.74] (0.87)**, k 16, dec 0.28 (0.12) | 0.15 (0.54); 0.27 at k 64 | 0.91 [0.89, 0.93] (0.93), k 16, dec 0.24 | 0.12 (0.56), dec 0.96 | S1, Y |
+| 4B 25 | 0.15 (0.65) | 0.14 (0.53) | 0.88 [0.85, 0.91] (0.91), k 16, dec 0.54 | 0.10 (0.54) | Y |
+
+(Shuffled-target nulls at k = 64: 0.05–0.16. The untrained subspace's Cause 0.00–0.01.)
+
+- **The answer is held as its own variable from the gather (4B) or three blocks after it (1.7B) on; the sums
+  mostly are not.** In the preregistered run Y is held from read point 24 on both models; S1, S2 and a are held
+  nowhere (best Cause 0.03–0.23 against nulls of 0.00–0.12).
+- **On 4B the first sum is a variable at the gather, for one block.** With 20 epochs, S1 at read point 24 (after
+  block 24, where attention brings the operands and the MLP starts the adding, D47): Cause 0.70 [0.66, 0.74] at
+  k = 16, Isolate 0.92 (a source changing only S2: 0.94; one with the same S1 and other digits: 0.90). The digit a
+  is not swappable there (0.12–0.15) though it decodes from its fitted subspace at 0.96. So the first bracket is
+  used as a unit, not digit by digit; in D48's reading, a sum has replaced the digits. One block later it is gone
+  (read point 25: 0.13–0.15), where Y forms (D47: block 25's MLP). The preregistered run's negative for this cell
+  was the training budget: at k = 16 the fit's validation Cause stays below 0.2 for six epochs, then rises (0.43 at
+  epoch 9, 0.64 at 18).
+- **The second sum is never a variable.** 4B: at most 0.27 (k = 64, still rising slowly); 1.7B: at most 0.37. On
+  4B this matches D47: block 24's heads deliver 0.67 of the first bracket and 0.36 of the second, and the rest of
+  the second is in no head's output from G−3 to G+2. The minuend is assembled into one variable at the answer
+  token; the subtrahend is not.
+- **1.7B holds no sum at any k ≤ 64.** S1 and S2 reach 0.31–0.37 at read point 21 (nulls 0.10–0.11, Isolate lower
+  bounds 0.52–0.58). After block 22's adding MLP, where D46 and D47 see the sum become readable, they fall to
+  0.12–0.22. Y at read points 22–23 falls just short (Cause 0.74–0.77, Isolate lower bounds 0.69 and 0.747).
+- **What "Y held" means before the answer is readable.** The same-Y Isolate test cannot tell Y from a code of both
+  sums: a source with the same Y and other sums gives Y either way. This is the flaw D48 corrected for the same-sum
+  test. Where the Y subspace does not decode Y (4B read point 24: 0.24 against 0.14; 1.7B 21–23: 0.26–0.51), "Y
+  held" says that a subspace carries what determines the answer, not that Y has been computed. Y decodes from its
+  subspace at 0.90–1.00 from 1.7B read point 28 and 4B read point 26 on. 4B's count of 2 at read point 24 is
+  therefore S1 plus the answer-determining content, not two sub-results.
+- **Checks.** The control sites hold nothing in either run; at k = 64 their best Cause rises to 0.18–0.24, the
+  floor of the fit's flexibility. S1's held subspace at 4B read point 24 decodes S1 at only 0.28 (chance 0.12). That
+  fits a code the next block reads as a sum without a linear readout (a digit-pair code, say), or an illusion of
+  the Makelov et al. kind (a swap that works through a direction the model does not use naturally). The Isolate
+  scores rule out a non-specific effect, not the second.
+- **Limits.** One seed. The 4B S1 result comes from the extension, which is exploratory. The fitted bases of these
+  two runs were not stored: their `das_bases.npz` holds the test predictions. Later runs write the predictions to
+  `das_predictions.npz` and the kept basis of every fit to `das_bases.npz`.
+
 ## Not yet run / known limitations
 
 - The variable map (D45) has run once per model (Qwen3 0.6B, 1.7B, 4B Base; seed 20260916) on two expression tasks
   with whole-vector swaps only. The 0.6B two-lane map rests on 13–22 bases per swap type (few-shot accuracy 0.52;
-  0.40 on D46's 2048 expressions, where it is skipped). The D46 probe and lens and the D47 block split have run once
-  (seed 20260916). The 8B and the other families are not mapped; the subspace (DAS) step is not built.
+  0.40 on D46's 2048 expressions, where it is skipped). The D46 probe and lens, the D47 block split and the D48 DAS
+  grid (1.7B and 4B, with the exploratory extension) have run once (seed 20260916). The one sum held as a separate
+  variable (S1 at 4B read point 24) comes from the extension and is unreplicated. The 8B and the other families are
+  not mapped.
 - The weight-decayed learned vector (D43) has run once per Qwen3 Base model (seed 20260916) with one weight decay,
   one step size and one budget fixed on a CPU probe of one task; the hand-over, the source test and the geometry
   test have run on it (D44), the all-to-all trajectories (D32–D34), the composition tests (D41, D42) and OLMo 3 and
@@ -4855,7 +4957,7 @@ Blocks G+1 and G+2: no head and no set of heads moves anything (all-heads transf
 ## Next commands
 
 ```bash
-uv run pytest                                                           # 246 tests (the trajectories smoke run covers D32–D34; the backend tests run on the three toy families, D35)
+uv run pytest                                                           # 344 tests (the trajectories smoke run covers D32–D34; the backend tests run on the three toy families, D35)
 # GPU runs: edit .github/gpu-run.yaml (command + a new `request` label), commit, push; the run-gpu
 # workflow triggers on the push (README, "Run on GPUs"). One run per push; the ci environment runs
 # them one at a time (8B goes through the ci-8b environment in US-CA-2). Then:
@@ -4873,6 +4975,11 @@ uv run python scripts/stages.py 'uv run directions varsplit --config configs/var
 uv run python scripts/stages.py 'uv run directions varsplit --config configs/varsplit_pre_qwen3_0.6b.yaml --run-id varsplit_pre_qwen3_0.6b_seed20260916' 'uv run directions varsplit --config configs/varsplit_pre_qwen3_1.7b.yaml --run-id varsplit_pre_qwen3_1.7b_seed20260916' 'uv run directions varsplit --config configs/varsplit_pre_qwen3_4b.yaml --run-id varsplit_pre_qwen3_4b_seed20260916'
 uv run python scripts/varsplit_summary.py results/remote/run-38654038341 --out docs/varsplit/summary.json --figures docs/varsplit
 uv run python scripts/varsplit_summary.py results/remote/run-38655900367 --out docs/varsplit/summary_pre.json --figures docs/varsplit
+# D48, DAS at the answer token (run 38664560239) and its exploratory extension (run 38672212264), then the summaries:
+uv run python scripts/stages.py 'uv run directions das --config configs/das_qwen3_1.7b.yaml --run-id das_qwen3_1.7b_seed20260916' 'uv run directions das --config configs/das_qwen3_4b.yaml --run-id das_qwen3_4b_seed20260916'
+uv run python scripts/stages.py 'uv run directions das --config configs/das_long_qwen3_1.7b.yaml --run-id das_long_qwen3_1.7b_seed20260916' 'uv run directions das --config configs/das_long_qwen3_4b.yaml --run-id das_long_qwen3_4b_seed20260916'
+uv run python scripts/das_summary.py results/remote/run-38664560239 --out docs/das/summary.json
+uv run python scripts/das_summary.py results/remote/run-38672212264 --out docs/das/summary_long.json
 # iteration 10 (D33 amended: quarter strength, the neighbouring candidate layers, the patch test at every compared
 # layer on eighths of the depth for the learned and the head-mean vector, per-block writing), on a second seed,
 # as run (workflow runs in the iteration-10 entry): first the learned-vector protocol (D31) at seed 20260916 on

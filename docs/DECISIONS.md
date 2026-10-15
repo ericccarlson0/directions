@@ -3046,3 +3046,18 @@ Decision (the first map; exploratory):
   - 20 epochs;
   - `configs/das_long_qwen3_*.yaml`, otherwise the D48 settings and reading.
   The extension is not pre-registered.
+* **Outcome (2026-10-15; STATUS, D48).** Preregistered run 38664560239: Y is held from read point 24 on both models.
+  S1, S2 and a are held nowhere (best Cause 0.03–0.23 against nulls of 0.00–0.12), and the control sites are clean.
+  The extension (run 38672212264, exploratory) holds S1 at 4B read point 24: Cause 0.70 [0.66, 0.74] at k = 16,
+  Isolate 0.92 (lower bound 0.87). There a is not held (0.12–0.15) though decodable from its subspace (0.96), and
+  S1 is gone one block later. S2 is held nowhere (≤ 0.27 on 4B, ≤ 0.37 on 1.7B), and 1.7B holds no sum at any
+  k ≤ 64. The preregistered negative for 4B's S1 was the training budget (the k = 16 fit rises only after epoch 6).
+  Two readings are amended:
+  - the same-Y Isolate test has the flaw corrected above for the same-sum test: a subspace holding both sums also
+    passes it. So "Y held" means the answer-determining content where Y does not decode from the subspace (4B read
+    point 24: 0.24 against 0.14), and Y itself only where it does (≥ 0.9 from 1.7B read point 28 and 4B read point
+    26 on). The count at 4B read point 24 (S1 and Y) is read accordingly;
+  - S1's held subspace decodes S1 at only 0.28 (chance 0.12). A nonlinear code and a Makelov-type illusion both fit
+    this, and the run cannot separate them.
+  The stage now stores each fit's kept basis (`das_bases.npz`; the test predictions move to `das_predictions.npz`).
+  The two runs above stored only the predictions, under the old name.
