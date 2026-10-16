@@ -1,11 +1,11 @@
 # Request a GPU run: change this file, commit, push. The run-gpu workflow triggers on every push that changes
 # this file and runs `command` at the repository root on a RunPod worker. To re-request an identical command,
 # there needs to be a new `request` label. A manual workflow_dispatch ignores this file.
-request: d51_map_three_qwen3_1.7b_4b_seed20260916 # note that a new label re-requests the same command
-command: uv run python scripts/stages.py 'uv run directions varmap --config configs/varmap_three_qwen3_1.7b.yaml --run-id varmap_three_qwen3_1.7b_seed20260916' 'uv run directions varmap --config configs/varmap_three_qwen3_4b.yaml --run-id varmap_three_qwen3_4b_seed20260916' 'uv run directions varprobe --config configs/varprobe_three_qwen3_1.7b.yaml --run-id varprobe_three_qwen3_1.7b_seed20260916' 'uv run directions varprobe --config configs/varprobe_three_qwen3_4b.yaml --run-id varprobe_three_qwen3_4b_seed20260916'
-gpu_tier: ADA_24          # memory class ("tier")
+request: d51_map_three_qwen3_14b_seed20260916 # note that a new label re-requests the same command
+command: uv run python scripts/stages.py 'uv run directions varmap --config configs/varmap_three_qwen3_14b.yaml --run-id varmap_three_qwen3_14b_seed20260916' 'uv run directions varprobe --config configs/varprobe_three_qwen3_14b.yaml --run-id varprobe_three_qwen3_14b_seed20260916'
+gpu_tier: ADA_80_PRO          # memory class ("tier")
 gpu_type: ""              # exact device name to pin instead of the tier, e.g. "NVIDIA RTX A4500"
-datacenter: EUR-NO-1      # data center of the `directions` network volume
-flash_env: ci-b             # Flash environment; one run at a time per environment
-timeout_minutes: 200
+datacenter: US-CA-2      # data center of the `directions` network volume
+flash_env: ci-8b             # Flash environment; one run at a time per environment
+timeout_minutes: 150
 max_output_mb: 32
