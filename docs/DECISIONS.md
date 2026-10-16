@@ -3197,3 +3197,17 @@ Decision (the first map; exploratory):
   map, probe, block split and DAS state captures run at batch 64. The batch only groups prompts for the forward
   pass. The 1.7B's three-bracket
   few-shot accuracy is 0.27 on the D45 bases (run 38934415363), below the gate: it is skipped, as fixed above.
+* **Outcome (2026-10-16; STATUS, D51).**
+  - **Count.** No sum is held at G3 on the 4B, 8B or 14B, so the count is 0 on each (two brackets: 1, 2, 0).
+    The 1.7B is skipped.
+  - **Sums.** The first sum comes closest at G3 on every model: Cause 0.25–0.36, about half the whole-state
+    ceiling on the 4B and 8B and a third on the 14B. The second and third sums stay near their nulls.
+  - **Merge order.** Neither T nor U is held anywhere, so the merge order is reported as neither. U's Cause
+    exceeds T's at every site, but its subspace fails Isolate on sources that change only S1. The lens reads T
+    and not U. Neither is a merge.
+  - **What G3 holds.** The answer token carries a joint code of the sums: Y's subspace transplants the answer
+    nearly to the ceiling on the 4B, fails same-Y Isolate and does not decode Y. Y is held at F, or one site
+    before it.
+  - **Ceiling.** The whole-state ceiling at G3 is 0.66–0.75 (two brackets: 0.92–0.94 on the 4B and 8B), so the
+    absolute held criterion is stricter here relative to what a subspace can reach. This is recorded as a limit,
+    not changed after the fact.

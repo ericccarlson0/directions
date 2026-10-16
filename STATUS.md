@@ -5064,8 +5064,107 @@ at the control read point move the answer in at most 0.02 of the bases on 4B and
   after the gather. (Each candidate is counted only where it is a single digit: about 1100 bases for T and 630
   for U, of about 1700.)
 
-**Job 2: the block split and DAS on the 4B, 8B and 14B.** Running (workflow runs 38943185906, 38948683390 and
-38941017556).
+**Job 2: the block split and DAS on the 4B, 8B and 14B**
+
+```
+# workflow runs
+#   38943185906: request d51_split_das_qwen3_4b_seed20260916, commit e201a29, RTX 4090 (ADA_24), EUR-NO-1, ci-b;
+#     stages 14 and 175 min (about 3.5 USD)
+#   38948683390: request d51_split_das_qwen3_8b_seed20260916, commit 01029af, RTX 4090, ci; stages 19 and 177 min
+#     (about 3.6 USD; block split and state captures at batch 64)
+#   38941017556: request d51_split_das_qwen3_14b_seed20260916, commit d04a319, H100 80GB HBM3 (ADA_80_PRO),
+#     US-CA-2, ci-8b; stages 10 and 94 min (about 8.4 USD)
+# about 15.5 USD (D51 in all about 22.5 USD); determinism (a repeated capture, no-op patch and head patch; a repeated
+# evaluation and a fit trained twice for two steps) identical in every stage
+uv run python scripts/stages.py \
+  'uv run directions varsplit --config configs/varsplit_three_qwen3_4b.yaml --run-id varsplit_three_qwen3_4b_seed20260916' \
+  'uv run directions das --config configs/das_d51_qwen3_4b.yaml --run-id das_d51_qwen3_4b_seed20260916'
+# the 8B and the 14B: the same with configs/varsplit_three_qwen3_<size>.yaml and das_d51_qwen3_<size>.yaml
+# on each download (scripts/runpod_log.py <run> [--datacenter US-CA-2] --download results/remote/run-<run>):
+uv run python scripts/varsplit_summary.py results/remote/run-<run> --out docs/varsplit/summary_three_<size>.json --figures docs/varsplit
+uv run python scripts/das_summary.py <a directory holding only the das_d51 run> --out docs/das/summary_three_<size>.json
+```
+
+Figures: `docs/varsplit/qwen3_<size>_three_lane.png`, `docs/das/d51_qwen3_<size>.png`. The DAS figures were
+re-rendered from each run's `das.json` with the layout widened for seven variables; the run-time figures overlap.
+DAS kept 1070 / 172 / 362 Cause pairs (train / validation / test) on the 4B, 1041 / 177 / 348 on the 8B and
+1005 / 168 / 338 on the 14B.
+
+Each cell gives test Cause at k*, with the Isolate lower bound in parentheses. For Y: the 95% interval, k*, and Y's
+decodability from its subspace (chance 0.23–0.25).
+
+| model, read point | S1 | S2 | S3 | T = S1 − S2 | U = S2 + S3 | Y | held |
+|---|---|---|---|---|---|---|---|
+| 4B 21 (control) | 0.14 (0.71) | 0.13 (0.65) | 0.12 (0.76) | 0.03 (0.69) | 0.12 (0.71) | 0.06 (0.53) | – |
+| 4B 24 (G3) | 0.36 [0.31, 0.41] (0.54) | 0.15 (0.43) | 0.14 (0.40) | 0.16 (0.37) | 0.25 (0.30) | 0.73 [0.68, 0.77] (0.52), k 64, dec 0.31 | – |
+| 4B 25 | 0.25 (0.56) | 0.16 (0.43) | 0.13 (0.50) | 0.14 (0.44) | 0.29 (0.48) | 0.78 [0.74, 0.83] (0.68), k 32, dec 0.37 | – |
+| 4B 26 | 0.27 (0.63) | 0.15 (0.43) | 0.17 (0.49) | 0.15 (0.49) | 0.28 (0.39) | 0.88 [0.85, 0.91] (0.80), k 16, dec 0.71 | Y |
+| 4B 27 (F) | 0.24 (0.61) | 0.17 (0.42) | 0.18 (0.47) | 0.16 (0.49) | 0.29 (0.45) | 0.89 [0.85, 0.92] (0.82), k 16, dec 0.71 | Y |
+| 8B 21 (control) | 0.16 (0.79) | 0.16 (0.63) | 0.16 (0.60) | 0.07 (0.57) | 0.13 (0.68) | 0.05 (0.51) | – |
+| 8B 24 (G3) | 0.34 [0.30, 0.39] (0.53) | 0.19 (0.42) | 0.16 (0.41) | 0.14 (0.38) | 0.31 (0.37) | 0.58 [0.53, 0.63] (0.43), k 64, dec 0.30 | – |
+| 8B 25 | 0.29 (0.56) | 0.14 (0.53) | 0.15 (0.43) | 0.18 (0.52) | 0.30 (0.48) | 0.78 [0.74, 0.82] (0.61), k 64, dec 0.35 | – |
+| 8B 26 | 0.26 (0.61) | 0.18 (0.52) | 0.18 (0.52) | 0.18 (0.51) | 0.33 (0.50) | 0.85 [0.81, 0.89] (0.72), k 32, dec 0.73 | – |
+| 8B 27 (F) | 0.25 (0.58) | 0.20 (0.53) | 0.15 (0.55) | 0.19 (0.53) | 0.26 (0.47) | 0.89 [0.85, 0.92] (0.76), k 16, dec 0.72 | Y |
+| 14B 27 (control) | 0.18 (0.59) | 0.14 (0.68) | 0.15 (0.63) | 0.12 (0.58) | 0.18 (0.69) | 0.19 (0.65) | – |
+| 14B 30 (G3) | 0.25 [0.21, 0.30] (0.61) | 0.13 (0.54) | 0.17 (0.52) | 0.18 (0.44) | 0.25 (0.53) | 0.51 [0.45, 0.56] (0.51), k 32, dec 0.28 | – |
+| 14B 31 | 0.22 (0.61) | 0.15 (0.51) | 0.15 (0.48) | 0.17 (0.46) | 0.26 (0.44) | 0.49 [0.43, 0.55] (0.51), k 16, dec 0.26 | – |
+| 14B 33 | 0.19 (0.57) | 0.17 (0.51) | 0.11 (0.52) | 0.15 (0.53) | 0.23 (0.60) | 0.66 [0.61, 0.71] (0.68), k 16, dec 0.52 | – |
+| 14B 35 (F) | 0.17 (0.57) | 0.14 (0.52) | 0.13 (0.55) | 0.18 (0.57) | 0.20 (0.51) | 0.90 [0.87, 0.93] (0.83), k 16, dec 0.79 | Y |
+
+Notes on the table:
+- Shuffled-target nulls at k = 64 are 0.04–0.14 for the sums, T, U and a, and 0.02–0.25 for Y. The untrained
+  subspace scores 0.00–0.01.
+- The digit a is held nowhere: Cause 0.14–0.28, though it decodes from its subspace at 0.41–0.88.
+- The ceiling a subspace at the answer token can reach is about the whole-state swap of job 1: 0.72, 0.66 and
+  0.75 at G3.
+
+Block split (D47) on three brackets:
+- **4B.** S1 given Y rises across block 24 (0.50 → 0.87; attention's share 0.52 [0.48, 0.57], reading "mixed").
+  Y forms in the MLPs of blocks 25 and 26 (0.35 → 0.48 → 0.84). Block 24's heads together deliver 0.84 of the
+  first bracket, 0.57 of the third and 0.34 of the second. Heads 4 and 31 each carry the first bracket alone;
+  head 7 carries the third, not alone; no head carries the second.
+- **8B.** The same block, here attention-led: S1 given Y goes 0.57 → 0.88, with attention's share 0.64 [0.60,
+  0.69]. Y forms in the MLPs of blocks 25 and 26 (0.36 → 0.53 → 0.86). Head 4 carries the first bracket alone
+  (0.69 from all heads). The second and third brackets come partly before block 24 (job 1); block 24's heads
+  add 0.17 and 0.22 of them.
+- **14B.** No block steps: S1 given Y goes 0.85 → 0.94 over read points 28–30. Y forms in block 33's MLP (0.52 →
+  0.73; attention 0.02). Block 30's heads deliver 0.42 of the second bracket and 0.45 of the third, both through
+  head 11 (on two brackets, the head that carried the second bracket alone, D50), and 0.17 of the first.
+
+Findings:
+- **No model holds a sum at its gather: the count is 0 on the 4B, 8B and 14B.** On two brackets it was 1, 2 and
+  0. The first sum comes closest at G3 on every model: Cause 0.36, 0.34 and 0.25, Isolate lower bounds 0.53–0.61.
+  On the 4B and 8B that is about half the whole-state ceiling; on two brackets the held S1 reached three
+  quarters of it. On the 14B it is a third. S2 and S3 stay at 0.11–0.20 at every site, against nulls of
+  0.04–0.14.
+- **At G3 the answer token holds a joint code of the sums, not separate sums.** On the 4B, a 64-dimensional
+  subspace transplants the answer as well as the whole state does (Y's Cause 0.73 against 0.72). But a
+  same-Y source with other sums changes its answer in about half the bases (Isolate lower bound 0.52), and Y
+  does not decode from it (0.31). So it carries what fixes the answer, not Y, and no single sum can be swapped
+  out of it. The 8B and 14B read the same way, at 0.58 and 0.51 against their ceilings of 0.66 and 0.75. Y
+  becomes a variable of its own two to five blocks later.
+- **The merge order is not determined: neither T nor U is held anywhere.** D51's reading reports this as
+  "neither". Descriptively, U's Cause is above T's at every site from G3 on, in every model (0.20–0.33 against
+  0.14–0.19; nulls 0.06–0.14 for both). But U fails Isolate everywhere. Swapping U's subspace from a source that changes only S1
+  leaves the answer unchanged in only 0.34–0.65 of the bases, so that subspace carries part of the answer, not U. The
+  lens hint of job 1 points the other way, to T. Neither is a merge.
+- **Y is held at F, or one site before it.** On the 4B from read point 26 (F = 27). On the 8B at 27 = F; at 26
+  it misses on Isolate (lower bound 0.72). On the 14B at 35 = F; at 33, Cause 0.66 and Isolate lower bound 0.68.
+  Where held, Y decodes from its subspace at 0.71–0.79.
+- **The first bracket enters as a unit; the subtrahends do not.** On the 4B and 8B, block 24's attention brings
+  the first bracket through heads that carry nothing else. The second and third have no head of their own; on
+  the 14B one head brings both. The DAS agrees: S1 is the only sum whose Cause is well above its null.
+- **The subspace overlaps do not separate the variables here.** The fitted subspaces' pairwise shares are
+  0.07–0.36, against 0.003–0.025 by chance, at every site. They are as large at the controls (0.12–0.36), where
+  nothing is held, as at G3. The fits share directions whatever they hold.
+- **Limits.**
+  - One seed. The 1.7B is skipped.
+  - At G3 the whole-state ceiling is 0.66–0.75. D48's absolute criterion (Cause lower bound ≥ 0.5) then asks
+    for about 0.7–0.8 of what a subspace can reach there; on two brackets (4B, 8B) it asked for about 0.6.
+  - S1's Cause at G3 still rose with k on the 4B (0.31, 0.36, 0.39 at k = 16, 32, 64), but not on the 8B (0.34,
+    0.38, 0.35) or the 14B (0.25, 0.24, 0.25).
+  - The DAS looks at the answer token only. On three brackets, a quarter to a third of the bases are answered
+    from state held elsewhere, and a joint subspace across positions is not part of D51.
 
 ## Not yet run / known limitations
 
@@ -5078,7 +5177,9 @@ at the control read point move the answer in at most 0.02 of the bases on 4B and
   demonstrations and each fit's initial subspace: rerunning 1.7B and 4B at the 8B's design on that seed would
   reproduce the extension's k = 16 and 32 cells exactly, so the replication of the 0 / 1 / 2 count needs a second
   seed (not planned: later tasks test the count again). The 14B (D50) has run D45–D48 once, on an H100; it holds
-  no sum at its gather. The other families are not mapped.
+  no sum at its gather. The three-bracket task (D51) has run once on the 4B, 8B and 14B (the 1.7B is below the
+  accuracy gate): no model holds a sum at its gather, and the merge order is undetermined (neither T nor U is
+  held). The other families are not mapped.
 - The weight-decayed learned vector (D43) has run once per Qwen3 Base model (seed 20260916) with one weight decay,
   one step size and one budget fixed on a CPU probe of one task; the hand-over, the source test and the geometry
   test have run on it (D44), the all-to-all trajectories (D32–D34), the composition tests (D41, D42) and OLMo 3 and
@@ -5213,7 +5314,7 @@ at the control read point move the answer in at most 0.02 of the bases on 4B and
 ## Next commands
 
 ```bash
-uv run pytest                                                           # 344 tests (the trajectories smoke run covers D32–D34; the backend tests run on the three toy families, D35)
+uv run pytest                                                           # 360 tests (the trajectories smoke run covers D32–D34; the backend tests run on the three toy families, D35)
 # GPU runs: edit .github/gpu-run.yaml (command + a new `request` label), commit, push; the run-gpu
 # workflow triggers on the push (README, "Run on GPUs"). One run per push; the ci environment runs
 # them one at a time (8B goes through the ci-8b environment in US-CA-2). Then:
@@ -5242,6 +5343,15 @@ uv run python scripts/stages.py 'uv run directions varsplit --config configs/var
 # D50, the 14B on an H100 in US-CA-2 (gpu_tier ADA_80_PRO, datacenter US-CA-2, flash_env ci-8b): job 1 (run 38913588733), job 2 (run 38918531708):
 uv run python scripts/stages.py 'uv run python scripts/volume_cleanup.py --delete-model google/gemma-4-12B --delete-model Qwen/Qwen3-8B-Base --delete-incomplete --yes' 'uv run directions varmap --config configs/varmap_qwen3_14b.yaml --run-id varmap_qwen3_14b_seed20260916' 'uv run directions varprobe --config configs/varprobe_qwen3_14b.yaml --run-id varprobe_qwen3_14b_seed20260916'
 uv run python scripts/stages.py 'uv run directions varsplit --config configs/varsplit_qwen3_14b.yaml --run-id varsplit_qwen3_14b_seed20260916' 'uv run directions das --config configs/das_d50_qwen3_14b.yaml --run-id das_d50_qwen3_14b_seed20260916'
+# D51, three brackets: job 1 (runs 38934415363 for the 1.7B and 4B, 38934932951 for the 8B, 38934471957 for the 14B
+# on an H100 in US-CA-2), then the sites per model; job 2 (runs 38943185906, 38948683390, 38941017556):
+uv run python scripts/stages.py 'uv run directions varmap --config configs/varmap_three_qwen3_1.7b.yaml --run-id varmap_three_qwen3_1.7b_seed20260916' 'uv run directions varmap --config configs/varmap_three_qwen3_4b.yaml --run-id varmap_three_qwen3_4b_seed20260916' 'uv run directions varprobe --config configs/varprobe_three_qwen3_1.7b.yaml --run-id varprobe_three_qwen3_1.7b_seed20260916' 'uv run directions varprobe --config configs/varprobe_three_qwen3_4b.yaml --run-id varprobe_three_qwen3_4b_seed20260916'
+uv run python scripts/stages.py 'uv run directions varmap --config configs/varmap_three_qwen3_8b.yaml --run-id varmap_three_qwen3_8b_seed20260916' 'uv run directions varprobe --config configs/varprobe_three_qwen3_8b.yaml --run-id varprobe_three_qwen3_8b_seed20260916'
+uv run python scripts/stages.py 'uv run directions varmap --config configs/varmap_three_qwen3_14b.yaml --run-id varmap_three_qwen3_14b_seed20260916' 'uv run directions varprobe --config configs/varprobe_three_qwen3_14b.yaml --run-id varprobe_three_qwen3_14b_seed20260916'
+uv run python scripts/d51_sites.py results/remote/run-38934415363 results/remote/run-38934932951 results/remote/run-38934471957
+uv run python scripts/stages.py 'uv run directions varsplit --config configs/varsplit_three_qwen3_4b.yaml --run-id varsplit_three_qwen3_4b_seed20260916' 'uv run directions das --config configs/das_d51_qwen3_4b.yaml --run-id das_d51_qwen3_4b_seed20260916'
+uv run python scripts/stages.py 'uv run directions varsplit --config configs/varsplit_three_qwen3_8b.yaml --run-id varsplit_three_qwen3_8b_seed20260916' 'uv run directions das --config configs/das_d51_qwen3_8b.yaml --run-id das_d51_qwen3_8b_seed20260916'
+uv run python scripts/stages.py 'uv run directions varsplit --config configs/varsplit_three_qwen3_14b.yaml --run-id varsplit_three_qwen3_14b_seed20260916' 'uv run directions das --config configs/das_d51_qwen3_14b.yaml --run-id das_d51_qwen3_14b_seed20260916'
 # iteration 10 (D33 amended: quarter strength, the neighbouring candidate layers, the patch test at every compared
 # layer on eighths of the depth for the learned and the head-mean vector, per-block writing), on a second seed,
 # as run (workflow runs in the iteration-10 entry): first the learned-vector protocol (D31) at seed 20260916 on
