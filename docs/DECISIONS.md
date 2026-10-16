@@ -3103,3 +3103,27 @@ Decision (the first map; exploratory):
   separately held sums at the gather is 0, 1 and 2 on 1.7B, 4B (exploratory) and 8B. The stored bases give the
   descriptive overlaps: the two sum subspaces mostly distinct (17% shared against 0.8% at random), 37% of the Y
   subspace inside their span. S2's k* is the grid's top (k = 32).
+
+## 2026-10-16 — The variable-map line on Qwen3-14B Base
+
+### D50. D45–D47 and the D49 DAS design on the 14B, two-bracket task
+
+* **Why.** The count of sums held separately at the gather is 0, 1 and 2 on 1.7B, 4B and 8B (D48, D49). The
+  14B is the next size of the family. On this task the count cannot exceed 2, so the 14B tests whether the 8B's two
+  held sums persist at the next size (and how firmly), and gives the baseline for a later three-bracket task.
+  No further seeds are run on this task; later tasks are where the count is tested again.
+* **Unchanged protocols.** Job 1: D45 and D46 (`configs/varmap_qwen3_14b.yaml`, `configs/varprobe_qwen3_14b.yaml`,
+  equal to the 4B and 8B files but for the model). Job 2, written once G is known: D47 with split blocks G−1..G+3
+  and head blocks G..G+2; DAS with D49's design (sites G, G+1, G+2 and a control; S1, S2, Y, a; k ∈ {8, 16, 32},
+  null at k = 32; 20 epochs; D48's reading and amendments; the overlaps from the stored bases).
+* **The control site, as a rule.** D49 chose G−2 unless the bracket swaps already move the answer there. Stated
+  as a threshold, from the 4B and 8B cases (4B at G−2: 0.02 and 0.07, kept; 8B at G−2: 0.30, moved to G−3 at 0.00):
+  the control is the latest read point at or below G−2 at which both bracket swaps (S1 and S2, two-lane, D45)
+  change the answer token's answer in at most 0.10 of the bases.
+* **The card.** Qwen3-14B Base is about 29.5 GB in bf16, about 37 GB with the 25 % allowance, so the 48 GB tier.
+  No 48 GB worker has ever been assigned in the data centers a run can use (an `ADA_48_PRO` request in EUR-NO-1
+  stayed queued for 340 min, docs/INFRA.md). The runs use the next tier that has run this project's jobs, the H100
+  (`ADA_80_PRO`, US-CA-2, Flash environment `ci-8b`, 4.79 USD/h): oversized for lack of the right-sized one. The
+  US-CA-2 volume holds earlier model caches; the first job deletes the caches whose runs are finished, as D49's did
+  on EUR-NO-1, before the 14B download.
+* **Runs.** Seed 20260916.
