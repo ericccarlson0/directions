@@ -3211,3 +3211,43 @@ Decision (the first map; exploratory):
   - **Ceiling.** The whole-state ceiling at G3 is 0.66–0.75 (two brackets: 0.92–0.94 on the 4B and 8B), so the
     absolute held criterion is stricter here relative to what a subspace can reach. This is recorded as a limit,
     not changed after the fact.
+
+### D52. The position-set check: where the rest of the answer lives after the gather (Qwen3 4B, 8B, 14B Base)
+
+* **Why.** At the three-bracket gather G3, the whole-state swap at the answer token changes the answer in 0.82–0.96
+  of the D45 bases. It gives the source's answer in only 0.66–0.75 of them (D51). In the rest, the answer moves
+  to a third value: later blocks combine the swapped state with something the base still holds at other tokens,
+  and no single other token holds it (at most 0.21 after G3). A joint subspace across positions (DAS fitted at
+  several tokens at once) can only reach what the tokens it spans carry. This check measures that ceiling before
+  the joint DAS is built, with whole-state swaps at sets of query tokens.
+* **The swap.** As in D45, at one read point, but every token of a set is swapped together, each from the source
+  run's state at the same token and read point.
+  - Sources, drawn as in D45 and D51: S1, S2, S3 (one bracket's sum changes) and all (every sum changes).
+  - Readouts per set and read point: the source answer for "all" (the answer is Y′); the flip rate for S1–S3 (the
+    answer is the bracket's prediction); the change rate.
+* **Sets**, by the query's token labels:
+  - answer: the answer token (the D45 and D51 measurement, repeated on new bases);
+  - answer + `=`;
+  - non-digit: every query token that is not an operand digit (brackets, `+`, `-`, `=` and the answer; 13 tokens);
+  - answer + digits: the answer token and the six digit tokens;
+  - query: every query token. This is a check: the run is then the source's from that read point on, since both
+    prompts share their demonstrations, so the source's answer is expected in at least 0.95 of the bases.
+* **Read points.** From the D51 control to F: 21–27 on the 4B and 8B, 27–35 on the 14B.
+* **Bases.** 256 per model, drawn as in D45 (seed 20260916), with the D45 gate per source type. 64 bases (D45)
+  give intervals of about ±0.12 on a rate; 256 halve that.
+* **Rule (fixed before the run).**
+  - The gain of a set at a read point is its rate minus the answer token's, paired by base, with a percentile
+    bootstrap (10,000 resamples of the bases).
+  - The check passes on a model when the non-digit set's gain, for some source and read point in its range, is
+    at least 0.05 and its one-sided lower bound is above 0 at α = 0.05 / (number of read points × 4 sources), a
+    Bonferroni correction over the read points and sources.
+  - A model that passes gets the joint DAS; one that does not gets none, since its ceiling does not rise.
+  - If no model passes, the joint DAS is not built. The answer + digits gain then says whether the rest is the
+    operands, re-read from their digit tokens.
+* **The joint DAS's positions and sites, if a model passes.**
+  - Positions: answer + `=` when its gain is at least 0.8 of the non-digit set's at every passing pair of source
+    and read point; otherwise the non-digit set.
+  - Read points: those with a passing pair, at most four (the largest gains), plus the D51 control.
+  - Its design (variables, k, one basis per position or one shared) is fixed in D53 before its run.
+* **Runs.** One execution, seed 20260916. The 4B and 8B in one job on an RTX 4090 (EUR-NO-1; the 8B at batch 64),
+  the 14B on an H100 (US-CA-2).

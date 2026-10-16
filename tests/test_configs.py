@@ -37,6 +37,12 @@ def test_all_configs_load():
             cfg = load_das_config(p)
             assert cfg.sites and cfg.control_site in cfg.sites, p
             continue
+        if p.name.startswith("posset_"):  # the position-set check (D52)
+            from directions.config import load_posset_config
+
+            cfg = load_posset_config(p)
+            assert cfg.read_points and cfg.control in cfg.read_points, p
+            continue
         if "varsplit" in p.name:  # splitting the block where the sums appear (D47)
             from directions.config import load_varsplit_config
 
@@ -511,3 +517,31 @@ def test_three_bracket_split_and_das_configs_follow_d51():
         assert c["control_site"] == c["sites"][0] and len(c["sites"]) in (4, 5), p.name
         strip = dict(name=None, model=None, task=None, sites=None, control_site=None, variables=None, ks=None, null_k=None)
         assert dict(c, **strip) == dict(ref, **strip), p.name
+
+
+def test_position_set_configs_follow_d52():
+    """D52: read points from the D51 control to F, marks at the control, G3 and F, the model of the three-bracket map;
+    the files differ only in the model, the read points, the marks and the control."""
+    from dataclasses import asdict
+
+    import yaml
+
+    from directions.config import load_das_config, load_posset_config
+
+    files = sorted(CONFIGS.glob("posset_qwen3_*.yaml"))
+    assert [p.name for p in files] == ["posset_qwen3_14b.yaml", "posset_qwen3_4b.yaml", "posset_qwen3_8b.yaml"]
+    ref = None
+    for p in files:
+        size = p.stem.split("_")[-1]
+        c = asdict(load_posset_config(p))
+        das = load_das_config(CONFIGS / f"das_d51_qwen3_{size}.yaml")
+        G3, F = min(s for s in das.sites if s != das.control_site), max(das.sites)
+        assert c["read_points"] == list(range(das.control_site, F + 1)), p.name
+        assert c["marks"] == {"control": das.control_site, "G3": G3, "F": F} and c["control"] == das.control_site, p.name
+        vm = yaml.safe_load((CONFIGS / f"varmap_three_qwen3_{size}.yaml").read_text())
+        assert c["model"]["name"] == vm["model"]["name"] and c["model"]["batch_size"] == vm["model"]["batch_size"], p.name
+        assert c["n_bases"] == 256 and c["sources"] == ["S1", "S2", "S3", "all"] and c["min_gain"] == 0.05
+        varying = dict(model=None, read_points=None, marks=None, control=None)
+        if ref is None:
+            ref = dict(c, **varying)
+        assert dict(c, **varying) == ref, p.name

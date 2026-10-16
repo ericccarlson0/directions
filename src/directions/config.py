@@ -1028,6 +1028,69 @@ def load_varmap_config(path: str | Path) -> VarmapConfig:
 
 
 @dataclass
+class PossetConfig:
+    """The position-set check (docs/DECISIONS.md D52): D45's whole-state swaps, with a set of query tokens swapped
+    together at one read point, read against the answer token alone.
+
+    expressions      the expression tasks (two_lane, three_lane)
+    n_bases          base expressions; one source per base and source type, drawn as in D45
+    sources          the source types (S1, S2, S3 and all on three brackets)
+    read_points      the read points swapped at (D52: the D51 control to F)
+    marks            read points to mark on the figure, by label (annotation only)
+    n_boot           bootstrap resamples of the rates (percentile intervals)
+    n_boot_gain      bootstrap resamples of the paired gains over the answer token
+    alpha            family-wise error of the gain test, over the read points and sources (Bonferroni)
+    min_gain         the gain's point estimate the rule asks for
+    jointly_enough   answer + = stands for the non-digit set when its gain is at least this share of the set's
+    max_sites        at most this many read points for the joint DAS (the largest gains)
+    control          the D51 control read point (joins the joint DAS's sites)
+    """
+
+    name: str = "posset"
+    seed: int = 20260916
+    output_dir: str = "results"
+    model: ModelConfig = field(default_factory=ModelConfig)
+    expressions: list[str] = field(default_factory=lambda: ["three_lane"])
+    n_bases: int = 256
+    n_shots: int = 8
+    n_demo_pool: int = 96
+    sources: list[str] = field(default_factory=lambda: ["S1", "S2", "S3", "all"])
+    read_points: list[int] = field(default_factory=list)
+    marks: dict[str, int] = field(default_factory=dict)
+    n_boot: int = 1000
+    n_boot_gain: int = 10000
+    alpha: float = 0.05
+    min_gain: float = 0.05
+    jointly_enough: float = 0.8
+    max_sites: int = 4
+    control: int | None = None
+    min_accuracy: float = 0.5
+    gate: bool = True
+    identity_check: bool = True
+    determinism_check: bool = True
+    figures: bool = True
+
+
+def load_posset_config(path: str | Path) -> PossetConfig:
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    cfg = _from_dict(PossetConfig, data)
+    if not cfg.expressions or any(t not in ("two_lane", "three_lane") for t in cfg.expressions):
+        raise ValueError("expressions must be a non-empty subset of two_lane, three_lane")
+    allowed = {"two_lane": {"S1", "S2", "both"}, "three_lane": {"S1", "S2", "S3", "all"}}
+    for t in cfg.expressions:
+        if not cfg.sources or not set(cfg.sources) <= allowed[t]:
+            raise ValueError(f"sources for {t} must be a non-empty subset of {sorted(allowed[t])}")
+    if not cfg.read_points or any(m < 0 for m in cfg.read_points) or len(set(cfg.read_points)) != len(cfg.read_points):
+        raise ValueError("read_points must be distinct non-negative read points")
+    if cfg.n_bases < 2 or cfg.n_shots < 0 or cfg.n_demo_pool < cfg.n_shots:
+        raise ValueError("n_bases must be at least 2 and n_demo_pool at least n_shots")
+    if not (0 < cfg.alpha < 1 and 0 <= cfg.min_gain < 1 and 0 < cfg.jointly_enough <= 1 and cfg.max_sites >= 1):
+        raise ValueError("alpha in (0, 1), min_gain in [0, 1), jointly_enough in (0, 1], max_sites >= 1")
+    return cfg
+
+
+@dataclass
 class VarprobeConfig:
     """The conditional probe and the logit lens at the answer token (docs/DECISIONS.md D46), on the D45 expression
     tasks: does the answer token carry the answer's decomposition (S1 given Y, a digit given its bracket's sum), and

@@ -1,0 +1,33 @@
+# The position-set check (docs/DECISIONS.md D52) on the three-bracket task: D45's whole-state swaps with a set of
+# query tokens swapped together at one read point, read against the answer token alone. Read points from the D51
+# control to F (job 1: G3 = 24, F = 27). The files of this family differ only in the model and these read points.
+name: posset
+seed: 20260916
+output_dir: results
+
+model:
+  backend: hf
+  name: Qwen/Qwen3-4B-Base
+  dtype: bfloat16          # model execution; swapped states stay in the model's dtype (a swap of a run's own state is exact)
+  device: cuda             # fail fast rather than fall back to the CPU (docs/INFRA.md)
+  batch_size: 128
+
+expressions: [three_lane]
+n_bases: 256                  # drawn as in D45 (seed 20260916); the D45 gate per source type
+n_shots: 8
+n_demo_pool: 96
+sources: [S1, S2, S3, all]
+read_points: [21, 22, 23, 24, 25, 26, 27]
+marks: {control: 21, G3: 24, F: 27}
+control: 21                   # the D51 control; joins the joint DAS's sites if the rule passes
+n_boot: 1000
+n_boot_gain: 10000
+alpha: 0.05                   # family-wise over the read points and sources (Bonferroni)
+min_gain: 0.05                # D52 rule: the non-digit set's gain over the answer token, point estimate
+jointly_enough: 0.8           # answer + = stands for the non-digit set at >= 0.8 of its gain
+max_sites: 4
+min_accuracy: 0.5
+gate: true
+identity_check: true
+determinism_check: true
+figures: true

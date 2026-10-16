@@ -131,6 +131,9 @@ class SitePatch:
     a tensor in the model's dtype (states captured by :meth:`ModelBackend.capture_sites`, so a state swapped back
     into its own run is reproduced bit-exactly) or an array. With ``basis`` (``(k, d)``, orthonormal rows) only the
     component in its span is replaced, ``h + (v - h) B^T B``; without it the whole vector is.
+
+    A set of tokens per row (D52): ``positions`` ``(N, P)`` and ``values`` ``(N, P, d)``, all swapped at the row's
+    read point. A position repeated within a row must carry the same value (a padded set).
     """
 
     layers: np.ndarray
@@ -921,8 +924,10 @@ class _HookSession:
         self.site_patch = site_patch
         if site_patch is not None:
             sl = np.asarray(site_patch.layers, dtype=np.int64)
-            if sl.shape != (query_pos.shape[0],) or np.asarray(site_patch.positions).shape != sl.shape:
-                raise ValueError("site_patch.layers and .positions must have one entry per prompt")
+            sp = np.asarray(site_patch.positions)
+            if sl.shape != (query_pos.shape[0],) or sp.ndim not in (1, 2) or sp.shape[0] != sl.shape[0]:
+                raise ValueError("site_patch.layers must have one entry per prompt, .positions one entry or one row of "
+                                 "positions per prompt")
             if ((sl < -1) | (sl > n_layers)).any():
                 raise ValueError(f"site patch layer outside -1..{n_layers}")
             self.sp_layers = torch.as_tensor(sl, device=device)
@@ -1024,12 +1029,13 @@ class _HookSession:
                     hidden = hidden.clone()
                 pos = self.sp_positions[rows]
                 vals = self.sp_values[rows].to(hidden.dtype)
+                idx = rows if pos.ndim == 1 else rows[:, None]  # one token per row, or a set of tokens (D52)
                 if self.sp_basis is None:
-                    hidden[rows, pos] = vals
+                    hidden[idx, pos] = vals
                 else:
-                    h = hidden[rows, pos].float()
+                    h = hidden[idx, pos].float()
                     B = self.sp_basis
-                    hidden[rows, pos] = (h + ((vals.float() - h) @ B.T) @ B).to(hidden.dtype)
+                    hidden[idx, pos] = (h + ((vals.float() - h) @ B.T) @ B).to(hidden.dtype)
         if self.capture_positions is not None:
             self.captured_positions[layer] = hidden[self.batch_idx[:, None], self.capture_positions].detach()
         if self.capture:
