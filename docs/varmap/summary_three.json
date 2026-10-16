@@ -1,0 +1,146 @@
+{
+ "varmap_three_qwen3_4b_seed20260916": {
+  "three_lane": {
+   "accuracy": 0.921875,
+   "n_kept": {
+    "S1": 53,
+    "S1_same": 57,
+    "S2": 54,
+    "S2_same": 50,
+    "S3": 52,
+    "S3_same": 49,
+    "all": 53
+   },
+   "n_read_points": 37,
+   "as_run": {
+    "gather_read_point": 24,
+    "gather_fraction": 0.667,
+    "gather_holds_to_the_end": true,
+    "last_digit_read_point": 23,
+    "present_elsewhere": {
+     "S1": false,
+     "S2": false,
+     "S3": false
+    },
+    "both_swap_source_answer_at_gather": 0.717
+   },
+   "fragile_rows": {
+    "S1": 1,
+    "S1_same": 1,
+    "S2": 1,
+    "S2_same": 1,
+    "S3": 1,
+    "S3_same": 0,
+    "all": 0
+   },
+   "fragile_dropped": {
+    "gather_read_point": 24,
+    "gather_fraction": 0.667,
+    "gather_holds_to_the_end": true,
+    "last_digit_read_point": 23,
+    "present_elsewhere": {
+     "S1": false,
+     "S2": false,
+     "S3": false
+    },
+    "both_swap_source_answer_at_gather": 0.717
+   }
+  }
+ },
+ "varmap_three_qwen3_8b_seed20260916": {
+  "three_lane": {
+   "accuracy": 0.890625,
+   "n_kept": {
+    "S1": 53,
+    "S1_same": 48,
+    "S2": 56,
+    "S2_same": 49,
+    "S3": 51,
+    "S3_same": 46,
+    "all": 50
+   },
+   "n_read_points": 37,
+   "as_run": {
+    "gather_read_point": 24,
+    "gather_fraction": 0.667,
+    "gather_holds_to_the_end": true,
+    "last_digit_read_point": 23,
+    "present_elsewhere": {
+     "S1": false,
+     "S2": false,
+     "S3": false
+    },
+    "both_swap_source_answer_at_gather": 0.66
+   },
+   "fragile_rows": {
+    "S1": 2,
+    "S1_same": 0,
+    "S2": 0,
+    "S2_same": 0,
+    "S3": 2,
+    "S3_same": 2,
+    "all": 3
+   },
+   "fragile_dropped": {
+    "gather_read_point": 24,
+    "gather_fraction": 0.667,
+    "gather_holds_to_the_end": true,
+    "last_digit_read_point": 23,
+    "present_elsewhere": {
+     "S1": false,
+     "S2": false,
+     "S3": false
+    },
+    "both_swap_source_answer_at_gather": 0.66
+   }
+  }
+ },
+ "varmap_three_qwen3_14b_seed20260916": {
+  "three_lane": {
+   "accuracy": 0.828125,
+   "n_kept": {
+    "S1": 48,
+    "S1_same": 49,
+    "S2": 48,
+    "S2_same": 49,
+    "S3": 45,
+    "S3_same": 48,
+    "all": 44
+   },
+   "n_read_points": 41,
+   "as_run": {
+    "gather_read_point": 30,
+    "gather_fraction": 0.75,
+    "gather_holds_to_the_end": true,
+    "last_digit_read_point": 29,
+    "present_elsewhere": {
+     "S1": false,
+     "S2": false,
+     "S3": false
+    },
+    "both_swap_source_answer_at_gather": 0.75
+   },
+   "fragile_rows": {
+    "S1": 0,
+    "S1_same": 0,
+    "S2": 0,
+    "S2_same": 0,
+    "S3": 0,
+    "S3_same": 0,
+    "all": 0
+   },
+   "fragile_dropped": {
+    "gather_read_point": 30,
+    "gather_fraction": 0.75,
+    "gather_holds_to_the_end": true,
+    "last_digit_read_point": 29,
+    "present_elsewhere": {
+     "S1": false,
+     "S2": false,
+     "S3": false
+    },
+    "both_swap_source_answer_at_gather": 0.75
+   }
+  }
+ }
+}

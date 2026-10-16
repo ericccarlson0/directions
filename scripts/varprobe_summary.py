@@ -24,7 +24,7 @@ import numpy as np
 # the D45 gather read point per model (runs 38502381471 and, for the 8B, 38738001665; the configs' marks)
 GATHER = {"qwen3_0.6b": 21, "qwen3_1.7b": 21, "qwen3_4b": 24, "qwen3_8b": 24, "qwen3_14b": 30}
 # the three-bracket gather G3 per model (D51; first read point with all three sums at the answer token)
-GATHER3: dict[str, int] = {}
+GATHER3 = {"qwen3_4b": 24, "qwen3_8b": 24, "qwen3_14b": 30}  # runs 38934415363, 38934932951, 38934471957
 
 
 

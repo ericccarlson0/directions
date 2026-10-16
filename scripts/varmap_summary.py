@@ -93,7 +93,7 @@ def describe(result: dict, rates: dict, read: dict) -> dict:
     return {
         "gather_read_point": rps[gather] if gather is not None else None,
         "gather_fraction": round(rps[gather] / rps[-1], 3) if gather is not None else None,
-        "gather_holds_to_the_end": bool(gather is not None and (count[gather:, ans] == 2).all()),
+        "gather_holds_to_the_end": bool(gather is not None and (count[gather:, ans] == len(brackets)).all()),
         "last_digit_read_point": rps[last_digit] if last_digit is not None else None,
         "present_elsewhere": {v: bool(np.asarray(read[f"present_{v}"])[:, others].any()) for v in brackets},
         "both_swap_source_answer_at_gather": (round(float(np.asarray(hyp[combined]["mean"])[gather, ans]), 3)
