@@ -500,7 +500,9 @@ def test_three_bracket_split_and_das_configs_follow_d51():
         assert c["expressions"] == ["three_lane"] and c["split_blocks"] == list(range(G - 1, G + 4)), p.name
         assert c["head_blocks"] == [G, G + 1, G + 2], p.name
         varying = dict(expressions=None, gather=None, split_blocks=None, head_blocks=None, model=None)
-        assert dict(c, **varying) == dict(two, **varying) and c["model"]["name"] == two["model"]["name"], p.name
+        assert dict(c, **varying) == dict(two, **varying), p.name
+        batch = 64 if "_8b" in p.name else two["model"]["batch_size"]  # D51: the 8B at batch 64 on the 24 GB card
+        assert c["model"] == dict(two["model"], batch_size=batch), p.name
     ref = asdict(load_das_config(CONFIGS / "das_d49_qwen3_8b.yaml"))
     for p in sorted(CONFIGS.glob("das_d51_qwen3_*.yaml")):
         c = asdict(load_das_config(p))
