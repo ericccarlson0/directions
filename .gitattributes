@@ -1,0 +1,3 @@
+# Not shipped to the GPU worker (git archive, directions.remote.pack_source): the job request must stay under
+# RunPod's payload limit, which the figures in docs/ pushed it over on 2026-10-16 (docs/INFRA.md).
+docs/** export-ignore
