@@ -53,6 +53,19 @@ def test_head_reading_lanes_one_channel_and_none():
     assert read_heads(none, 0.1, 0.05, 0.25)["reading"] == "no carrier"
 
 
+def test_head_reading_on_three_brackets():
+    """Three brackets (D51): lanes need a carrier of its own for every bracket."""
+    def t(lo, hi):
+        return {"transfer": {"lo": list(lo) + [0.9], "hi": list(hi) + [1.0], "mean": list(hi) + [0.95]}}
+    three = ("S1", "S2", "S3")
+    lanes = {"S1": t([0.3, 0, 0], [0.5, 0.01, 0.01]), "S2": t([0, 0.3, 0], [0.01, 0.5, 0.01]), "S3": t([0, 0, 0.3], [0.01, 0.01, 0.5])}
+    r = read_heads(lanes, 0.1, 0.05, 0.25, three)
+    assert r["reading"] == "lanes" and (r["S1_only"], r["S2_only"], r["S3_only"]) == ([0], [1], [2])
+    two_lanes = {"S1": t([0.3, 0, 0], [0.5, 0.01, 0.01]), "S2": t([0, 0.3, 0], [0.01, 0.5, 0.01]), "S3": t([0, 0.3, 0], [0.01, 0.5, 0.01])}
+    assert read_heads(two_lanes, 0.1, 0.05, 0.25, three)["reading"] == "mixed"
+    assert read_heads({"S1": lanes["S1"], "S2": lanes["S2"]}, 0.1, 0.05, 0.25, three)["reading"] == "undecided"
+
+
 def test_toy_run_writes_both_parts(tmp_path):
     cfg = load_varsplit_config("configs/smoke_toy_varsplit.yaml")
     cfg.output_dir = str(tmp_path)
@@ -71,3 +84,15 @@ def test_toy_run_writes_both_parts(tmp_path):
             s1 = r["heads"]["blocks"][b]["types"]["S1"]
             assert len(s1["transfer"]["mean"]) == H + 1  # every head, then all heads at once
         assert (root / "figures" / f"{task}.png").exists()
+
+
+def test_three_lane_toy_run(tmp_path):
+    cfg = load_varsplit_config("configs/smoke_toy_varsplit.yaml")
+    cfg.output_dir, cfg.expressions = str(tmp_path), ["three_lane"]
+    root = run_varsplit(cfg, run_id="toy3")
+    r = json.loads((root / "core" / "tasks" / "three_lane" / "varsplit.json").read_text())
+    assert set(r["probe"]["targets"]) == {"Y", "S1|Y", "S2|Y", "S3|Y", "a|S1", "c|S2", "e|S3"}
+    for b in ("2", "3"):
+        types = r["heads"]["blocks"][b]["types"]
+        assert {"S1", "S2", "S3", "all", "S3_same"} <= set(types) and "carries_S3" in r["heads"]["blocks"][b]["reading"]
+    assert (root / "figures" / "three_lane.png").exists()

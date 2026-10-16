@@ -3145,3 +3145,50 @@ Decision (the first map; exploratory):
   gather is 0, 1, 2, 0 on 1.7B, 4B, 8B, 14B. Read with the 14B's partial gather (whole-state ceiling about 0.67)
   and its gradual sums (readable from read point 28): its computation is less concentrated at the answer token,
   the one position the DAS examines.
+
+## 2026-10-16 — The three-bracket task
+
+### D51. `(a+b) - (c+d) - (e+f) = ` on Qwen3 1.7B, 4B, 8B and 14B Base: how many sums at once, and the merge order
+
+* **Why.** On two brackets the count of sums held separately at the gather is 0, 1, 2, 0 (1.7B to 14B; D48–D50),
+  and two is the task's ceiling. A third bracket asks whether a model holds three sums at once at the answer token,
+  or two and then merges, and in which order it merges. The pipeline is unchanged (D45 map, D46 probe and lens,
+  D47 block split, DAS at the answer token); only the task and its variables are new. Multi-position DAS is not
+  part of this entry.
+* **The task.** `three_lane`: digits 0–9, S1 = a+b, S2 = c+d, S3 = e+f, Y = S1 − S2 − S3 a single digit (113,575
+  expressions; the answer is skewed to small values, 23% are 0 and 1.8% are 9). 8 demonstrations from a pool of
+  96, rendered as for two brackets. No one-lane twin: the question it answered (c against S2) is not asked here.
+  Two merge intermediates are named: T = S1 − S2 (left to right) and U = S2 + S3 (the subtrahends first).
+* **D45 on three brackets.** Swap types S1, S2, S3 (one bracket's sum changes, the others' digits kept), S1_same,
+  S2_same, S3_same (a bracket's digits change, its sum kept) and all (every sum changes; the seven predictions
+  S1′−S2−S3, S1−S2′−S3, S1−S2−S3′, T: S1′−S2′−S3, U: S1−S2′−S3′, all: Y′ and none: Y are single digits and
+  pairwise distinct). Presence and value as in D45; the count runs 0–3. The three-bracket gather G3 is the first
+  read point with all three sums present at the answer token.
+* **D46 on three brackets.** Probe targets Y, S1|Y, S2|Y, S3|Y, a|S1, c|S2, e|S3; lens candidates Y, S1, S2, S3,
+  T, U and the six digits. Given Y, T = Y + S3 and U = S1 − Y, so the probes for T and U given Y are those for S3
+  and S1: the probe cannot separate the merge orders, the DAS below is what tests them.
+* **D47 on three brackets.** Split blocks G3−1..G3+3, head blocks G3..G3+2. A block's heads read as lanes when
+  every bracket has a carrier of its own (lower bound ≥ 0.1 for it, upper bound < 0.05 for the other two), one
+  channel when the three brackets have the same carriers, mixed otherwise.
+* **DAS on three brackets.** Variables S1, S2, S3, T, U, Y and the digit a.
+  - One Cause source per base: a′ ≠ a, b′ ≠ b, every sum differs, and the eight answers that tell the hypotheses
+    apart are single digits and pairwise distinct: Y; S1′−S2−S3; S1−S2′−S3; S1−S2−S3′; T′−S3; S1−U′; Y′;
+    (a′+b)−S2−S3. 92% of bases have one (median 433 candidates, a check on 400 bases).
+  - Isolate sources (the answer must stay Y): S1: only S2, only S3, same S1; S2: only S1, only S3, same S2;
+    S3: only S1, only S2, same S3; T: only S3, same T (S1 and S2 changed, their difference kept, S3 kept); U: only
+    S1, same U (S2 and S3 changed, their sum kept, S1 kept); Y: same Y (every sum changed); a: only S2, only b.
+  - Held as in D48 (Cause lower bound ≥ 0.5, Isolate lower bound ≥ 0.75 at k*). The same-T and same-U tests
+    have the flaw D48 found in the same-sum test: a subspace holding S1 and S2 jointly passes same T. So the
+    merge reading is: T held where S1 and S2 are not separately held means the first two sums have merged left
+    to right; U held where S2 and S3 are not means the subtrahends merged first; both or neither are reported as
+    such. The decodability check and the stored-basis overlaps are reported as in D49.
+  - k ∈ {16, 32, 64}, the shuffled-target null at k = 64 (on two brackets the sums' k* reached the grid's top,
+    32); 20 epochs, learning rate 0.05, batch 32; splits 1536 / 256 / 512 by expression; the D48 gate.
+  - Sites, from job 1 of each model. The control: the latest read point at or below G3−2 at which all three
+    bracket swaps change the answer token's answer in at most 0.10 of the bases (D50's rule). The others run from
+    G3 to F, the read point at which D46's three-bracket Y probe reaches 0.9 of its final accuracy: G3..max(G3+2,
+    F) when F ≤ G3+3; otherwise G3, G3 + ⌊(F−G3)/3⌋, G3 + ⌊2(F−G3)/3⌋ and F. A merge in sequence needs room
+    after the gather; this follows the answer's own formation instead of a fixed window.
+* **Runs.** Seed 20260916, one execution, no further seeds. Qwen3 1.7B, 4B and 8B on RTX 4090s (EUR-NO-1), the 14B
+  on an H100 (US-CA-2, D50). Job 1 per model: D45 and D46; job 2: D47 and DAS. A model whose three-bracket
+  few-shot accuracy on the D45 bases is below 0.5 is skipped by the stages' own gate, and gets no DAS.

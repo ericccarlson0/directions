@@ -37,20 +37,28 @@ from .tasks import Item
 # The tasks and their high-level causal model
 # --------------------------------------------------------------------------- #
 
-TASKS = ("two_lane", "one_lane")
-SOURCE_TYPES = {"two_lane": ("S1", "S2", "S1_same", "S2_same", "both"), "one_lane": ("S1", "S2", "S1_same", "both")}
+TASKS = ("two_lane", "one_lane", "three_lane")
+SOURCE_TYPES = {"two_lane": ("S1", "S2", "S1_same", "S2_same", "both"), "one_lane": ("S1", "S2", "S1_same", "both"),
+                "three_lane": ("S1", "S2", "S3", "S1_same", "S2_same", "S3_same", "all")}
 # the variable each value-changing type moves, and the same-value type that tests it as a value
-VALUE_TEST = {"S1": "S1_same", "S2": "S2_same"}
+VALUE_TEST = {"S1": "S1_same", "S2": "S2_same", "S3": "S3_same"}
+# the sub-results counted at a site (D45; three brackets D51)
+BRACKETS = {"two_lane": ("S1", "S2"), "one_lane": ("S1", "S2"), "three_lane": ("S1", "S2", "S3")}
+TEMPLATES = {"two_lane": "(a+b) - (c+d) = ", "one_lane": "(a+b) - c = ", "three_lane": "(a+b) - (c+d) - (e+f) = "}
+DIGITS = ("a", "b", "c", "d", "e", "f")
 
 
 @dataclass(frozen=True)
 class Expr:
-    """``(a+b) - (c+d)`` (two lanes) or ``(a+b) - c`` (one lane, ``d`` None)."""
+    """``(a+b) - (c+d)`` (two lanes), ``(a+b) - c`` (one lane, ``d`` None) or ``(a+b) - (c+d) - (e+f)`` (three lanes,
+    D51)."""
 
     a: int
     b: int
     c: int
     d: int | None = None
+    e: int | None = None
+    f: int | None = None
 
     @property
     def S1(self) -> int:
@@ -61,26 +69,48 @@ class Expr:
         return self.c + (self.d or 0)
 
     @property
-    def Y(self) -> int:
+    def S3(self) -> int:
+        """The third bracket's sum (0 without one)."""
+        return 0 if self.e is None else self.e + (self.f or 0)
+
+    @property
+    def T(self) -> int:
+        """S1 - S2, the left-to-right intermediate of three brackets (D51)."""
         return self.S1 - self.S2
+
+    @property
+    def U(self) -> int:
+        """S2 + S3, the subtrahends merged first (D51)."""
+        return self.S2 + self.S3
+
+    @property
+    def Y(self) -> int:
+        return self.S1 - self.S2 - self.S3
 
     def text(self) -> str:
         second = f"({self.c}+{self.d})" if self.d is not None else f"{self.c}"
-        return f"({self.a}+{self.b}) - {second}"
+        third = f" - ({self.e}+{self.f})" if self.e is not None else ""
+        return f"({self.a}+{self.b}) - {second}{third}"
 
     def digit_slots(self) -> dict[int, str]:
         """Character index in :meth:`text` -> the digit's name."""
         slots = {1: "a", 3: "b"}
         slots.update({9: "c", 11: "d"} if self.d is not None else {8: "c"})
+        if self.e is not None:
+            slots.update({17: "e", 19: "f"})
         return slots
 
 
 def all_exprs(task: str) -> list[Expr]:
-    """Every expression of the task whose answer is a single digit 0..9."""
+    """Every expression of the task whose answer is a single digit 0..9 (in the order of the digits' product)."""
     if task == "two_lane":
         out = [Expr(a, b, c, d) for a, b, c, d in itertools.product(range(10), repeat=4)]
     elif task == "one_lane":
         out = [Expr(a, b, c) for a, b, c in itertools.product(range(10), repeat=3)]
+    elif task == "three_lane":
+        D = np.array(list(itertools.product(range(10), repeat=6)), dtype=np.int64)
+        y = D[:, 0] + D[:, 1] - D[:, 2] - D[:, 3] - D[:, 4] - D[:, 5]
+        return [Expr(*map(int, row)) for row in D[(y >= 0) & (y <= 9)]]
     else:
         raise ValueError(f"unknown varmap task {task!r}")
     return [e for e in out if 0 <= e.Y <= 9]
@@ -88,14 +118,19 @@ def all_exprs(task: str) -> list[Expr]:
 
 def predictions(base: Expr, src: Expr) -> dict[str, int]:
     """The answer the swapped run gives if the site holds: the source's S1 only, its S2 only, both (its answer), or
-    nothing of the source (the base answer)."""
-    return {"S1": src.S1 - base.S2, "S2": base.S1 - src.S2, "both": src.Y, "none": base.Y}
+    nothing of the source (the base answer). Three brackets (D51): each sum alone, the intermediates T (S1 and S2
+    together) and U (S2 and S3 together), all (the source's answer) or none."""
+    if base.e is None:
+        return {"S1": src.S1 - base.S2, "S2": base.S1 - src.S2, "both": src.Y, "none": base.Y}
+    return {"S1": src.S1 - base.S2 - base.S3, "S2": base.S1 - src.S2 - base.S3, "S3": base.S1 - base.S2 - src.S3,
+            "T": src.T - base.S3, "U": base.S1 - src.U, "all": src.Y, "none": base.Y}
 
 
 def prediction(kind: str, base: Expr, src: Expr) -> int:
     """The answer a swap of ``kind`` predicts under its own hypothesis (D45)."""
-    p = predictions(base, src)
-    return {"S1": p["S1"], "S2": p["S2"], "both": p["both"], "S1_same": base.Y, "S2_same": base.Y}[kind]
+    if kind.endswith("_same"):
+        return base.Y
+    return predictions(base, src)[kind]
 
 
 def valid_source(kind: str, base: Expr, src: Expr) -> bool:
@@ -103,6 +138,8 @@ def valid_source(kind: str, base: Expr, src: Expr) -> bool:
         return False
     same_first = (src.a, src.b) == (base.a, base.b)
     same_second = (src.c, src.d) == (base.c, base.d)
+    if base.e is not None:
+        return bool(source_masks(kind, base, np.array([[src.a, src.b, src.c, src.d, src.e, src.f]]))[0])
     if kind == "S1":
         return same_second and src.S1 != base.S1
     if kind == "S2":
@@ -118,7 +155,43 @@ def valid_source(kind: str, base: Expr, src: Expr) -> bool:
     raise ValueError(f"unknown source type {kind!r}")
 
 
-def draw_source(kind: str, base: Expr, pool: Sequence[Expr], rng: np.random.Generator) -> Expr | None:
+def source_masks(kind: str, base: Expr, D: np.ndarray) -> np.ndarray:
+    """Three brackets (D51): which candidates (digits ``D``, (N, 6), every one a valid expression) are sources of
+    ``kind`` for ``base``. One bracket's sum changes with the other brackets' digits kept (S1, S2, S3); a bracket's
+    digits change with its sum and the other brackets kept (Sk_same); or every sum changes with the seven
+    predictions single digits and pairwise distinct (all)."""
+    S = [D[:, 0] + D[:, 1], D[:, 2] + D[:, 3], D[:, 4] + D[:, 5]]
+    bS = [base.S1, base.S2, base.S3]
+    bd = [(base.a, base.b), (base.c, base.d), (base.e, base.f)]
+    same = [(D[:, 2 * j] == bd[j][0]) & (D[:, 2 * j + 1] == bd[j][1]) for j in range(3)]
+    if kind in ("S1", "S2", "S3"):
+        j = int(kind[1]) - 1
+        others = [same[i] for i in range(3) if i != j]
+        return others[0] & others[1] & (S[j] != bS[j])
+    if kind in ("S1_same", "S2_same", "S3_same"):
+        j = int(kind[1]) - 1
+        others = [same[i] for i in range(3) if i != j]
+        return others[0] & others[1] & ~same[j] & (S[j] == bS[j])
+    if kind == "all":
+        Y = S[0] - S[1] - S[2]
+        vals = [S[0] - bS[1] - bS[2], bS[0] - S[1] - bS[2], bS[0] - bS[1] - S[2], S[0] - S[1] - bS[2],
+                bS[0] - S[1] - S[2], Y, np.full(len(D), base.Y)]
+        ok = (S[0] != bS[0]) & (S[1] != bS[1]) & (S[2] != bS[2])
+        for v in vals:
+            ok &= (v >= 0) & (v <= 9)
+        for i in range(len(vals)):
+            for k in range(i + 1, len(vals)):
+                ok &= vals[i] != vals[k]
+        return ok
+    raise ValueError(f"unknown source type {kind!r}")
+
+
+def draw_source(kind: str, base: Expr, pool: Sequence[Expr], rng: np.random.Generator,
+                digits: np.ndarray | None = None) -> Expr | None:
+    """One valid source of ``kind`` from ``pool``, uniformly (three brackets: from the pool's digit array)."""
+    if digits is not None:
+        cands = np.flatnonzero(source_masks(kind, base, digits))
+        return pool[int(cands[int(rng.integers(len(cands)))])] if len(cands) else None
     cands = [e for e in pool if valid_source(kind, base, e)]
     return cands[int(rng.integers(len(cands)))] if cands else None
 
@@ -134,11 +207,13 @@ def sample_bases(seed: int, task: str, n_bases: int, n_shots: int, n_demo_pool: 
     demo_pool = [exprs[i] for i in order[:n_demo_pool]]
     rest = [exprs[i] for i in order[n_demo_pool:]]
     bases, sources, demos, skipped = [], [], [], 0
+    digits = (np.array([[e.a, e.b, e.c, e.d, e.e, e.f] for e in rest], dtype=np.int64) if task == "three_lane" else None)
     for base in rest:
         if len(bases) == n_bases:
             break
         i = len(bases)
-        srcs = {k: draw_source(k, base, rest, rng_for(seed, "varmap", task, "source", i, skipped, k)) for k in SOURCE_TYPES[task]}
+        srcs = {k: draw_source(k, base, rest, rng_for(seed, "varmap", task, "source", i, skipped, k), digits)
+                for k in SOURCE_TYPES[task]}
         if any(v is None for v in srcs.values()):
             skipped += 1
             if rejections is not None:
@@ -200,7 +275,7 @@ def reading(rates: dict[str, dict[str, Any]], task: str, present_flip: float, va
     (neither value nor digits)."""
     shape = np.asarray(next(iter(rates.values()))["flip"]["lo"]).shape
     out: dict[str, np.ndarray] = {}
-    for var in ("S1", "S2"):
+    for var in BRACKETS[task]:
         present = (np.asarray(rates[var]["flip"]["lo"]) >= present_flip) if var in rates else np.zeros(shape, dtype=bool)
         out[f"present_{var}"] = present
         test = VALUE_TEST[var]
@@ -208,7 +283,7 @@ def reading(rates: dict[str, dict[str, Any]], task: str, present_flip: float, va
             value = present & (np.asarray(rates[test]["change"]["hi"]) <= value_change)
             out[f"value_{var}"] = value
             out[f"digits_{var}"] = present & ~value
-    out["count"] = out["present_S1"].astype(int) + out["present_S2"].astype(int)
+    out["count"] = sum(out[f"present_{var}"].astype(int) for var in BRACKETS[task])
     return out
 
 
@@ -323,7 +398,7 @@ class VariableMap:
                     continue
                 sp = render(demos[i], src)
                 spos, sids, _ = query_tokens(backend, sp, src)
-                aligned = spos == pos and all(x == y for x, y, lab in zip(ids, sids, labels) if lab not in ("a", "b", "c", "d"))
+                aligned = spos == pos and all(x == y for x, y, lab in zip(ids, sids, labels) if lab not in DIGITS)
                 if not aligned:
                     keep[i] = False
                     self.rejections.add("align", task, f"{k} source misaligned", {"base": base.text(), "source": src.text()})
@@ -437,8 +512,9 @@ class VariableMap:
                 den = np.broadcast_to((d_src - d_base)[:, None, None], num.shape)
                 rates["transfer"] = bootstrap_ratio(num, den, np.random.default_rng(brng_seed + 3), cfg.n_boot, cfg.alpha)
                 arrays[f"{k}/transfer_num"], arrays[f"{k}/transfer_den"] = num.astype(np.float32), (d_src - d_base).astype(np.float32)
-            if k == "both":
-                hyp = {h: np.array([predictions(bases[i], sources[i]["both"])[h] for i in rows]) for h in ("S1", "S2", "both", "none")}
+            if k in ("both", "all"):
+                hyp = {h: np.array([predictions(bases[i], sources[i][k])[h] for i in rows])
+                       for h in predictions(bases[rows[0]], sources[rows[0]][k])}
                 rates["hypotheses"] = {h: bootstrap_rate(am == tid[v][:, None, None], np.random.default_rng(brng_seed + 4), cfg.n_boot, cfg.alpha)
                                        for h, v in hyp.items()}
             out_rates[k] = rates
@@ -448,7 +524,7 @@ class VariableMap:
         read = reading(out_rates, task, cfg.present_flip, cfg.value_change)
         td = self.root / "core" / "tasks" / task
         result = {
-            "task": task, "template": "(a+b) - (c+d) = " if task == "two_lane" else "(a+b) - c = ", "labels": labels,
+            "task": task, "template": TEMPLATES[task], "labels": labels,
             "read_points": read_points, "n_bases": len(bases), "n_kept": n_kept, "accuracy": accuracy,
             "source_accuracy": {k: float(src_runs[k]["ok"][keep].mean()) for k in types},
             "examples": [{"base": bases[i].text(), "Y": bases[i].Y, "sources": {k: sources[i][k].text() for k in types},
@@ -468,8 +544,10 @@ class VariableMap:
         summ = {"accuracy": accuracy, "n_kept": n_kept, "labels": labels,
                 "max_count": int(read["count"].max()),
                 "sites_with_both": int((read["count"] == 2).sum()),
+                "sites_with_all": int((read["count"] == len(BRACKETS[task])).sum()),
                 "first_value_S1": _first_site(read.get("value_S1"), read_points, labels),
-                "first_value_S2": _first_site(read.get("value_S2"), read_points, labels)}
+                "first_value_S2": _first_site(read.get("value_S2"), read_points, labels),
+                **({"first_value_S3": _first_site(read.get("value_S3"), read_points, labels)} if task == "three_lane" else {})}
         return {"summary": summ}
 
 
@@ -486,13 +564,17 @@ def _first_site(mask: np.ndarray | None, read_points: list[int], labels: list[st
 # --------------------------------------------------------------------------- #
 
 SEQ = ["#fcfcfb", "#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"]  # sequential blue, light -> dark
-CAT = {"none": "#ecebe7", "S1": "#2a78d6", "S2": "#eb6834", "both": "#1baf7a"}
+CAT = {"none": "#ecebe7", "S1": "#2a78d6", "S2": "#eb6834", "S3": "#8a5cd0", "T": "#d9a521", "U": "#c2417f",
+       "both": "#1baf7a", "all": "#1baf7a"}
+HYP_LABEL = {"S1": "S1' - S2", "S2": "S1 - S2'", "both": "S1' - S2'", "none": "base / none",
+             "S1_3": "S1' only", "S2_3": "S2' only", "S3_3": "S3' only", "T_3": "T' (S1', S2')", "U_3": "U' (S2', S3')",
+             "all_3": "all (source answer)"}
 
 
 def plot_task(result: dict[str, Any], path: Path, model_name: str) -> None:
     """Heatmaps over (read point x query token). Left block: the flip rates of the value-changing swaps (top row)
     and the change rates of the same-value swaps (bottom row), on one colour scale. Right column: the count of
-    variables present, and which prediction a swap from a source changing both brackets produces."""
+    variables present, and which prediction a swap from a source changing every bracket produces."""
     import matplotlib
 
     matplotlib.use("Agg")
@@ -503,17 +585,23 @@ def plot_task(result: dict[str, Any], path: Path, model_name: str) -> None:
     labels = result["labels"]
     rps = result["read_points"]
     rates, read = result["rates"], result["reading"]
-    two = result["task"] == "two_lane"
-    grid = [[("S1", "flip", "swap S1\nanswer follows source S1"),
-             ("S2", "flip", "swap S2\nanswer follows source S2" if two else "swap c\nanswer follows source c"),
-             ("both", "flip", "swap both\nanswer = source answer")],
-            [("S1_same", "change", "same S1, other digits\nanswer changes"),
-             ("S2_same", "change", "same S2, other digits\nanswer changes"), None]]
+    task = result["task"]
+    three = task == "three_lane"
+    brackets = BRACKETS[task]
+    combined = "all" if three else "both"
+    second = "S2" if task != "one_lane" else "c"
+    names = {"S1": "S1", "S2": second, "S3": "S3"}
+    top = [(b, "flip", f"swap {names[b]}\nanswer follows source {names[b]}") for b in brackets]
+    top.append((combined, "flip", f"swap {combined}\nanswer = source answer"))
+    bottom = [(f"{b}_same", "change", f"same {names[b]}, other digits\nanswer changes") for b in brackets] + [None]
+    grid = [top, bottom]
+    ncol = len(top)
     w = 0.17 * len(labels) + 0.5
     h = 0.085 * len(rps) + 0.9
     H = 2 * h + 1.9
-    fig = plt.figure(figsize=(4 * w + 1.4, H))
-    gs = fig.add_gridspec(2, 6, width_ratios=[w, w, w, 0.07 * w, 0.25 * w, w], wspace=0.12, hspace=1.15 / h, top=1 - 1.05 / H)
+    fig = plt.figure(figsize=((ncol + 1) * w + 1.4, H))
+    gs = fig.add_gridspec(2, ncol + 3, width_ratios=[w] * ncol + [0.07 * w, 0.25 * w, w], wspace=0.12, hspace=1.15 / h,
+                          top=1 - 1.05 / H)
 
     def style(ax, ylabels: bool) -> None:
         ax.set_xticks(range(len(labels)))
@@ -539,29 +627,35 @@ def plot_task(result: dict[str, Any], path: Path, model_name: str) -> None:
             style(ax, c == 0)
             if c == 0:
                 ax.set_ylabel("read point (layer)", fontsize=7.5)
-    cax = fig.add_subplot(gs[:, 3])
+    cax = fig.add_subplot(gs[:, ncol])
     cbar = fig.colorbar(im, cax=cax)
     cbar.ax.tick_params(labelsize=6, length=2)
     cbar.set_label("rate (mean over bases)", fontsize=7)
     cbar.outline.set_visible(False)
 
-    ax = fig.add_subplot(gs[0, 5])
-    ax.imshow(np.asarray(read["count"]), aspect="auto", cmap=ListedColormap([CAT["none"], "#9ec5f4", "#184f95"]), vmin=-0.5,
-              vmax=2.5, interpolation="nearest")
-    ax.set_title(f"variables present\n(of S1, {'S2' if two else 'c'})", fontsize=7.5, loc="left")
+    nb = len(brackets)
+    counts = [CAT["none"]] + SEQ[2 : 2 + 2 * nb : 2][: nb - 1] + ["#184f95"]
+    ax = fig.add_subplot(gs[0, ncol + 2])
+    ax.imshow(np.asarray(read["count"]), aspect="auto", cmap=ListedColormap(counts), vmin=-0.5, vmax=nb + 0.5,
+              interpolation="nearest")
+    ax.set_title(f"variables present\n(of {', '.join(names[b] for b in brackets)})", fontsize=7.5, loc="left")
     style(ax, True)
-    ax.legend([plt.Rectangle((0, 0), 1, 1, color=col) for col in (CAT["none"], "#9ec5f4", "#184f95")], ["0", "1", "2"],
-              fontsize=6, loc="upper left", bbox_to_anchor=(0, -0.36 / h), ncol=3, frameon=False, handlelength=1)
-    ax = fig.add_subplot(gs[1, 5])
-    if "both" in rates and "hypotheses" in rates["both"]:
-        hyp = rates["both"]["hypotheses"]
-        stack = np.stack([np.asarray(hyp[x]["mean"]) for x in ("none", "S1", "S2", "both")])  # (4, M, P)
+    ax.legend([plt.Rectangle((0, 0), 1, 1, color=col) for col in counts], [str(i) for i in range(nb + 1)],
+              fontsize=6, loc="upper left", bbox_to_anchor=(0, -0.36 / h), ncol=nb + 1, frameon=False, handlelength=1)
+    ax = fig.add_subplot(gs[1, ncol + 2])
+    if combined in rates and "hypotheses" in rates[combined]:
+        hyp = rates[combined]["hypotheses"]
+        order = ["none"] + [x for x in hyp if x != "none"]
+        stack = np.stack([np.asarray(hyp[x]["mean"]) for x in order])  # (H, M, P)
         win = np.where(stack.max(axis=0) >= 0.5, stack.argmax(axis=0), 0)
-        ax.imshow(win, aspect="auto", cmap=ListedColormap([CAT["none"], CAT["S1"], CAT["S2"], CAT["both"]]), vmin=-0.5,
-                  vmax=3.5, interpolation="nearest")
-        ax.set_title("swap both: which\nprediction wins (>= 0.5)", fontsize=7.5, loc="left")
-        ax.legend([plt.Rectangle((0, 0), 1, 1, color=CAT[x]) for x in ("S1", "S2", "both", "none")],
-                  [x.replace("S2", "S2" if two else "c") for x in ("S1' - S2", "S1 - S2'", "S1' - S2'", "base / none")], fontsize=6, loc="upper left",
+        ax.imshow(win, aspect="auto", cmap=ListedColormap([CAT[x] for x in order]), vmin=-0.5, vmax=len(order) - 0.5,
+                  interpolation="nearest")
+        ax.set_title(f"swap {combined}: which\nprediction wins (>= 0.5)", fontsize=7.5, loc="left")
+        legend = [x for x in order[1:]] + ["none"]
+        text = [HYP_LABEL[f"{x}_3"] if three and x != "none" else HYP_LABEL[x] for x in legend]
+        if task == "one_lane":
+            text = [t.replace("S2", "c") for t in text]
+        ax.legend([plt.Rectangle((0, 0), 1, 1, color=CAT[x]) for x in legend], text, fontsize=6, loc="upper left",
                   bbox_to_anchor=(0, -0.36 / h), ncol=2, frameon=False, handlelength=1)
         style(ax, True)
     else:

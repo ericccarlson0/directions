@@ -980,7 +980,8 @@ class VarmapConfig:
     """The variable map (docs/DECISIONS.md D45): whole-vector swaps between base and source runs of the arithmetic
     expression tasks at every (read point x query token) site, read as the answer the swapped run gives.
 
-    expressions      "two_lane" ((a+b) - (c+d) = ) and/or "one_lane" ((a+b) - c = , the twin)
+    expressions      "two_lane" ((a+b) - (c+d) = ), "one_lane" ((a+b) - c = , the twin) and/or "three_lane"
+                     ((a+b) - (c+d) - (e+f) = , D51)
     n_bases          base expressions per task; one source per base and source type
     n_shots          demonstrations per prompt, from a pool disjoint from the bases (shared by a base and its sources)
     n_demo_pool      the demonstration pool's size
@@ -1017,8 +1018,8 @@ def load_varmap_config(path: str | Path) -> VarmapConfig:
     with open(path) as f:
         data = yaml.safe_load(f) or {}
     cfg = _from_dict(VarmapConfig, data)
-    if not cfg.expressions or any(t not in ("two_lane", "one_lane") for t in cfg.expressions):
-        raise ValueError("expressions must be a non-empty subset of two_lane, one_lane")
+    if not cfg.expressions or any(t not in ("two_lane", "one_lane", "three_lane") for t in cfg.expressions):
+        raise ValueError("expressions must be a non-empty subset of two_lane, one_lane, three_lane")
     if cfg.n_bases < 2 or cfg.n_shots < 0 or cfg.n_demo_pool < cfg.n_shots:
         raise ValueError("n_bases must be at least 2 and n_demo_pool at least n_shots")
     if not (0 < cfg.present_flip <= 1 and 0 <= cfg.value_change < 1 and 0 < cfg.alpha < 1):
@@ -1108,8 +1109,8 @@ def load_varsplit_config(path: str | Path) -> VarsplitConfig:
     with open(path) as f:
         data = yaml.safe_load(f) or {}
     cfg = _from_dict(VarsplitConfig, data)
-    if not cfg.expressions or any(t not in ("two_lane", "one_lane") for t in cfg.expressions):
-        raise ValueError("expressions must be a non-empty subset of two_lane, one_lane")
+    if not cfg.expressions or any(t not in ("two_lane", "one_lane", "three_lane") for t in cfg.expressions):
+        raise ValueError("expressions must be a non-empty subset of two_lane, one_lane, three_lane")
     if not cfg.split_blocks or not cfg.head_blocks or min(cfg.split_blocks + cfg.head_blocks) < 1:
         raise ValueError("split_blocks and head_blocks must be non-empty lists of blocks >= 1")
     if not cfg.parts or any(x not in ("probe", "heads") for x in cfg.parts):
@@ -1130,7 +1131,8 @@ class DasConfig:
 
     sites            read points of the answer token fitted at (the control site among them)
     control_site     where the operands are not causally present (D45): nothing may be held there
-    variables        S1, S2, Y and the digit a (the control variable)
+    task             two_lane, or three_lane (D51)
+    variables        S1, S2, Y and the digit a (the control variable); three brackets also S3, T = S1 - S2, U = S2 + S3
     ks               subspace dimensions; null_k the shuffled-target null's
     n_train/val/test bases per split (disjoint expressions); each with one Cause source, test bases with Isolate sources
     batch_size       bases per training/evaluation batch on the single-token path (the model's batch_size is for captures)
@@ -1142,6 +1144,7 @@ class DasConfig:
     seed: int = 20260916
     output_dir: str = "results"
     model: ModelConfig = field(default_factory=ModelConfig)
+    task: str = "two_lane"        # or "three_lane" (D51)
     sites: list[int] = field(default_factory=list)
     control_site: int = 0
     variables: list[str] = field(default_factory=lambda: ["S1", "S2", "Y", "a"])
@@ -1172,8 +1175,11 @@ def load_das_config(path: str | Path) -> DasConfig:
     cfg = _from_dict(DasConfig, data)
     if not cfg.sites or cfg.control_site not in cfg.sites or list(cfg.sites) != sorted(set(cfg.sites)):
         raise ValueError("sites must be increasing, distinct and include control_site")
-    if not cfg.variables or any(v not in ("S1", "S2", "Y", "a") for v in cfg.variables):
-        raise ValueError("variables must be a non-empty subset of S1, S2, Y, a")
+    allowed = {"two_lane": ("S1", "S2", "Y", "a"), "three_lane": ("S1", "S2", "S3", "T", "U", "Y", "a")}
+    if cfg.task not in allowed:
+        raise ValueError("task must be two_lane or three_lane")
+    if not cfg.variables or any(v not in allowed[cfg.task] for v in cfg.variables):
+        raise ValueError(f"variables must be a non-empty subset of {', '.join(allowed[cfg.task])}")
     if not cfg.ks or any(k < 1 for k in cfg.ks) or list(cfg.ks) != sorted(set(cfg.ks)) or cfg.null_k < 1:
         raise ValueError("ks must be increasing positive integers; null_k positive")
     if min(cfg.n_train, cfg.n_val, cfg.n_test) < 2 or cfg.batch_size < 1 or cfg.epochs < 1 or cfg.lr <= 0:
@@ -1185,8 +1191,8 @@ def load_varprobe_config(path: str | Path) -> VarprobeConfig:
     with open(path) as f:
         data = yaml.safe_load(f) or {}
     cfg = _from_dict(VarprobeConfig, data)
-    if not cfg.expressions or any(t not in ("two_lane", "one_lane") for t in cfg.expressions):
-        raise ValueError("expressions must be a non-empty subset of two_lane, one_lane")
+    if not cfg.expressions or any(t not in ("two_lane", "one_lane", "three_lane") for t in cfg.expressions):
+        raise ValueError("expressions must be a non-empty subset of two_lane, one_lane, three_lane")
     if cfg.n_examples < 2 * cfg.n_folds or cfg.n_folds < 2 or cfg.n_demo_pool < cfg.n_shots:
         raise ValueError("n_examples must be at least twice n_folds (>= 2), and n_demo_pool at least n_shots")
     if not cfg.lambdas or any(x <= 0 for x in cfg.lambdas) or list(cfg.lambdas) != sorted(cfg.lambdas):

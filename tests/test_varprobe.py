@@ -16,7 +16,7 @@ from directions.varprobe import (
 
 
 def test_allowed_classes_hold_the_target_and_follow_the_condition():
-    for task in ("two_lane", "one_lane"):
+    for task in ("two_lane", "one_lane", "three_lane"):
         v = variables(all_exprs(task))
         for name in TARGETS[task]:
             y, cond, allowed = target_spec(name, task, v)
@@ -55,3 +55,23 @@ def test_toy_run_writes_the_readouts(tmp_path):
         assert (root / "figures" / f"{task}.png").exists()
         z = np.load(root / "core" / "tasks" / task / "varprobe_arrays.npz")
         assert z["lens_digit"].shape == (M, r["n_kept"])
+
+
+def test_three_lane_variables_and_lens_candidates():
+    """Three brackets (D51): S3, T and U, and the probes for T and U given Y are those for S3 and S1 relabelled."""
+    v = variables(all_exprs("three_lane"))
+    assert (v["T"] == v["S1"] - v["S2"]).all() and (v["U"] == v["S2"] + v["S3"]).all()
+    assert (v["T"] - v["Y"] == v["S3"]).all() and (v["S1"] - v["Y"] == v["U"]).all()
+    for name in ("T", "U", "e", "f"):
+        e = lens_eligible(name, v)
+        assert e.any() and (v[name][e] != v["Y"][e]).all()
+
+
+def test_three_lane_toy_run(tmp_path):
+    cfg = load_varprobe_config("configs/smoke_toy_varprobe.yaml")
+    cfg.output_dir, cfg.expressions = str(tmp_path), ["three_lane"]
+    cfg.n_examples, cfg.n_perm = 40, 8
+    root = run_varprobe(cfg, run_id="toy3")
+    r = json.loads((root / "core" / "tasks" / "three_lane" / "varprobe.json").read_text())
+    assert set(r["probes"]) == set(TARGETS["three_lane"]) and {"T", "U", "S3", "e"} <= set(r["lens"]["candidates"])
+    assert (root / "figures" / "three_lane.png").exists()

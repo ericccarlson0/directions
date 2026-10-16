@@ -27,24 +27,31 @@ from .model import ModelBackend, environment_metadata, set_torch_determinism
 from .probes import conditional_probe, match_rates
 from .runinfo import RejectionLog, git_info, setup_logging, write_json
 from .seeds import derive_seed, rng_for
-from .varmap import Expr, all_exprs, query_tokens, render
+from .varmap import TEMPLATES, Expr, all_exprs, query_tokens, render
 
 # the probe targets per task: name -> (target, conditioning variable); allowed classes follow from both
 TARGETS = {
     "two_lane": ("Y", "S1|Y", "a|S1", "c|S2"),
     "one_lane": ("Y", "S1|Y", "a|S1"),
+    "three_lane": ("Y", "S1|Y", "S2|Y", "S3|Y", "a|S1", "c|S2", "e|S3"),  # D51 (T|Y is S3|Y, U|Y is S1|Y relabelled)
 }
-# the logit lens's candidates: the answer, the sub-results, the operand digits
-LENS_CANDIDATES = {"two_lane": ("Y", "S1", "S2", "a", "b", "c", "d"), "one_lane": ("Y", "S1", "S2", "a", "b", "c")}
+# the logit lens's candidates: the answer, the sub-results (three brackets: and the intermediates T, U), the digits
+LENS_CANDIDATES = {"two_lane": ("Y", "S1", "S2", "a", "b", "c", "d"), "one_lane": ("Y", "S1", "S2", "a", "b", "c"),
+                   "three_lane": ("Y", "S1", "S2", "S3", "T", "U", "a", "b", "c", "d", "e", "f")}
 
 
 def variables(exprs: list[Expr]) -> dict[str, np.ndarray]:
-    """Y, S1, S2 and the operand digits of each expression (d = -1 on the one-lane task)."""
-    return {
+    """Y, S1, S2 and the operand digits of each expression (d = -1 on the one-lane task); on three brackets also
+    S3, T, U and the digits e, f (D51)."""
+    out = {
         "Y": np.array([e.Y for e in exprs]), "S1": np.array([e.S1 for e in exprs]), "S2": np.array([e.S2 for e in exprs]),
         "a": np.array([e.a for e in exprs]), "b": np.array([e.b for e in exprs]), "c": np.array([e.c for e in exprs]),
         "d": np.array([-1 if e.d is None else e.d for e in exprs]),
     }
+    if exprs and exprs[0].e is not None:
+        out.update({"S3": np.array([e.S3 for e in exprs]), "T": np.array([e.T for e in exprs]),
+                    "U": np.array([e.U for e in exprs]), "e": np.array([e.e for e in exprs]), "f": np.array([e.f for e in exprs])})
+    return out
 
 
 def target_spec(name: str, task: str, v: dict[str, np.ndarray]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -53,11 +60,14 @@ def target_spec(name: str, task: str, v: dict[str, np.ndarray]) -> tuple[np.ndar
     if name == "Y":
         return v["Y"], np.zeros(n, dtype=np.int64), np.ones((n, 10), dtype=bool)
     if name == "S1|Y":
-        hi = 18 if task == "two_lane" else 9  # S2 = S1 - Y ranges over 0..18 (two-lane) or 0..9 (one-lane, S2 = c)
+        hi = 9 if task == "one_lane" else 18  # S1 - Y ranges over 0..18 (two, three brackets) or 0..9 (one-lane, S2 = c)
         k = np.arange(19)[None, :]
         return v["S1"], v["Y"], (k >= v["Y"][:, None]) & (k <= np.minimum(18, v["Y"][:, None] + hi))
-    if name in ("a|S1", "c|S2"):
-        digit, total = ("a", "S1") if name == "a|S1" else ("c", "S2")
+    if name in ("S2|Y", "S3|Y"):  # three brackets: S2 + S3 = S1 - Y <= 18 - Y
+        k = np.arange(19)[None, :]
+        return v[name[:2]], v["Y"], k <= 18 - v["Y"][:, None]
+    if name in ("a|S1", "c|S2", "e|S3"):
+        digit, total = {"a|S1": ("a", "S1"), "c|S2": ("c", "S2"), "e|S3": ("e", "S3")}[name]
         k = np.arange(10)[None, :]
         s = v[total][:, None]
         return v[digit], v[total], (k >= np.maximum(0, s - 9)) & (k <= np.minimum(9, s))
@@ -309,7 +319,8 @@ def _jsonable(x: Any) -> Any:
 SERIES = "#2a78d6"  # one series per panel: the observed rate
 NULL_FILL, NULL_LINE = "#e4e3df", "#8a8985"
 INK, INK2 = "#0b0b0b", "#52514e"
-TITLES = {"Y": "Y (the answer)", "S1|Y": "S1 given Y", "a|S1": "a given S1", "c|S2": "c given S2"}
+TITLES = {"Y": "Y (the answer)", "S1|Y": "S1 given Y", "S2|Y": "S2 given Y", "S3|Y": "S3 given Y", "a|S1": "a given S1",
+          "c|S2": "c given S2", "e|S3": "e given S3"}
 
 
 def plot_task(result: dict[str, Any], path: Path, model_name: str, marks: dict[str, int] | None = None) -> None:
@@ -324,8 +335,9 @@ def plot_task(result: dict[str, Any], path: Path, model_name: str, marks: dict[s
     rps = np.asarray(result["read_points"])
     titles = dict(TITLES, **({"S1|Y": "S1 given Y (= c given Y)"} if result["task"] == "one_lane" else {}))
     rows = [[(titles[t], result["probes"][t]) for t in result["targets"]],
-            [(f"lens reads {c}", result["lens"]["candidates"][c]) for c in ("Y", "S1", "S2")],
-            [(f"lens reads {c}", result["lens"]["candidates"][c]) for c in ("a", "b", "c", "d")
+            [(f"lens reads {c}", result["lens"]["candidates"][c]) for c in ("Y", "S1", "S2", "S3", "T", "U")
+             if c in result["lens"]["candidates"]],
+            [(f"lens reads {c}", result["lens"]["candidates"][c]) for c in ("a", "b", "c", "d", "e", "f")
              if c in result["lens"]["candidates"]]]
     ncol = max(len(r) for r in rows)
     fig, axes = plt.subplots(3, ncol, figsize=(2.3 * ncol + 0.6, 6.6), sharex=True)
@@ -365,7 +377,7 @@ def plot_task(result: dict[str, Any], path: Path, model_name: str, marks: dict[s
                plt.Line2D([], [], color=NULL_LINE, lw=0.9, ls=(0, (3, 2))), plt.Rectangle((0, 0), 1, 1, color=NULL_FILL)]
     fig.legend(handles, ["observed (dots: above the family-wise null)", "null mean", "family-wise null band"],
                loc="lower left", bbox_to_anchor=(0.01, -0.035), ncol=3, fontsize=7, frameon=False)
-    task = "(a+b) - (c+d) = " if result["task"] == "two_lane" else "(a+b) - c = "
+    task = TEMPLATES[result["task"]]
     fig.suptitle(f"Answer token of {task.strip()}  ({model_name}): conditional probe and logit lens; "
                  f"{result['n_kept']} of {result['n_expressions']} answered", fontsize=8.5, x=0.01, ha="left")
     fig.tight_layout(rect=(0, 0.02, 1, 0.97))

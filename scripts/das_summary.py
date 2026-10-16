@@ -34,7 +34,8 @@ def overlap(B1: np.ndarray, B2: np.ndarray) -> dict:
 
 
 def summarise(r: dict, bases=None) -> dict:
-    out = {"control_site": r["control_site"], "control_clean": r["control_clean"], "n": r["n"], "sites": {}}
+    out = {"task": r.get("task", "two_lane"), "control_site": r["control_site"], "control_clean": r["control_clean"], "n": r["n"],
+           "sites": {}}
     for s in r["sites"]:
         ps = r["per_site"][str(s)]
         row = {"held": ps["held"], "count": ps["count"], "digits_in_use": ps["digits_in_use"], "variables": {}}
@@ -51,7 +52,8 @@ def summarise(r: dict, bases=None) -> dict:
                 "cause_by_k": {k: _r(x["cause"]["mean"]) for k, x in sorted(c["grid"].items(), key=lambda kx: int(kx[0]))},
             }
         if bases is not None:
-            keys = {v: f"{s}/{v}/{r['cells'][f'{s}/{v}']['k_star']}" for v in ("S1", "S2", "Y") if v in r["variables"]}
+            keys = {v: f"{s}/{v}/{r['cells'][f'{s}/{v}']['k_star']}" for v in ("S1", "S2", "S3", "T", "U", "Y")
+                    if v in r["variables"]}
             row["overlap"] = {f"{u}-{v}": {k: _r(x, 3) for k, x in overlap(bases[keys[u]], bases[keys[v]]).items()}
                               for u, v in itertools.combinations(keys, 2) if keys[u] in bases.files and keys[v] in bases.files}
         out["sites"][s] = row

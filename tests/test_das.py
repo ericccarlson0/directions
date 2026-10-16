@@ -10,6 +10,8 @@ import torch
 from directions.config import ModelConfig, ToyModelConfig, load_das_config
 from directions.das import (
     ISOLATE,
+    TASK_ISOLATE,
+    TASK_SOURCE_KINDS,
     Fit,
     LastToken,
     digits_of,
@@ -144,3 +146,45 @@ def test_toy_run_writes_the_grid(tmp_path):
                 B = bases[f"{s}/{v}/{k}"]
                 assert B.shape[0] == k and np.allclose(B @ B.T, np.eye(k), atol=1e-5)
     assert set(np.load(root / "core" / "das_predictions.npz").files)
+
+
+def test_three_lane_sources_satisfy_their_definitions():
+    """Three brackets (D51): one Cause source tells the eight hypotheses apart; the Isolate sources change what they
+    say and keep the rest."""
+    ex = all_exprs("three_lane")
+    D = digits_of(ex)
+    assert D.shape == (113575, 6)
+    rng = np.random.default_rng(4)
+    for i in rng.choice(len(ex), 12, replace=False):
+        b = ex[i]
+        for j in np.flatnonzero(source_mask("cause", b, D))[:15]:
+            s = ex[j]
+            t = [b.Y] + [targets(v, b, s) for v in ("S1", "S2", "S3", "T", "U", "Y", "a")]
+            assert len(set(t)) == 8 and all(0 <= x <= 9 for x in t)
+            assert s.a != b.a and s.b != b.b and s.S1 != b.S1 and s.S2 != b.S2 and s.S3 != b.S3
+            assert targets("T", b, s) == s.S1 - s.S2 - b.S3 and targets("U", b, s) == b.S1 - s.S2 - s.S3
+        checks = {
+            "only_S3": lambda s: (s.a, s.b, s.c, s.d) == (b.a, b.b, b.c, b.d) and s.S3 != b.S3,
+            "same_S3": lambda s: (s.a, s.b, s.c, s.d) == (b.a, b.b, b.c, b.d) and s.S3 == b.S3 and (s.e, s.f) != (b.e, b.f),
+            "same_T": lambda s: (s.e, s.f) == (b.e, b.f) and s.T == b.T and s.S1 != b.S1 and s.S2 != b.S2,
+            "same_U": lambda s: (s.a, s.b) == (b.a, b.b) and s.U == b.U and s.S2 != b.S2 and s.S3 != b.S3,
+            "same_Y": lambda s: s.Y == b.Y and s.S1 != b.S1 and s.S2 != b.S2 and s.S3 != b.S3,
+        }
+        for kind, ok in checks.items():
+            for j in np.flatnonzero(source_mask(kind, b, D))[:10]:
+                assert ok(ex[j]), kind
+    iso = TASK_ISOLATE["three_lane"]
+    assert set(iso) == {"S1", "S2", "S3", "T", "U", "Y", "a"} and TASK_ISOLATE["two_lane"] is ISOLATE
+    assert set(k for v in iso.values() for k in v) | {"cause"} == set(TASK_SOURCE_KINDS["three_lane"])
+
+
+def test_three_lane_toy_run(tmp_path):
+    cfg = load_das_config("configs/smoke_toy_das.yaml")
+    cfg.output_dir, cfg.task, cfg.variables = str(tmp_path), "three_lane", ["S1", "S3", "T", "U", "Y"]
+    cfg.sites, cfg.control_site, cfg.ks, cfg.null_k, cfg.epochs = [1, 4], 1, [2], 2, 1
+    root = run_das(cfg, run_id="toy3")
+    r = json.loads((root / "core" / "das.json").read_text())
+    assert r["task"] == "three_lane" and set(r["cells"]) == {f"{s}/{v}" for s in (1, 4) for v in cfg.variables}
+    iso = r["cells"]["4/T"]["grid"]["2"]["isolate"]
+    assert set(iso) == {"only_S3", "same_T"} and "sums_held" in r["per_site"]["4"]
+    assert (root / "figures" / "das.png").exists()

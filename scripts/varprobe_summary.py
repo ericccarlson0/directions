@@ -23,6 +23,8 @@ import numpy as np
 
 # the D45 gather read point per model (runs 38502381471 and, for the 8B, 38738001665; the configs' marks)
 GATHER = {"qwen3_0.6b": 21, "qwen3_1.7b": 21, "qwen3_4b": 24, "qwen3_8b": 24, "qwen3_14b": 30}
+# the three-bracket gather G3 per model (D51; first read point with all three sums at the answer token)
+GATHER3: dict[str, int] = {}
 
 
 
@@ -126,7 +128,11 @@ def main(argv: list[str] | None = None) -> int:
         key = model_key(run.name)
         for task_dir in sorted((run / "core" / "tasks").glob("*")):
             r = json.loads((task_dir / "varprobe.json").read_text())
-            s = summarise(r, GATHER[key])
+            G = (GATHER3 if task_dir.name == "three_lane" else GATHER).get(key)
+            if G is None:
+                print(f"{key} {task_dir.name}: no gather recorded for this model and task; skipped", file=sys.stderr)
+                continue
+            s = summarise(r, G)
             if task_dir.name == "two_lane":
                 s["rules"] = rules(s)
                 two_lane[key] = r

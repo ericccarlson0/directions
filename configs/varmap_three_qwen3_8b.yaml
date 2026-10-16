@@ -1,0 +1,28 @@
+# The variable map (docs/DECISIONS.md D45) on the three-bracket task (D51): whole-vector swaps between a base
+# expression's run and a source's run at every (read point x query token) site. The files of this family differ
+# only in model.name, and from the two-bracket files only in expressions (enforced by tests/test_configs.py).
+name: varmap
+seed: 20260916
+output_dir: results
+
+model:
+  backend: hf
+  name: Qwen/Qwen3-8B-Base
+  dtype: bfloat16          # model execution; swapped states stay in the model's dtype (a swap of a run's own state is exact)
+  device: cuda             # fail fast rather than fall back to the CPU (docs/INFRA.md)
+  batch_size: 128
+
+expressions: [three_lane]     # (a+b) - (c+d) - (e+f) = Y; digits 0-9, Y a single digit (D51)
+n_bases: 64                   # base expressions per task; one source per base and source type
+n_shots: 8                    # demonstrations, shared by a base and its sources (token-aligned prompts)
+n_demo_pool: 96               # disjoint from the bases and sources
+read_points: null             # every read point 0..L
+n_boot: 1000
+alpha: 0.05
+present_flip: 0.5             # D45 judgement thresholds: present = flip-rate lower bound >= 0.5
+value_change: 0.25            # held as a value = present and the same-value swap's change-rate upper bound <= 0.25
+min_accuracy: 0.5             # few-shot accuracy on the bases below which a task is skipped
+gate: true                    # drop the bases whose base or any source the model answers wrongly
+identity_check: true
+determinism_check: true
+figures: true

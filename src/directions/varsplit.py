@@ -28,7 +28,9 @@ from .probes import conditional_probe
 from .runinfo import RejectionLog, git_info, setup_logging, write_json
 from .seeds import derive_seed
 from .varmap import (
+    BRACKETS,
     SOURCE_TYPES,
+    TEMPLATES,
     bootstrap_rate,
     bootstrap_ratio,
     prediction,
@@ -37,8 +39,8 @@ from .varmap import (
 )
 from .varprobe import TARGETS, _jsonable, sample_probe_set, target_spec, variables
 
-VALUE_TYPES = ("S1", "S2", "both")  # the source types whose prediction differs from the base answer
-SAME_OF = {"S1": "S1_same", "S2": "S2_same"}
+VALUE_TYPES = ("S1", "S2", "S3", "both", "all")  # the source types whose prediction differs from the base answer
+SAME_OF = {"S1": "S1_same", "S2": "S2_same", "S3": "S3_same"}
 
 
 def state_sequence(blocks: list[int]) -> tuple[list[str], list[tuple[str, int]]]:
@@ -74,27 +76,30 @@ def read_share(s: dict[str, Any], gain_min: float) -> str:
     return "mixed"
 
 
-def read_heads(types: dict[str, Any], carry_lower: float, not_carry_upper: float, digit_change: float) -> dict[str, Any]:
-    """Carriers, lanes or one channel from the per-head transfers of one block (D47)."""
-    lo = {k: np.asarray(types[k]["transfer"]["lo"])[:-1] for k in ("S1", "S2") if k in types}
-    hi = {k: np.asarray(types[k]["transfer"]["hi"])[:-1] for k in ("S1", "S2") if k in types}
-    if len(lo) < 2:
+def read_heads(types: dict[str, Any], carry_lower: float, not_carry_upper: float, digit_change: float,
+               brackets: tuple[str, ...] = ("S1", "S2")) -> dict[str, Any]:
+    """Carriers, lanes or one channel from the per-head transfers of one block (D47; three brackets D51: lanes when
+    every bracket has a carrier of its own)."""
+    lo = {k: np.asarray(types[k]["transfer"]["lo"])[:-1] for k in brackets if "transfer" in types.get(k, {})}
+    hi = {k: np.asarray(types[k]["transfer"]["hi"])[:-1] for k in brackets if "transfer" in types.get(k, {})}
+    if len(lo) < len(brackets):
         return {"reading": "undecided"}
-    carry = {k: lo[k] >= carry_lower for k in lo}
-    only1 = carry["S1"] & (hi["S2"] < not_carry_upper)
-    only2 = carry["S2"] & (hi["S1"] < not_carry_upper)
-    any_carrier = carry["S1"] | carry["S2"]
+    carry = {k: lo[k] >= carry_lower for k in brackets}
+    only = {k: carry[k] & np.logical_and.reduce([hi[o] < not_carry_upper for o in brackets if o != k]) for k in brackets}
+    any_carrier = np.logical_or.reduce([carry[k] for k in brackets])
     if not any_carrier.any():
         reading = "no carrier"
-    elif only1.any() and only2.any():
+    elif all(only[k].any() for k in brackets):
         reading = "lanes"
-    elif (carry["S1"] == carry["S2"]).all():
+    elif all((carry[k] == carry[brackets[0]]).all() for k in brackets):
         reading = "one channel"
     else:
         reading = "mixed"
-    out = {"reading": reading, "carries_S1": np.flatnonzero(carry["S1"]).tolist(),
-           "carries_S2": np.flatnonzero(carry["S2"]).tolist(), "S1_only": np.flatnonzero(only1).tolist(),
-           "S2_only": np.flatnonzero(only2).tolist()}
+    out: dict[str, Any] = {"reading": reading}
+    for k in brackets:
+        out[f"carries_{k}"] = np.flatnonzero(carry[k]).tolist()
+    for k in brackets:
+        out[f"{k}_only"] = np.flatnonzero(only[k]).tolist()
     for k, same in SAME_OF.items():
         if same in types and k in carry:
             ch_lo = np.asarray(types[same]["change"]["lo"])[:-1]
@@ -290,13 +295,13 @@ class VarSplit:
                     entry["logp_drop"] = (lp[np.arange(n), H + 1, Y[rows]][:, None]
                                           - lp[np.arange(n)[:, None], np.arange(H + 1)[None, :], Y[rows][:, None]]).mean(axis=0)
                 per_type[k] = entry
-            reading = read_heads(per_type, cfg.carry_lower, cfg.not_carry_upper, cfg.digit_change)
+            reading = read_heads(per_type, cfg.carry_lower, cfg.not_carry_upper, cfg.digit_change, BRACKETS[task])
             sums = {k: float(np.asarray(per_type[k]["transfer"]["mean"])[:H].sum()) for k in VALUE_TYPES
                     if "transfer" in per_type.get(k, {})}
             alls = {k: float(np.asarray(per_type[k]["transfer"]["mean"])[H]) for k in VALUE_TYPES if "transfer" in per_type.get(k, {})}
             blocks_out[b] = {"types": per_type, "reading": reading, "sum_of_heads": sums, "all_heads": alls}
-            log.info("%s: heads of block %d: %s (S1 carriers %s, S2 carriers %s); all heads %s, sum of heads %s", task, b,
-                     reading.get("reading"), reading.get("carries_S1"), reading.get("carries_S2"),
+            log.info("%s: heads of block %d: %s (carriers %s); all heads %s, sum of heads %s", task, b, reading.get("reading"),
+                     {k: reading.get(f"carries_{k}") for k in BRACKETS[task]},
                      {k: round(x, 2) for k, x in alls.items()}, {k: round(x, 2) for k, x in sums.items()})
         return {"accuracy": accuracy, "n_heads": H, "blocks": blocks_out}
 
@@ -404,7 +409,7 @@ def plot_task(result: dict[str, Any], path: Path, model_name: str) -> None:
         ax.set_xticks(list(range(0, H, 4)) + [H])
         ax.set_xticklabels([str(h) for h in range(0, H, 4)] + ["all"], fontsize=6.5)
         ax.set_yticks(range(len(types)))
-        ax.set_yticklabels([f"swap from source changing {k}" if k != "both" else "swap from source changing both" for k in types],
+        ax.set_yticklabels([f"swap from source changing {k}" for k in types],
                            fontsize=6.5)
         ax.axvline(H - 0.5, color="#fcfcfb", lw=3)
         rd = heads["blocks"][b]["reading"]
@@ -420,7 +425,7 @@ def plot_task(result: dict[str, Any], path: Path, model_name: str) -> None:
     if cb is not None:
         cb.ax.tick_params(labelsize=6, length=2)
         cb.outline.set_visible(False)
-    task = "(a+b) - (c+d) = " if result["task"] == "two_lane" else "(a+b) - c = "
+    task = TEMPLATES[result["task"]]
     fig.suptitle(f"Splitting the block where the sums appear: {task.strip()}  ({model_name}; D45 gather at read point "
                  f"{result.get('gather')})", fontsize=8.5, x=0.01, ha="left")
     fig.savefig(path, dpi=170, bbox_inches="tight", facecolor="#fcfcfb")

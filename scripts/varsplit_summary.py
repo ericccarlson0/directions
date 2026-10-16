@@ -45,10 +45,11 @@ def summarise(r: dict) -> dict:
         rd = blk["reading"]
         out["heads"][b] = {"reading": rd.get("reading"), "carries_S1": rd.get("carries_S1"), "carries_S2": rd.get("carries_S2"),
                            "S1_only": rd.get("S1_only"), "S2_only": rd.get("S2_only"),
+                           **({"carries_S3": rd["carries_S3"], "S3_only": rd.get("S3_only")} if "carries_S3" in rd else {}),
                            "all_heads": {k: round(v, 2) for k, v in blk["all_heads"].items()},
                            "sum_of_heads": {k: round(v, 2) for k, v in blk["sum_of_heads"].items()},
                            "n": {k: v.get("n") for k, v in blk["types"].items()}}
-        for k in ("S1", "S2"):
+        for k in ("S1", "S2", "S3"):
             if f"{k}_carriers_holding_a_digit" in rd:
                 out["heads"][b][f"{k}_carriers_holding_a_digit"] = rd[f"{k}_carriers_holding_a_digit"]
     return out
@@ -95,8 +96,9 @@ def main(argv: list[str] | None = None) -> int:
                     if x["reading"] != "no gain":
                         print(f"         block {b}: gain {x['gain']:.2f}, attention share {x['share']:.2f} {x['ci']} -> {x['reading']}")
             for b, x in s.get("heads", {}).items():
+                third = f", S3 {x['carries_S3']} (only {x['S3_only']})" if "carries_S3" in x else ""
                 print(f"   heads of block {b}: {x['reading']}; S1 {x['carries_S1']} (only {x['S1_only']}), S2 {x['carries_S2']} "
-                      f"(only {x['S2_only']}); all heads {x['all_heads']}, sum of heads {x['sum_of_heads']}")
+                      f"(only {x['S2_only']}){third}; all heads {x['all_heads']}, sum of heads {x['sum_of_heads']}")
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps(summary, indent=1) + "\n")

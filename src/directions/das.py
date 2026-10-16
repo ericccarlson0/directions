@@ -30,14 +30,21 @@ from .probes import fold_ids, ridge_cv_accuracy
 from .prompts import Prompt
 from .runinfo import RejectionLog, git_info, setup_logging, write_json
 from .seeds import derive_seed, rng_for
-from .varmap import Expr, all_exprs, bootstrap_rate, render
+from .varmap import TEMPLATES, Expr, all_exprs, bootstrap_rate, render
 from .varprobe import _jsonable
 
 VARIABLES = ("S1", "S2", "Y", "a")
 # the Isolate sources of each variable: the answer must stay at the base's when the variable's subspace is swapped
 ISOLATE = {"S1": ("only_S2", "same_S1"), "S2": ("only_S1", "same_S2"), "Y": ("same_Y",), "a": ("only_S2", "only_b")}
 SOURCE_KINDS = ("cause", "only_S1", "only_S2", "same_S1", "same_S2", "only_b", "same_Y")
-N_CLASSES = {"S1": 19, "S2": 19, "Y": 10, "a": 10}
+N_CLASSES = {"S1": 19, "S2": 19, "S3": 19, "T": 19, "U": 19, "Y": 10, "a": 10}
+# three brackets (D51): the sums, the merge intermediates T = S1 - S2 and U = S2 + S3, the answer and the digit a
+TASK_VARIABLES = {"two_lane": VARIABLES, "three_lane": ("S1", "S2", "S3", "T", "U", "Y", "a")}
+TASK_ISOLATE = {"two_lane": ISOLATE, "three_lane": {
+    "S1": ("only_S2", "only_S3", "same_S1"), "S2": ("only_S1", "only_S3", "same_S2"), "S3": ("only_S1", "only_S2", "same_S3"),
+    "T": ("only_S3", "same_T"), "U": ("only_S1", "same_U"), "Y": ("same_Y",), "a": ("only_S2", "only_b")}}
+TASK_SOURCE_KINDS = {"two_lane": SOURCE_KINDS, "three_lane": ("cause", "only_S1", "only_S2", "only_S3", "same_S1", "same_S2",
+                                                              "same_S3", "same_T", "same_U", "only_b", "same_Y")}
 
 
 # --------------------------------------------------------------------------- #
@@ -46,11 +53,16 @@ N_CLASSES = {"S1": 19, "S2": 19, "Y": 10, "a": 10}
 
 
 def digits_of(exprs: Sequence[Expr]) -> np.ndarray:
+    if exprs and exprs[0].e is not None:
+        return np.array([[e.a, e.b, e.c, e.d, e.e, e.f] for e in exprs], dtype=np.int64)
     return np.array([[e.a, e.b, e.c, e.d] for e in exprs], dtype=np.int64)
 
 
 def source_mask(kind: str, base: Expr, D: np.ndarray) -> np.ndarray:
-    """Which candidate expressions (digits ``D``, (N, 4)) are valid sources of ``kind`` for ``base`` (D48)."""
+    """Which candidate expressions (digits ``D``, (N, 4); three brackets (N, 6)) are valid sources of ``kind`` for
+    ``base`` (D48, D51)."""
+    if D.shape[1] == 6:
+        return _source_mask3(kind, base, D)
     a, b, c, d = D.T
     S1, S2 = a + b, c + d
     Y = S1 - S2
@@ -80,13 +92,56 @@ def source_mask(kind: str, base: Expr, D: np.ndarray) -> np.ndarray:
     raise ValueError(f"unknown source kind {kind!r}")
 
 
+def _source_mask3(kind: str, base: Expr, D: np.ndarray) -> np.ndarray:
+    """Three brackets (D51): one Cause source per base (a and b changed, every sum changed, the eight answers that
+    tell the hypotheses apart single digits and pairwise distinct) and the Isolate sources."""
+    a, b, c, d, e, f = D.T
+    S1, S2, S3 = a + b, c + d, e + f
+    T, U, Y = S1 - S2, S2 + S3, S1 - S2 - S3
+    in_range = (Y >= 0) & (Y <= 9)
+    same1 = (a == base.a) & (b == base.b)
+    same2 = (c == base.c) & (d == base.d)
+    same3 = (e == base.e) & (f == base.f)
+    if kind == "cause":
+        t = np.stack([np.full(len(D), base.Y), S1 - base.S2 - base.S3, base.S1 - S2 - base.S3, base.S1 - base.S2 - S3,
+                      T - base.S3, base.S1 - U, Y, a + base.b - base.S2 - base.S3])
+        ok = ((a != base.a) & (b != base.b) & (S1 != base.S1) & (S2 != base.S2) & (S3 != base.S3)
+              & ((t >= 0) & (t <= 9)).all(axis=0))
+        for i in range(len(t)):
+            for j in range(i + 1, len(t)):
+                ok &= t[i] != t[j]
+        return ok
+    if kind == "only_S1":
+        return same2 & same3 & (S1 != base.S1) & in_range
+    if kind == "only_S2":
+        return same1 & same3 & (S2 != base.S2) & in_range
+    if kind == "only_S3":
+        return same1 & same2 & (S3 != base.S3) & in_range
+    if kind == "same_S1":
+        return same2 & same3 & ~same1 & (S1 == base.S1)
+    if kind == "same_S2":
+        return same1 & same3 & ~same2 & (S2 == base.S2)
+    if kind == "same_S3":
+        return same1 & same2 & ~same3 & (S3 == base.S3)
+    if kind == "same_T":
+        return same3 & (S1 != base.S1) & (S2 != base.S2) & (T == base.T)
+    if kind == "same_U":
+        return same1 & (S2 != base.S2) & (S3 != base.S3) & (U == base.U)
+    if kind == "only_b":
+        return (a == base.a) & same2 & same3 & (b != base.b) & in_range
+    if kind == "same_Y":
+        return (S1 != base.S1) & (S2 != base.S2) & (S3 != base.S3) & (Y == base.Y)
+    raise ValueError(f"unknown source kind {kind!r}")
+
+
 def targets(var: str, base: Expr, src: Expr) -> int:
-    """The answer a Cause swap of ``var`` predicts (D48)."""
-    return {"S1": src.S1 - base.S2, "S2": base.S1 - src.S2, "Y": src.Y, "a": src.a + base.b - base.S2}[var]
+    """The answer a Cause swap of ``var`` predicts (D48; three brackets D51, where S3 = 0 on two brackets)."""
+    return {"S1": src.S1 - base.S2 - base.S3, "S2": base.S1 - src.S2 - base.S3, "S3": base.S1 - base.S2 - src.S3,
+            "T": src.T - base.S3, "U": base.S1 - src.U, "Y": src.Y, "a": src.a + base.b - base.S2 - base.S3}[var]
 
 
 def variable_value(var: str, e: Expr) -> int:
-    return {"S1": e.S1, "S2": e.S2, "Y": e.Y, "a": e.a}[var]
+    return {"S1": e.S1, "S2": e.S2, "S3": e.S3, "T": e.T, "U": e.U, "Y": e.Y, "a": e.a}[var]
 
 
 @dataclass
@@ -97,9 +152,9 @@ class Split:
 
 
 def sample_splits(seed: int, sizes: dict[str, int], n_shots: int, n_demo_pool: int, kinds: dict[str, Sequence[str]],
-                  rejections: RejectionLog | None = None) -> tuple[dict[str, Split], dict[str, Any]]:
+                  rejections: RejectionLog | None = None, task: str = "two_lane") -> tuple[dict[str, Split], dict[str, Any]]:
     """Bases split by expression (train, val, test; disjoint), each with its demonstrations and one source per kind."""
-    exprs = all_exprs("two_lane")
+    exprs = all_exprs(task)
     order = rng_for(seed, "das", "split").permutation(len(exprs))
     pool = [exprs[i] for i in order[:n_demo_pool]]
     rest = [exprs[i] for i in order[n_demo_pool:]]
@@ -265,9 +320,10 @@ class DAS:
         self.metadata["model"] = backend.metadata()
         self.tid = np.array([self._single_token(str(k)) for k in range(10)], dtype=np.int64)
         t0 = time.time()
-        kinds = {"train": ("cause",), "val": ("cause",), "test": SOURCE_KINDS}
+        self.isolate = TASK_ISOLATE[cfg.task]
+        kinds = {"train": ("cause",), "val": ("cause",), "test": TASK_SOURCE_KINDS[cfg.task]}
         splits, info = sample_splits(cfg.seed, {"train": cfg.n_train, "val": cfg.n_val, "test": cfg.n_test}, cfg.n_shots,
-                                     cfg.n_demo_pool, kinds, self.rejections)
+                                     cfg.n_demo_pool, kinds, self.rejections, cfg.task)
         self.metadata["sampling"] = info
         data = {name: self._prepare(name, sp) for name, sp in splits.items()}
         self.metadata.setdefault("timings_seconds", {})["prepare"] = round(time.time() - t0, 1)
@@ -358,7 +414,7 @@ class DAS:
             ok_full = ok_last = np.ones(len(prompts), dtype=bool)
             src_ok = {k: np.ones(len(prompts), dtype=bool) for k in src_ok}
         keep = ok_full & ok_last & src_ok["cause"]
-        tgt = {v: np.array([targets(v, b, sp.sources["cause"][i]) for i, b in enumerate(sp.bases)]) for v in VARIABLES}
+        tgt = {v: np.array([targets(v, b, sp.sources["cause"][i]) for i, b in enumerate(sp.bases)]) for v in cfg.variables}
         return {"bases": sp.bases, "prompts": prompts, "Y": Y, "keep": keep, "base_ok": ok_full & ok_last,
                 "base_states": base_states, "src_states": src_states, "src_ok": src_ok, "targets": tgt}
 
@@ -421,7 +477,7 @@ class DAS:
             bt = torch.as_tensor(b, device=self.backend.device)
             for f in fits:
                 basis = f.basis(f.best if use_best else None)
-                kinds = ["cause"] + ([] if cause_only else list(ISOLATE[f.var]))
+                kinds = ["cause"] + ([] if cause_only else list(self.isolate[f.var]))
                 for kind in kinds:
                     am = lt.logits(f.site, dd["src_states"][kind][f.site][bt], basis).argmax(dim=1).cpu().numpy()
                     preds[f.key].setdefault(kind, []).append(np.stack([b, am], axis=1))
@@ -502,10 +558,11 @@ class DAS:
         sites = {}
         for s in cfg.sites:
             held = [v for v in cfg.variables if cells[f"{s}/{v}"]["held"]]
-            sites[s] = {"held": held, "count": sum(v in held for v in ("S1", "S2", "Y")), "digits_in_use": "a" in held}
+            sites[s] = {"held": held, "count": sum(v in held for v in ("S1", "S2", "S3", "T", "U", "Y")),
+                        "sums_held": sum(v in held for v in ("S1", "S2", "S3")), "digits_in_use": "a" in held}
         control = sites[cfg.control_site]
         self.log.info("held per site: %s", {s: x["held"] for s, x in sites.items()})
-        return {"sites": cfg.sites, "control_site": cfg.control_site, "variables": list(cfg.variables), "ks": list(cfg.ks),
+        return {"task": cfg.task, "sites": cfg.sites, "control_site": cfg.control_site, "variables": list(cfg.variables), "ks": list(cfg.ks),
                 "cells": cells, "per_site": sites, "control_clean": not control["held"],
                 "n": {name: {"bases": len(dd["bases"]), "kept": int(dd["keep"].sum())} for name, dd in data.items()},
                 "thresholds": {"cause_lower": cfg.cause_lower, "isolate_lower": cfg.isolate_lower, "k_tolerance": cfg.k_tolerance}}
@@ -586,7 +643,8 @@ def plot(result: dict[str, Any], path: Path, model_name: str) -> None:
         if j == 0:
             ax2.legend(title="read point", fontsize=6, title_fontsize=6, frameon=False, loc="upper left")
         ax2.set_xlabel("k (x: shuffled-target null at k=%d)" % ks[-1], fontsize=6.5, color=INK2)
-    fig.suptitle(f"DAS at the answer token of (a+b) - (c+d) = ({model_name}): which sub-results are held as separate "
+    template = TEMPLATES[result.get("task", "two_lane")].strip()
+    fig.suptitle(f"DAS at the answer token of {template} ({model_name}): which sub-results are held as separate "
                  f"variables", fontsize=8.5, x=0.01, y=1.06, ha="left")
     fig.savefig(path, dpi=170, bbox_inches="tight", facecolor="#fcfcfb")
     plt.close(fig)

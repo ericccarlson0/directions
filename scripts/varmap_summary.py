@@ -36,7 +36,7 @@ def by_size(path: Path) -> tuple:
     return (float(m.group(1)) if m else float("inf"), path.name)
 
 def parse_expr(text: str) -> Expr:
-    """``(a+b) - (c+d)`` or ``(a+b) - c`` as written by :meth:`Expr.text`."""
+    """``(a+b) - (c+d)``, ``(a+b) - c`` or ``(a+b) - (c+d) - (e+f)`` as written by :meth:`Expr.text`."""
     return Expr(*[int(x) for x in re.findall(r"\d", text)])
 
 
@@ -79,22 +79,24 @@ def rates_from_arrays(result: dict, arrays: dict[str, np.ndarray], ids: dict[int
 def describe(result: dict, rates: dict, read: dict) -> dict:
     labels, rps = result["labels"], result["read_points"]
     ans = len(labels) - 1
-    digits = [j for j, lab in enumerate(labels) if lab in ("a", "b", "c", "d")]
+    digits = [j for j, lab in enumerate(labels) if lab in ("a", "b", "c", "d", "e", "f")]
     others = [j for j in range(len(labels)) if j not in digits and j != ans]
     count = np.asarray(read["count"])
-    both_at_ans = np.where(count[:, ans] == 2)[0]
-    gather = int(both_at_ans[0]) if len(both_at_ans) else None
+    brackets = [k[len("present_"):] for k in read if k.startswith("present_")]
+    all_at_ans = np.where(count[:, ans] == len(brackets))[0]  # the gather: every sub-result at the answer token
+    gather = int(all_at_ans[0]) if len(all_at_ans) else None
     same = [k for k in rates if k.endswith("_same")]
     dig = np.max([np.asarray(rates[k]["change"]["mean"])[:, digits].max(axis=1) for k in same], axis=0)
     last_digit = max((m for m in range(len(rps)) if dig[m] > 0.5), default=None)
-    hyp = result["rates"].get("both", {}).get("hypotheses")
+    combined = "all" if "all" in result["rates"] else "both"
+    hyp = result["rates"].get(combined, {}).get("hypotheses")
     return {
         "gather_read_point": rps[gather] if gather is not None else None,
         "gather_fraction": round(rps[gather] / rps[-1], 3) if gather is not None else None,
         "gather_holds_to_the_end": bool(gather is not None and (count[gather:, ans] == 2).all()),
         "last_digit_read_point": rps[last_digit] if last_digit is not None else None,
-        "present_elsewhere": {v: bool(np.asarray(read[f"present_{v}"])[:, others].any()) for v in ("S1", "S2")},
-        "both_swap_source_answer_at_gather": (round(float(np.asarray(hyp["both"]["mean"])[gather, ans]), 3)
+        "present_elsewhere": {v: bool(np.asarray(read[f"present_{v}"])[:, others].any()) for v in brackets},
+        "both_swap_source_answer_at_gather": (round(float(np.asarray(hyp[combined]["mean"])[gather, ans]), 3)
                                               if hyp and gather is not None else None),
     }
 
@@ -110,8 +112,8 @@ def summarise_task(task_dir: Path) -> dict:
     ids = digit_token_ids(result, arrays)
     drop = {k: fragile_rows(result, arrays, k, ids) for k in result["rates"]}
     out["fragile_rows"] = {k: int(len(v)) for k, v in drop.items()}
-    re = rates_from_arrays(result, arrays, ids, drop)
-    out["fragile_dropped"] = describe(result, re, reading(re, result["task"], th["present_flip"], th["value_change"]))
+    rec = rates_from_arrays(result, arrays, ids, drop)
+    out["fragile_dropped"] = describe(result, rec, reading(rec, result["task"], th["present_flip"], th["value_change"]))
     return out
 
 
@@ -138,7 +140,8 @@ def plot(summary: dict, path: Path) -> None:
             ax.plot(HANDOVER[key][1] / L, y, marker="v", color="#0b0b0b", ms=4)
         ax.text(1.01, y, f"acc {s['accuracy']:.2f}", va="center", fontsize=7, color="#52514e")
     ax.set_yticks(range(len(rows)))
-    ax.set_yticklabels([f"Qwen3 {run.split('_')[2].upper()} {task.replace('_', '-')}" for run, task, _ in reversed(rows)],
+    sizes = [re.search(r"_(\d+(?:\.\d+)?b)_", run + "_").group(1).upper() for run, _, _ in reversed(rows)]
+    ax.set_yticklabels([f"Qwen3 {size} {task.replace('_', '-')}" for size, (_, task, _) in zip(sizes, reversed(rows))],
                        fontsize=7.5)
     ax.set_xlim(0, 1)
     ax.set_xlabel("depth (read point / number of blocks)", fontsize=8)
@@ -147,10 +150,12 @@ def plot(summary: dict, path: Path) -> None:
         ax.spines[sp].set_visible(False)
     handles = [plt.Rectangle((0, 0), 1, 1, color="#9ec5f4"), plt.Rectangle((0, 0), 1, 1, color="#184f95"),
                plt.Line2D([], [], color="#eb6834", lw=2), plt.Line2D([], [], color="#0b0b0b", marker="v", ls="", ms=4)]
-    ax.legend(handles, ["operands at their digit tokens, as digits", "both sub-results at the answer token",
+    ax.legend(handles, ["operands at their digit tokens, as digits", "every sub-result at the answer token",
                         "single-control hand-over (D44)", "in-context heads' write depth"],
               fontsize=6.5, ncol=2, loc="upper left", bbox_to_anchor=(0, -0.2), frameon=False)
-    ax.set_title("Where the operands of (a+b) - (c+d) and (a+b) - c live, by depth", fontsize=8.5, loc="left")
+    tasks = {t for _, t, _ in rows}
+    names = [n for t, n in (("two_lane", "(a+b) - (c+d)"), ("one_lane", "(a+b) - c"), ("three_lane", "(a+b) - (c+d) - (e+f)")) if t in tasks]
+    ax.set_title(f"Where the operands of {', '.join(names)} live, by depth", fontsize=8.5, loc="left")
     fig.savefig(path, dpi=170, bbox_inches="tight", facecolor="#fcfcfb")
     plt.close(fig)
 

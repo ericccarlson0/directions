@@ -468,3 +468,18 @@ def test_das_14b_config_is_the_d49_design_at_the_14b_gather():
     assert c["model"]["name"] == "Qwen/Qwen3-14B-Base" and c["sites"] == [28, 30, 31, 32] and c["control_site"] == 28
     strip = dict(name=None, model=None, sites=None, control_site=None)
     assert dict(c, **strip) == dict(ref, **strip)
+
+
+def test_three_bracket_map_and_probe_configs_differ_from_two_brackets_only_in_the_task():
+    """D51: the three-bracket map and probe files equal the two-bracket ones but for expressions (and the probe's marks)."""
+    from dataclasses import asdict
+
+    from directions.config import load_varmap_config, load_varprobe_config
+
+    for fam, load in (("varmap", load_varmap_config), ("varprobe", load_varprobe_config)):
+        three = {p.name: asdict(load(p)) for p in sorted(CONFIGS.glob(f"{fam}_three_qwen3_*.yaml"))}
+        assert set(three) == {f"{fam}_three_qwen3_{s}.yaml" for s in ("1.7b", "4b", "8b", "14b")}
+        for name, c in three.items():
+            two = asdict(load(CONFIGS / name.replace("_three", "")))
+            assert c["expressions"] == ["three_lane"] and c["model"] == two["model"], name
+            assert dict(c, expressions=None, marks=None) == dict(two, expressions=None, marks=None), name
