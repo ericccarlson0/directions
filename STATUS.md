@@ -5049,8 +5049,13 @@ at the control read point move the answer in at most 0.02 of the bases on 4B and
   On the 14B the first bracket comes in partly at G3−1 (0.50).
 - **The answer token's state determines the answer less often than on two brackets, except on the 14B.** Swapping
   the whole state at G3 gives the source's answer in 0.72 (4B) and 0.66 (8B) of the bases, against 0.94 and 0.92
-  on two brackets. On the 14B it is 0.75, against 0.67. The rest of the bases are answered from state at other
-  positions, until the last block. This is the ceiling a subspace at the answer token can reach in job 2.
+  on two brackets. On the 14B it is 0.75, against 0.67. The same swap changes the answer in 0.96, 0.82 and 0.89 of the
+  bases. So in 0.14–0.24 of them the answer moves to a third value, neither the base's nor the source's: the later
+  blocks combine the swapped state with something the base holds at other positions. No single other position
+  holds it: after G3, a whole-state swap at any one other token changes the answer in at most 0.21 of the bases
+  (the 4B's digits; 0.11 and less elsewhere). The source-answer rate is the ceiling a subspace at the answer token
+  can reach in job 2. At `)`, `-` and `=` the whole-state swap gives the source's answer in at most 0.05 of the
+  bases, and changes it in at most 0.12, at any read point.
 - **No partial answer in the whole-state swap.** From G3 on, swapping all three sums gives the prediction of T,
   of U or of a single bracket in at most 0.09 of the bases on every model. The sums arrive together, or not at
   all. This swap moves every sum at once, so it cannot test the merge order; the DAS does.
@@ -5163,8 +5168,9 @@ Findings:
     for about 0.7–0.8 of what a subspace can reach there; on two brackets (4B, 8B) it asked for about 0.6.
   - S1's Cause at G3 still rose with k on the 4B (0.31, 0.36, 0.39 at k = 16, 32, 64), but not on the 8B (0.34,
     0.38, 0.35) or the 14B (0.25, 0.24, 0.25).
-  - The DAS looks at the answer token only. On three brackets, a quarter to a third of the bases are answered
-    from state held elsewhere, and a joint subspace across positions is not part of D51.
+  - The DAS looks at the answer token only. On three brackets, in 0.14–0.24 of the bases the answer also
+    depends on state at other positions, spread over them (job 1), and a joint subspace across positions is not
+    part of D51.
 
 ## Not yet run / known limitations
 
