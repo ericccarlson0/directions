@@ -602,8 +602,8 @@ def plot(result: dict[str, Any], path: Path, model_name: str) -> None:
 
     sites, variables, ks = result["sites"], result["variables"], result["ks"]
     cells = result["cells"]
-    fig = plt.figure(figsize=(11.5, 0.5 * len(sites) + 2.6))
-    gs = fig.add_gridspec(1, 1 + len(variables), width_ratios=[2.2] + [1] * len(variables), wspace=0.35)
+    fig = plt.figure(figsize=(max(11.5, 4.0 + 1.6 * len(variables)), 0.5 * len(sites) + 2.6))
+    gs = fig.add_gridspec(1, 1 + len(variables), width_ratios=[0.55 * len(variables)] + [1] * len(variables), wspace=0.35)
     ax = fig.add_subplot(gs[0, 0])
     mat = np.array([[cells[f"{s}/{v}"]["grid"][cells[f"{s}/{v}"]["k_star"]]["cause"]["mean"] for v in variables] for s in sites])
     ax.imshow(mat, cmap=LinearSegmentedColormap.from_list("seq", SEQ), vmin=0, vmax=1, aspect="auto")
@@ -631,7 +631,8 @@ def plot(result: dict[str, Any], path: Path, model_name: str) -> None:
             ax2.plot(range(len(ks)), ys, color=plt.cm.Blues(shades[i]), lw=1.3, marker="o", ms=2.5,
                      ls=(0, (2, 1.5)) if s == result["control_site"] else "-", label=str(s))
             null = cells[f"{s}/{v}"]["null_cause"]["mean"]
-            ax2.plot([len(ks) - 1], [null], marker="x", ms=3, color="#8a8985")
+            ax2.plot([len(ks) - 1], [null], marker="x", ms=3, color="#8a8985", ls="",
+                     label=f"null, k={ks[-1]}" if i == len(sites) - 1 else None)
         ax2.set_xticks(range(len(ks)))
         ax2.set_xticklabels([str(k) for k in ks], fontsize=6.5)
         ax2.set_ylim(0, 1)
@@ -642,7 +643,7 @@ def plot(result: dict[str, Any], path: Path, model_name: str) -> None:
             ax2.spines[sp].set_visible(False)
         if j == 0:
             ax2.legend(title="read point", fontsize=6, title_fontsize=6, frameon=False, loc="upper left")
-        ax2.set_xlabel("k (x: shuffled-target null at k=%d)" % ks[-1], fontsize=6.5, color=INK2)
+        ax2.set_xlabel("k", fontsize=6.5, color=INK2)
     template = TEMPLATES[result.get("task", "two_lane")].strip()
     fig.suptitle(f"DAS at the answer token of {template} ({model_name}): which sub-results are held as separate "
                  f"variables", fontsize=8.5, x=0.01, y=1.06, ha="left")
