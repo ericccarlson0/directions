@@ -1,0 +1,35 @@
+# DAS at the answer token on the three-bracket task (docs/DECISIONS.md D51), Qwen3-14B Base: sites by D51's rule
+# from job 1 (run 38934471957: G3 = 30, F = 35); S1, S2, S3, the merge intermediates T and U, Y and a.
+name: das_d51
+seed: 20260916
+output_dir: results
+
+model:
+  backend: hf
+  name: Qwen/Qwen3-14B-Base
+  dtype: bfloat16
+  device: cuda             # fail fast rather than fall back to the CPU (docs/INFRA.md)
+  batch_size: 128          # the state captures; the fits run on batch_size below
+
+task: three_lane
+sites: [27, 30, 31, 33, 35]       # the control and the sites from G3 to F (D51)
+control_site: 27              # all three bracket swaps move the answer in <= 0.10 here (D45)
+variables: [S1, S2, S3, T, U, Y, a]
+ks: [16, 32, 64]
+null_k: 64                    # the shuffled-target null at the largest k
+n_train: 1536                 # bases per split, disjoint expressions
+n_val: 256
+n_test: 512
+n_shots: 8
+n_demo_pool: 96
+batch_size: 32
+epochs: 20
+lr: 0.05
+lambdas: [0.1, 1.0, 10.0, 100.0]   # the projection-decodability check's ridge grid (D46's probe)
+n_boot: 1000
+alpha: 0.05
+k_tolerance: 0.05             # k* = the smallest k within this of the best validation Cause
+cause_lower: 0.5              # D48 reading: held when Cause lo >= 0.5 and Isolate lo >= 0.75 at k*
+isolate_lower: 0.75
+determinism_check: true
+figures: true

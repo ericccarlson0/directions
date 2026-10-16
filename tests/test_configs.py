@@ -485,3 +485,27 @@ def test_three_bracket_map_and_probe_configs_differ_from_two_brackets_only_in_th
             batch = 64 if "_8b" in name else two["model"]["batch_size"]
             assert c["expressions"] == ["three_lane"] and c["model"] == dict(two["model"], batch_size=batch), name
             assert dict(c, expressions=None, marks=None, model=None) == dict(two, expressions=None, marks=None, model=None), name
+
+
+def test_three_bracket_split_and_das_configs_follow_d51():
+    """D51 job 2: the block split around the three-bracket gather; DAS with D51's variables and grid, otherwise D49's."""
+    from dataclasses import asdict
+
+    from directions.config import load_das_config, load_varsplit_config
+
+    for p in sorted(CONFIGS.glob("varsplit_three_qwen3_*.yaml")):
+        c = asdict(load_varsplit_config(p))
+        two = asdict(load_varsplit_config(CONFIGS / p.name.replace("_three", "")))
+        G = c["gather"]
+        assert c["expressions"] == ["three_lane"] and c["split_blocks"] == list(range(G - 1, G + 4)), p.name
+        assert c["head_blocks"] == [G, G + 1, G + 2], p.name
+        varying = dict(expressions=None, gather=None, split_blocks=None, head_blocks=None, model=None)
+        assert dict(c, **varying) == dict(two, **varying) and c["model"]["name"] == two["model"]["name"], p.name
+    ref = asdict(load_das_config(CONFIGS / "das_d49_qwen3_8b.yaml"))
+    for p in sorted(CONFIGS.glob("das_d51_qwen3_*.yaml")):
+        c = asdict(load_das_config(p))
+        assert c["task"] == "three_lane" and c["variables"] == ["S1", "S2", "S3", "T", "U", "Y", "a"], p.name
+        assert c["ks"] == [16, 32, 64] and c["null_k"] == 64 and c["epochs"] == 20, p.name
+        assert c["control_site"] == c["sites"][0] and len(c["sites"]) in (4, 5), p.name
+        strip = dict(name=None, model=None, task=None, sites=None, control_site=None, variables=None, ks=None, null_k=None)
+        assert dict(c, **strip) == dict(ref, **strip), p.name
