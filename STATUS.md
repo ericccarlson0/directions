@@ -4996,6 +4996,77 @@ reaches the answer token before block 30 (D45: the S1 swap moves the answer in 0
 - **Limits.** One seed; the grid's top k (32) is where S1 and S2 were still rising; the 14B is less accurate on this
   prompt (0.85) than the 4B and 8B, so 28% of its training bases did not enter.
 
+### D51: three brackets, `(a+b) - (c+d) - (e+f) = ` (Qwen3 1.7B, 4B, 8B, 14B Base, seed 20260916)
+
+D45 and D46 on the three-bracket task (job 1). Then D47, and DAS with the D51 variables, at sites taken from each
+model's job 1 (job 2). The D51 variables are S1, S2, S3, the merge intermediates T = S1 − S2 (left to right) and
+U = S2 + S3 (the subtrahends first), Y and a. The 1.7B fails the accuracy gate and is skipped.
+
+```
+# job 1: workflow runs
+#   38934415363: request d51_map_three_qwen3_1.7b_4b_seed20260916_retry1, commit 98e1c73, RTX 4090 (ADA_24),
+#     EUR-NO-1, ci-b; 66 min, about 1.2 USD
+#   38934932951: request d51_map_three_qwen3_8b_seed20260916_retry2, commit c366880, RTX 4090, ci; 103 min, about
+#     1.9 USD (the first 8B request, run 38934354426, ran out of memory at batch 128)
+#   38934471957: request d51_map_three_qwen3_14b_seed20260916_retry1, commit b1b295d, H100 80GB HBM3 (ADA_80_PRO),
+#     US-CA-2, ci-8b; 48 min, about 3.9 USD
+# about 7.0 USD in all; determinism (a repeated swap batch, capture batch and probe) identical in every stage that
+# ran past the gate
+uv run python scripts/stages.py \
+  'uv run directions varmap --config configs/varmap_three_qwen3_1.7b.yaml --run-id varmap_three_qwen3_1.7b_seed20260916' \
+  'uv run directions varmap --config configs/varmap_three_qwen3_4b.yaml --run-id varmap_three_qwen3_4b_seed20260916' \
+  'uv run directions varprobe --config configs/varprobe_three_qwen3_1.7b.yaml --run-id varprobe_three_qwen3_1.7b_seed20260916' \
+  'uv run directions varprobe --config configs/varprobe_three_qwen3_4b.yaml --run-id varprobe_three_qwen3_4b_seed20260916'
+# the 8B and the 14B: the same two stages with configs/varmap_three_qwen3_<size>.yaml and varprobe_three_qwen3_<size>.yaml
+# the sites per model (D51's rule), and the summaries, on the downloads (results/remote/d51_job1 holds symlinks
+# to the runs' varmap_three_* and varprobe_three_* directories):
+uv run python scripts/d51_sites.py results/remote/run-38934415363 results/remote/run-38934932951 results/remote/run-38934471957
+uv run python scripts/varmap_summary.py results/remote/d51_job1 --out docs/varmap/summary_three.json --figure docs/varmap/depth_three.png
+uv run python scripts/varprobe_summary.py results/remote/d51_job1 --out docs/varprobe/summary_three.json
+```
+
+Figures: `docs/varmap/qwen3_<size>_three_lane.png`, `docs/varprobe/qwen3_<size>_three_lane.png`,
+`docs/varmap/depth_three.png`.
+
+| model | few-shot accuracy, D45 / D46 (kept) | G3 (fraction) | last digit read point | whole-state swap at the answer token: at G3, G3..L−1 → L (two brackets at G) | bracket swaps S1, S2, S3 at G3−1 | S1, S2, S3 given Y at G3 → L (S1's peak) | Y probe 0.9 of final at (F); lens reads Y from | DAS control; sites |
+|---|---|---|---|---|---|---|---|---|
+| 1.7B | 0.27 / 0.25 | – | – | – | – | – | – | below the 0.5 gate: no map, probe or DAS |
+| 4B | 0.922 / 0.843 (1726) | 24 (0.67) | 23 | 0.72, 0.72–0.98 → 1.00 (0.94) | 0.04, 0.17, 0.12 | 0.88, 0.65, 0.52 → 0.73, 0.39, 0.35 (0.94 at 25) | 27; 28 | 21; 24, 25, 26, 27 |
+| 8B | 0.891 / 0.827 (1694) | 24 (0.67) | 23 | 0.66, 0.66–0.84 → 1.00 (0.92) | 0.02, 0.32, 0.31 | 0.88, 0.73, 0.65 → 0.83, 0.44, 0.41 (0.97 at 26) | 27; 32 | 21; 24, 25, 26, 27 |
+| 14B | 0.828 / 0.812 (1662) | 30 (0.75) | 29 | 0.75, 0.75–0.95 → 1.00 (0.67) | 0.50, 0.12, 0.16 | 0.93, 0.82, 0.65 → 0.78, 0.54, 0.44 (0.95 at 33) | 35; 35 | 27; 30, 31, 33, 35 |
+
+(Swap rates over the 44–57 D45 bases kept per swap type. Conditional probe nulls 0.10–0.12. The bracket swaps
+at the control read point move the answer in at most 0.02 of the bases on 4B and 8B and 0.07 on the 14B.)
+
+- **The 1.7B cannot do the task.** Its accuracy is 0.27 on the D45 bases and 0.25 on 2048 expressions. Answering
+  0 every time would score about 0.23.
+- **A third bracket does not move the gather.** All three sums reach the answer token at the read point where
+  the two-bracket sums did (24, 24, 30), and in the same block. Before that, the operands sit at their digit
+  tokens as digits, to G3−1. No sum is ever present at another token: no bracket's sum is assembled at its `)`
+  or at a `-` first.
+- **What arrives early differs by model, as on two brackets.** On the 8B, S2 and S3 move the answer token's
+  answer in 0.29–0.32 of the bases one and two blocks before G3, and S1 does not (two brackets: S2 0.30).
+  On the 14B the first bracket comes in partly at G3−1 (0.50).
+- **The answer token's state determines the answer less often than on two brackets, except on the 14B.** Swapping
+  the whole state at G3 gives the source's answer in 0.72 (4B) and 0.66 (8B) of the bases, against 0.94 and 0.92
+  on two brackets. On the 14B it is 0.75, against 0.67. The rest of the bases are answered from state at other
+  positions, until the last block. This is the ceiling a subspace at the answer token can reach in job 2.
+- **No partial answer in the whole-state swap.** From G3 on, swapping all three sums gives the prediction of T,
+  of U or of a single bracket in at most 0.09 of the bases on every model. The sums arrive together, or not at
+  all. This swap moves every sum at once, so it cannot test the merge order; the DAS does.
+- **S1 stays readable given Y; S2 and S3 fade.** S1 given Y is 0.88–0.93 at G3, peaks one to three blocks later
+  (0.94–0.97) and stays at 0.73–0.83 at L. S2 and S3 given Y peak at G3 (0.52–0.82) and fall to 0.35–0.54 at L.
+  Given Y, S1 fixes U (U = S1 − Y) and S3 fixes T (T = Y + S3), so this does not tell the merge orders apart
+  (D51).
+- **Exploratory: the lens reads T, not U.** The left-to-right intermediate T = S1 − S2 is read as the next token
+  above its family-wise null from the gather on, in every model: 4B at read points 25–30, 8B at 24–31, 14B at
+  30–34. Its peak share near the gather is 0.15–0.23, against nulls of 0.09–0.11. U = S2 + S3 is read nowhere
+  after the gather. (Each candidate is counted only where it is a single digit: about 1100 bases for T and 630
+  for U, of about 1700.)
+
+**Job 2: the block split and DAS on the 4B, 8B and 14B.** Running (workflow runs 38943185906, 38948683390 and
+38941017556).
+
 ## Not yet run / known limitations
 
 - The variable map (D45) has run once per model (Qwen3 0.6B, 1.7B, 4B Base; seed 20260916) on two expression tasks
