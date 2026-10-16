@@ -3127,3 +3127,15 @@ Decision (the first map; exploratory):
   US-CA-2 volume holds earlier model caches; the first job deletes the caches whose runs are finished, as D49's did
   on EUR-NO-1, before the 14B download.
 * **Runs.** Seed 20260916.
+* **Fixed after job 1, before job 2 (2026-10-16).** Run 38913588733 (H100, US-CA-2) gives the 14B gather G = 30 of
+  40 blocks on both tasks (0.75 of the stack; 8B 24 of 36). Two departures from the smaller models, recorded
+  before any DAS data:
+  - few-shot accuracy is lower on two-lane (0.922 on the 64 D45 bases; 0.847 on D46's 2048), so fewer bases enter;
+  - the gather is partial: from read point 30 to 39 a whole-state swap at the answer token moves the answer in
+    only 0.65–0.72 of the bases (both-swap source answer at G 0.667), and in all of them only at L. The rest of
+    the bases are answered from state the answer token does not hold at those read points.
+  The design stands as fixed: sites 30, 31 and 32, the control 28 by D50's rule (bracket swaps there 0.00 and
+  0.06). DAS Cause at these sites is read against that ceiling (about 0.67): a variable can pass the criteria
+  only if it carries most of what the whole state carries. The D46 Y probe reaches 0.9 of its final accuracy at
+  read point 34 (G+4), outside the DAS window, and the lens reads Y from 34. The D47 file uses blocks 29–33
+  (split) and 30–32 (heads).

@@ -408,7 +408,7 @@ def test_varsplit_configs_differ_only_in_model_tasks_and_blocks():
     from directions.config import load_varsplit_config
 
     cfgs = {p.name: asdict(load_varsplit_config(p)) for p in sorted(CONFIGS.glob("varsplit_qwen3_*.yaml"))}
-    assert set(cfgs) == {"varsplit_qwen3_0.6b.yaml", "varsplit_qwen3_1.7b.yaml", "varsplit_qwen3_4b.yaml", "varsplit_qwen3_8b.yaml"}
+    assert set(cfgs) == {"varsplit_qwen3_0.6b.yaml", "varsplit_qwen3_1.7b.yaml", "varsplit_qwen3_4b.yaml", "varsplit_qwen3_8b.yaml", "varsplit_qwen3_14b.yaml"}
     varying = ("expressions", "gather", "split_blocks", "head_blocks")
     ref = next(iter(cfgs.values()))
     for name, c in cfgs.items():
@@ -418,7 +418,8 @@ def test_varsplit_configs_differ_only_in_model_tasks_and_blocks():
         b = dict(ref, model=dict(ref["model"], name=None), **{k: None for k in varying})
         assert a == b, name
     assert cfgs["varsplit_qwen3_0.6b.yaml"]["expressions"] == ["one_lane"]
-    assert {c["gather"] for n, c in cfgs.items() if "4b" in n or "8b" in n} == {24}
+    assert cfgs["varsplit_qwen3_4b.yaml"]["gather"] == cfgs["varsplit_qwen3_8b.yaml"]["gather"] == 24
+    assert cfgs["varsplit_qwen3_14b.yaml"]["gather"] == 30
     assert ref["n_examples"] == 2048 and ref["n_bases"] == 64 and ref["n_perm"] == 200 and ref["model"]["device"] == "cuda"
 
 
@@ -454,3 +455,16 @@ def test_das_8b_config_is_the_d49_design():
     fixed = ("seed", "variables", "n_train", "n_val", "n_test", "n_shots", "n_demo_pool", "batch_size", "lr", "lambdas",
              "n_boot", "alpha", "k_tolerance", "cause_lower", "isolate_lower", "gate", "determinism_check")
     assert {k: c[k] for k in fixed} == {k: ref[k] for k in fixed}
+
+
+def test_das_14b_config_is_the_d49_design_at_the_14b_gather():
+    """DAS on the 14B (D50): D49's design at the 14B's gather (G = 30) with the control by D50's rule."""
+    from dataclasses import asdict
+
+    from directions.config import load_das_config
+
+    c = asdict(load_das_config(CONFIGS / "das_d50_qwen3_14b.yaml"))
+    ref = asdict(load_das_config(CONFIGS / "das_d49_qwen3_8b.yaml"))
+    assert c["model"]["name"] == "Qwen/Qwen3-14B-Base" and c["sites"] == [28, 30, 31, 32] and c["control_site"] == 28
+    strip = dict(name=None, model=None, sites=None, control_site=None)
+    assert dict(c, **strip) == dict(ref, **strip)
