@@ -1193,8 +1193,11 @@ class DasConfig:
     two-lane expression task.
 
     sites            read points of the answer token fitted at (the control site among them)
-    control_site     where the operands are not causally present (D45): nothing may be held there
+    control_site     where the operands are not causally present (D45): nothing may be held there; None in a part of
+                     a run split by sites whose other part holds the control (D53)
     task             two_lane, or three_lane (D51)
+    positions        the swapped tokens: "answer" (the answer token, D48), or a D52 set swapped jointly, "answer_eq" or
+                     "non_digit" (one subspace of their concatenated states, D53)
     variables        S1, S2, Y and the digit a (the control variable); three brackets also S3, T = S1 - S2, U = S2 + S3
     ks               subspace dimensions; null_k the shuffled-target null's
     n_train/val/test bases per split (disjoint expressions); each with one Cause source, test bases with Isolate sources
@@ -1209,7 +1212,8 @@ class DasConfig:
     model: ModelConfig = field(default_factory=ModelConfig)
     task: str = "two_lane"        # or "three_lane" (D51)
     sites: list[int] = field(default_factory=list)
-    control_site: int = 0
+    control_site: int | None = 0
+    positions: str = "answer"     # or a D52 set swapped jointly (D53)
     variables: list[str] = field(default_factory=lambda: ["S1", "S2", "Y", "a"])
     ks: list[int] = field(default_factory=lambda: [1, 2, 4, 8, 16])
     null_k: int = 16
@@ -1236,8 +1240,10 @@ def load_das_config(path: str | Path) -> DasConfig:
     with open(path) as f:
         data = yaml.safe_load(f) or {}
     cfg = _from_dict(DasConfig, data)
-    if not cfg.sites or cfg.control_site not in cfg.sites or list(cfg.sites) != sorted(set(cfg.sites)):
+    if not cfg.sites or list(cfg.sites) != sorted(set(cfg.sites)) or (cfg.control_site is not None and cfg.control_site not in cfg.sites):
         raise ValueError("sites must be increasing, distinct and include control_site")
+    if cfg.positions not in ("answer", "answer_eq", "non_digit"):
+        raise ValueError("positions must be answer, answer_eq or non_digit")
     allowed = {"two_lane": ("S1", "S2", "Y", "a"), "three_lane": ("S1", "S2", "S3", "T", "U", "Y", "a")}
     if cfg.task not in allowed:
         raise ValueError("task must be two_lane or three_lane")

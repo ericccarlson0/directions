@@ -1,4 +1,6 @@
-"""Distributed alignment search at the answer token, scored by Cause and Isolate (docs/DECISIONS.md D48).
+"""Distributed alignment search at the answer token, scored by Cause and Isolate (docs/DECISIONS.md D48), or at a set
+of query tokens jointly (D53: one subspace of their concatenated states; the prompt is cached up to the first
+swapped token and the rest rerun on every pass).
 
 A k-dimensional subspace (orthonormal basis B, k x d) of the answer token's residual stream at one read point is
 swapped from a source run into a base run, h <- h + ((h_source - h) B^T) B, and the answer is read. The subspace is
@@ -30,7 +32,7 @@ from .probes import fold_ids, ridge_cv_accuracy
 from .prompts import Prompt
 from .runinfo import RejectionLog, git_info, setup_logging, write_json
 from .seeds import derive_seed, rng_for
-from .varmap import TEMPLATES, Expr, all_exprs, bootstrap_rate, render
+from .varmap import DIGITS, TEMPLATES, Expr, all_exprs, bootstrap_rate, query_tokens, render
 from .varprobe import _jsonable
 
 VARIABLES = ("S1", "S2", "Y", "a")
@@ -201,10 +203,13 @@ def _math_attention():
 
 
 class LastToken:
-    """A batch of prompts with every token but the last run once (keys and values cached), and passes of the last
-    prompt token alone, optionally with a subspace swap at one read point."""
+    """A batch of prompts with every token but the last ``n_tail`` run once (keys and values cached), and passes of
+    those last tokens alone, optionally with a subspace swap at one read point. The swap acts on the tail tokens
+    ``swap_idx`` jointly: their states are concatenated, ``(P d)``, and the subspace lives in that space (D53). The
+    default, one tail token swapped alone, is the answer token of D48."""
 
-    def __init__(self, backend: ModelBackend, prompts: Sequence[Prompt]) -> None:
+    def __init__(self, backend: ModelBackend, prompts: Sequence[Prompt], n_tail: int = 1,
+                 swap_idx: Sequence[int] | None = None) -> None:
         self.backend = backend
         ids = [backend._encode_prompt(p)[0] for p in prompts]
         if not ids:
@@ -213,8 +218,14 @@ class LastToken:
             raise ValueError("the prompts of a batch must have the same length (no padding on this path)")
         self.ids = torch.as_tensor(np.array(ids, dtype=np.int64), device=backend.device)
         self.T = self.ids.shape[1]
+        if not 1 <= n_tail < self.T:
+            raise ValueError(f"n_tail {n_tail} outside 1..{self.T - 1}")
+        self.n_tail = n_tail
+        self.swap_idx = list(swap_idx) if swap_idx is not None else [n_tail - 1]
+        if not self.swap_idx or min(self.swap_idx) < 0 or max(self.swap_idx) >= n_tail:
+            raise ValueError("swap_idx must index the tail tokens")
         with torch.no_grad(), _math_attention():
-            out = backend.model.model(input_ids=self.ids[:, :-1], use_cache=True)
+            out = backend.model.model(input_ids=self.ids[:, :-n_tail], use_cache=True)
         self.cache = out.past_key_values
         # every pass appends the last token to the cache; restoring each layer's state (the prefix tensors, with no
         # autograd history, and any counters) afterwards keeps one pass's graph out of the next
@@ -222,17 +233,29 @@ class LastToken:
 
     def logits(self, read_point: int | None = None, values: torch.Tensor | None = None,
                basis: torch.Tensor | None = None) -> torch.Tensor:
-        """Next-token logits (B, V) float32 at the last prompt token. With ``read_point``, its state there is replaced
-        by ``h + ((values - h) B^T) B`` (``basis`` (k, d)), or by ``values`` when ``basis`` is None."""
+        """Next-token logits (B, V) float32 at the last prompt token. With ``read_point``, the swapped tokens' states
+        there, concatenated (``h``, ``(B, P d)``), are replaced by ``h + ((values - h) B^T) B`` (``basis``
+        ``(k, P d)``), or by ``values`` when ``basis`` is None."""
         backend = self.backend
         L = backend.n_layers
         handle = None
         if read_point is not None:
+            idx = self.swap_idx
+
             def swap(hidden: torch.Tensor) -> torch.Tensor:
-                h = hidden[:, -1].float()
-                v = values.to(h.device).float()
-                new = v if basis is None else h + ((v - h) @ basis.T) @ basis
-                return torch.cat([hidden[:, :-1], new[:, None].to(hidden.dtype)], dim=1)
+                if idx == [hidden.shape[1] - 1]:  # the answer token alone (D48): unchanged arithmetic
+                    h = hidden[:, -1].float()
+                    v = values.to(h.device).float()
+                    new = v if basis is None else h + ((v - h) @ basis.T) @ basis
+                    return torch.cat([hidden[:, :-1], new[:, None].to(hidden.dtype)], dim=1)
+                h = hidden[:, idx].float()  # (B, P, d)
+                shape = h.shape
+                hf = h.reshape(shape[0], -1)
+                v = values.to(h.device).float().reshape(shape[0], -1)
+                new = v if basis is None else hf + ((v - hf) @ basis.T) @ basis
+                out = hidden.clone()
+                out[:, idx] = new.reshape(shape).to(hidden.dtype)
+                return out
 
             if read_point < L:
                 def pre(module, args, kwargs):
@@ -252,7 +275,7 @@ class LastToken:
                 handle = backend.blocks[L - 1].register_forward_hook(post)
         try:
             with _math_attention():
-                out = backend.model.model(input_ids=self.ids[:, -1:], past_key_values=self.cache, use_cache=True)
+                out = backend.model.model(input_ids=self.ids[:, -self.n_tail :], past_key_values=self.cache, use_cache=True)
         finally:
             if handle is not None:
                 handle.remove()
@@ -260,6 +283,11 @@ class LastToken:
                 layer.__dict__.clear()
                 layer.__dict__.update(saved)
         return backend._lm_logits(out.last_hidden_state[:, -1]).float()
+
+
+def _take(x: torch.Tensor, rows: np.ndarray, device: torch.device) -> torch.Tensor:
+    """Rows of a state tensor, on ``device`` (the joint states live on the CPU in the model's dtype, D53)."""
+    return x[torch.as_tensor(rows, device=x.device)].to(device)
 
 
 class Fit:
@@ -315,7 +343,7 @@ class DAS:
         for p in backend.model.parameters():
             p.requires_grad_(False)
         L = backend.n_layers
-        if max(cfg.sites) > L or min(cfg.sites) < 0 or cfg.control_site not in cfg.sites:
+        if max(cfg.sites) > L or min(cfg.sites) < 0 or (cfg.control_site is not None and cfg.control_site not in cfg.sites):
             raise ValueError(f"sites must lie in 0..{L} and include the control site")
         self.metadata["model"] = backend.metadata()
         self.tid = np.array([self._single_token(str(k)) for k in range(10)], dtype=np.int64)
@@ -325,15 +353,17 @@ class DAS:
         splits, info = sample_splits(cfg.seed, {"train": cfg.n_train, "val": cfg.n_val, "test": cfg.n_test}, cfg.n_shots,
                                      cfg.n_demo_pool, kinds, self.rejections, cfg.task)
         self.metadata["sampling"] = info
+        self._geometry(splits)
         data = {name: self._prepare(name, sp) for name, sp in splits.items()}
         self.metadata.setdefault("timings_seconds", {})["prepare"] = round(time.time() - t0, 1)
         for name, dd in data.items():
             log.info("%s: %d bases, %d kept for the Cause pairs (base answered in both passes, source answered)", name,
                      len(dd["bases"]), int(dd["keep"].sum()))
 
-        fits = [Fit(s, v, k, backend.hidden_size, backend.device, derive_seed(cfg.seed, "das", "fit", s, v, k), cfg.lr)
+        D = backend.hidden_size * len(self.swap_idx)  # the concatenated states of the swapped tokens (D53)
+        fits = [Fit(s, v, k, D, backend.device, derive_seed(cfg.seed, "das", "fit", s, v, k), cfg.lr)
                 for s in cfg.sites for v in cfg.variables for k in cfg.ks]
-        fits += [Fit(s, v, cfg.null_k, backend.hidden_size, backend.device, derive_seed(cfg.seed, "das", "null", s, v), cfg.lr,
+        fits += [Fit(s, v, cfg.null_k, D, backend.device, derive_seed(cfg.seed, "das", "null", s, v), cfg.lr,
                      shuffled=True) for s in cfg.sites for v in cfg.variables]
         t0 = time.time()
         init_test = self._evaluate(data["test"], fits, cause_only=True, use_best=False)  # the untrained subspaces
@@ -377,9 +407,57 @@ class DAS:
 
     # ------------------------------------------------------------------ #
 
+    def _geometry(self, splits: dict[str, Split]) -> None:
+        """The query's tokens and the swapped ones (D53): the configured set, without the tokens before the first
+        operand digit (identical in a base and its source, so a swap there is a no-op). Every prompt ends with the
+        same query tokens, checked on every base."""
+        cfg = self.cfg
+        sp0 = next(iter(splits.values()))
+        p0 = render(sp0.demos[0], sp0.bases[0])
+        _, _, labels = query_tokens(self.backend, p0, sp0.bases[0])
+        Q = len(labels)
+        if cfg.positions == "answer":
+            J = [Q - 1]
+        else:
+            from .posset import set_members
+
+            first = min(j for j, lab in enumerate(labels) if lab in DIGITS)
+            J = [j for j in set_members(labels)[cfg.positions] if j > first]
+        for sp in splits.values():
+            for i, b in enumerate(sp.bases):
+                _, _, lab = query_tokens(self.backend, render(sp.demos[i], b), b)
+                if lab != labels:
+                    raise ValueError(f"query tokens differ between prompts: {lab} vs {labels}")
+        self.query_labels, self.Q = labels, Q
+        self.n_tail = Q - min(J)
+        self.swap_idx = [j - min(J) for j in J]
+        self.swap_q = J  # query-token indices of the swapped tokens
+        self.metadata["swap"] = {"positions": cfg.positions, "labels": labels, "tokens": J,
+                                 "token_labels": [labels[j] for j in J], "n_tail": self.n_tail}
+        self.log.info("swapped tokens %s of the query %s (rerun from query token %d: %d tokens per pass)",
+                      [labels[j] for j in J], labels, min(J), self.n_tail)
+
+    def _tail(self, prompts: Sequence[Prompt]) -> LastToken:
+        return LastToken(self.backend, prompts, self.n_tail, self.swap_idx)
+
     def _states(self, prompts: list[Prompt], sites: Sequence[int]) -> tuple[dict[int, torch.Tensor], np.ndarray]:
-        """The answer token's states at the sites (on the device, float32) and the model's answer, in chunks."""
+        """The swapped tokens' states at the sites and the model's answer, in chunks. The answer token alone (D48):
+        float32 on the device. A set of tokens (D53): their states concatenated, ``(N, P d)``, kept in the model's
+        dtype on the CPU (moved per batch)."""
         backend = self.backend
+        if self.cfg.positions != "answer":
+            parts_j: dict[int, list[torch.Tensor]] = {s: [] for s in sites}
+            am_j = []
+            for start in range(0, len(prompts), 512):
+                chunk = prompts[start : start + 512]
+                am_j.append(backend.run(chunk, token_ids=self.tid).query_argmax)
+                T = np.array([len(backend._encode_prompt(p)[0]) for p in chunk])
+                pos = T[:, None] - self.Q + np.asarray(self.swap_q)[None, :]
+                st = backend.capture_sites(chunk, pos)  # (n, L+1, P, d)
+                for s in sites:
+                    parts_j[s].append(st[:, s].reshape(len(chunk), -1).cpu())
+                del st
+            return {s: torch.cat(v) for s, v in parts_j.items()}, np.concatenate(am_j)
         parts: dict[int, list[np.ndarray]] = {s: [] for s in sites}
         am = []
         for start in range(0, len(prompts), 512):
@@ -400,7 +478,7 @@ class DAS:
         ok_last = np.zeros(len(prompts), dtype=bool)
         with torch.no_grad():
             for start in range(0, len(prompts), self.cfg.batch_size):
-                lt = LastToken(self.backend, prompts[start : start + self.cfg.batch_size])
+                lt = self._tail(prompts[start : start + self.cfg.batch_size])
                 ok_last[start : start + len(lt.ids)] = (lt.logits().argmax(dim=1).cpu().numpy() == self.tid[Y[start : start + len(lt.ids)]])
         if (ok_full != ok_last).any():
             self.rejections.add("noop", name, "the single-token pass and the full pass disagree on the base answer",
@@ -440,11 +518,12 @@ class DAS:
             order = idx[rng_for(cfg.seed, "das", "epoch", epoch).permutation(len(idx))]
             losses = {f.key: [] for f in fits}
             for b in self._batches(order):
-                lt = LastToken(self.backend, [tr["prompts"][i] for i in b])
+                lt = self._tail([tr["prompts"][i] for i in b])
                 bt = torch.as_tensor(b, device=self.backend.device)
+                src = {s: _take(tr["src_states"]["cause"][s], b, self.backend.device) for s in cfg.sites}
                 for f in fits:
                     with torch.enable_grad():
-                        logits = lt.logits(f.site, tr["src_states"]["cause"][f.site][bt], f.basis())
+                        logits = lt.logits(f.site, src[f.site], f.basis())
                         y = target_tok[f.key][bt]
                         loss = torch.nn.functional.cross_entropy(logits, y)
                         loss.backward()
@@ -473,13 +552,15 @@ class DAS:
         bases_eval = np.flatnonzero(bases_ok) if not cause_only else idx
         preds: dict[str, dict[str, list]] = {f.key: {} for f in fits}
         for b in self._batches(bases_eval):
-            lt = LastToken(self.backend, [dd["prompts"][i] for i in b])
-            bt = torch.as_tensor(b, device=self.backend.device)
+            lt = self._tail([dd["prompts"][i] for i in b])
+            cache: dict[tuple[str, int], torch.Tensor] = {}
             for f in fits:
                 basis = f.basis(f.best if use_best else None)
                 kinds = ["cause"] + ([] if cause_only else list(self.isolate[f.var]))
                 for kind in kinds:
-                    am = lt.logits(f.site, dd["src_states"][kind][f.site][bt], basis).argmax(dim=1).cpu().numpy()
+                    if (kind, f.site) not in cache:
+                        cache[(kind, f.site)] = _take(dd["src_states"][kind][f.site], b, self.backend.device)
+                    am = lt.logits(f.site, cache[(kind, f.site)], basis).argmax(dim=1).cpu().numpy()
                     preds[f.key].setdefault(kind, []).append(np.stack([b, am], axis=1))
         for f in fits:
             for kind, parts in preds[f.key].items():
@@ -501,16 +582,16 @@ class DAS:
         b = np.flatnonzero(tr["keep"])[: self.cfg.batch_size]
         if len(b) == 0:
             raise RuntimeError("no training base passed the gate")
-        lt = LastToken(self.backend, [tr["prompts"][i] for i in b])
-        bt = torch.as_tensor(b, device=self.backend.device)
+        lt = self._tail([tr["prompts"][i] for i in b])
+        src = _take(tr["src_states"]["cause"][fit.site], b, self.backend.device)
         tid = torch.as_tensor(self.tid, device=self.backend.device)
         y = tid[torch.as_tensor(tr["targets"][fit.var][b], device=tid.device)]
         outs = []
         for _ in range(2):
-            f = Fit(fit.site, fit.var, fit.k, self.backend.hidden_size, self.backend.device, 12345, self.cfg.lr)
+            f = Fit(fit.site, fit.var, fit.k, fit.W.shape[0], self.backend.device, 12345, self.cfg.lr)
             for _step in range(2):
                 with torch.enable_grad():
-                    loss = torch.nn.functional.cross_entropy(lt.logits(f.site, tr["src_states"]["cause"][f.site][bt], f.basis()), y)
+                    loss = torch.nn.functional.cross_entropy(lt.logits(f.site, src, f.basis()), y)
                     loss.backward()
                 f.opt.step()
                 f.opt.zero_grad(set_to_none=True)
@@ -560,10 +641,11 @@ class DAS:
             held = [v for v in cfg.variables if cells[f"{s}/{v}"]["held"]]
             sites[s] = {"held": held, "count": sum(v in held for v in ("S1", "S2", "S3", "T", "U", "Y")),
                         "sums_held": sum(v in held for v in ("S1", "S2", "S3")), "digits_in_use": "a" in held}
-        control = sites[cfg.control_site]
         self.log.info("held per site: %s", {s: x["held"] for s, x in sites.items()})
+        clean = None if cfg.control_site is None else not sites[cfg.control_site]["held"]
         return {"task": cfg.task, "sites": cfg.sites, "control_site": cfg.control_site, "variables": list(cfg.variables), "ks": list(cfg.ks),
-                "cells": cells, "per_site": sites, "control_clean": not control["held"],
+                "positions": cfg.positions, "swap": self.metadata.get("swap"),
+                "cells": cells, "per_site": sites, "control_clean": clean,
                 "n": {name: {"bases": len(dd["bases"]), "kept": int(dd["keep"].sum())} for name, dd in data.items()},
                 "thresholds": {"cause_lower": cfg.cause_lower, "isolate_lower": cfg.isolate_lower, "k_tolerance": cfg.k_tolerance}}
 
@@ -574,7 +656,7 @@ class DAS:
             return {"accuracy": float("nan"), "chance": float("nan")}
         with torch.no_grad():
             B = fit.basis(fit.best)
-            x = (dd["base_states"][site][torch.as_tensor(idx, device=B.device)] @ B.T).double()
+            x = (_take(dd["base_states"][site], idx, B.device).float() @ B.T).double()
         y = np.array([variable_value(var, dd["bases"][i]) for i in idx])
         C = N_CLASSES[var]
         allowed = torch.ones(len(idx), C, dtype=torch.bool, device=x.device)
@@ -619,7 +701,8 @@ def plot(result: dict[str, Any], path: Path, model_name: str) -> None:
     ax.set_xticklabels(variables, fontsize=7.5)
     ax.set_yticks(range(len(sites)))
     ax.set_yticklabels([f"{s}" + (" (control)" if s == result["control_site"] else "") for s in sites], fontsize=7)
-    ax.set_ylabel("read point (answer token)", fontsize=7, color=INK2)
+    joint = result.get("positions", "answer") != "answer"
+    ax.set_ylabel("read point (" + ("swapped tokens, jointly" if joint else "answer token") + ")", fontsize=7, color=INK2)
     ax.set_title("test Cause at k* (outlined: held,\nCause lo >= 0.5 and Isolate lo >= 0.75)", fontsize=7.5, loc="left")
     for sp in ax.spines.values():
         sp.set_visible(False)
@@ -645,7 +728,11 @@ def plot(result: dict[str, Any], path: Path, model_name: str) -> None:
             ax2.legend(title="read point", fontsize=6, title_fontsize=6, frameon=False, loc="upper left")
         ax2.set_xlabel("k", fontsize=6.5, color=INK2)
     template = TEMPLATES[result.get("task", "two_lane")].strip()
-    fig.suptitle(f"DAS at the answer token of {template} ({model_name}): which sub-results are held as separate "
+    where = "the answer token"
+    if joint:
+        sw = result.get("swap") or {}
+        where = f"{len(sw.get('tokens', []))} query tokens jointly ({result['positions'].replace('_', '-')} set)"
+    fig.suptitle(f"DAS at {where} of {template} ({model_name}): which sub-results are held as separate "
                  f"variables", fontsize=8.5, x=0.01, y=1.06, ha="left")
     fig.savefig(path, dpi=170, bbox_inches="tight", facecolor="#fcfcfb")
     plt.close(fig)

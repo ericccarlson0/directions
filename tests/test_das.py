@@ -188,3 +188,89 @@ def test_three_lane_toy_run(tmp_path):
     iso = r["cells"]["4/T"]["grid"]["2"]["isolate"]
     assert set(iso) == {"only_S3", "same_T"} and "sums_held" in r["per_site"]["4"]
     assert (root / "figures" / "das.png").exists()
+
+
+# --------------------------------------------------------------------------- #
+# The joint swap at several tokens (D53)
+# --------------------------------------------------------------------------- #
+
+
+def _tail_geometry(backend, prompts, P, tail):
+    """Absolute positions of the last ``tail`` tokens' indices ``P`` (relative to the tail) per prompt."""
+    T = np.array([len(backend._encode_prompt(p)[0]) for p in prompts])
+    return T[:, None] - tail + np.asarray(P)[None, :]
+
+
+def test_the_tail_path_without_a_swap_matches_the_full_forward(backend, prompts_and_sources):
+    prompts, _ = prompts_and_sources
+    full = backend.run(prompts, capture_logprobs=True)
+    lt = LastToken(backend, prompts, n_tail=7, swap_idx=[0, 3, 6])
+    with torch.no_grad():
+        got = torch.log_softmax(lt.logits(), dim=1).numpy()
+        again = torch.log_softmax(lt.logits(), dim=1).numpy()
+    np.testing.assert_allclose(got, full.query_logprobs, rtol=0, atol=2e-4)
+    np.testing.assert_allclose(again, got, rtol=0, atol=1e-6)  # the cache is restored after a multi-token pass
+
+
+def test_joint_swaps_on_the_tail_path_match_set_site_patches(backend, prompts_and_sources):
+    """The tail path's joint swap (concatenated states, one basis) against the native full pass with a set of
+    positions swapped (D52's site patch): the whole states, and a basis that is a different subspace per token
+    (block-diagonal), which the set patch applies as one basis per token."""
+    prompts, src_prompts = prompts_and_sources
+    L = backend.n_layers
+    tail, P = 7, [0, 3, 6]
+    pos = _tail_geometry(backend, prompts, P, tail)
+    src = backend.capture_sites(src_prompts, pos)  # (N, L+1, P, d), the sources share the base's token geometry
+    d = backend.hidden_size
+    lt = LastToken(backend, prompts, n_tail=tail, swap_idx=P)
+    rng = np.random.default_rng(2)
+    B1 = np.linalg.qr(rng.normal(size=(d, 3)))[0].T  # (3, d)
+    joint = np.zeros((3 * len(P), d * len(P)), dtype=np.float32)
+    for i in range(len(P)):
+        joint[3 * i : 3 * i + 3, d * i : d * (i + 1)] = B1  # the same 3-dim subspace at each token
+    for m in (1, L - 1, L):
+        vals = src[:, m]  # (N, P, d)
+        for basis in (None, B1):
+            ref = backend.run(prompts, capture_logprobs=True,
+                              site_patch=SitePatch(np.full(len(prompts), m), pos, vals, basis)).query_logprobs
+            jb = None if basis is None else torch.as_tensor(joint)
+            with torch.no_grad():
+                got = lt.logits(m, vals.reshape(len(prompts), -1).float(), jb)
+            np.testing.assert_allclose(torch.log_softmax(got, dim=1).numpy(), ref, rtol=0, atol=2e-4)
+
+
+def test_a_joint_basis_inside_one_token_equals_that_tokens_swap(backend, prompts_and_sources):
+    """A joint basis supported on one token's block swaps that token alone: the same as the one-token tail swap."""
+    prompts, src_prompts = prompts_and_sources
+    L = backend.n_layers
+    tail, P = 5, [0, 4]
+    pos = _tail_geometry(backend, prompts, P, tail)
+    src = backend.capture_sites(src_prompts, pos)[:, L - 1]  # (N, P, d)
+    d = backend.hidden_size
+    B1 = np.linalg.qr(np.random.default_rng(3).normal(size=(d, 4)))[0].T.astype(np.float32)
+    joint = np.zeros((4, 2 * d), dtype=np.float32)
+    joint[:, d:] = B1  # the answer token's block only
+    with torch.no_grad():
+        a = LastToken(backend, prompts, n_tail=tail, swap_idx=P).logits(L - 1, src.reshape(len(prompts), -1).float(),
+                                                                        torch.as_tensor(joint))
+        b = LastToken(backend, prompts).logits(L - 1, src[:, 1].float(), torch.as_tensor(B1))
+    np.testing.assert_allclose(a.numpy(), b.numpy(), rtol=0, atol=2e-4)
+
+
+def test_three_lane_joint_toy_run(tmp_path):
+    cfg = load_das_config("configs/smoke_toy_das.yaml")
+    cfg.output_dir, cfg.task, cfg.variables = str(tmp_path), "three_lane", ["S1", "T", "Y"]
+    cfg.sites, cfg.control_site, cfg.ks, cfg.null_k, cfg.epochs = [2, 4], None, [2], 2, 1
+    cfg.positions = "non_digit"
+    root = run_das(cfg, run_id="toy3j")
+    r = json.loads((root / "core" / "das.json").read_text())
+    sw = r["swap"]
+    labels = sw["labels"]
+    assert r["positions"] == "non_digit" and r["control_clean"] is None
+    assert all(labels[j] not in "abcdef" for j in sw["tokens"]) and sw["tokens"][-1] == len(labels) - 1
+    assert min(sw["tokens"]) > labels.index("a") and sw["n_tail"] == len(labels) - min(sw["tokens"])
+    d = ModelBackend(cfg.model, run_seed=cfg.seed).hidden_size
+    assert np.load(root / "core" / "das_bases.npz")["4/T/2"].shape == (2, len(sw["tokens"]) * d)  # one basis, concatenated
+    meta = json.loads((root / "metadata.json").read_text())
+    assert meta["determinism_check"]["training"]["identical"] and meta["determinism_check"]["evaluation"]["identical"]
+    assert (root / "figures" / "das.png").exists()
