@@ -1,0 +1,36 @@
+# Joint DAS at the non-digit query tokens (docs/DECISIONS.md D53), Qwen3-4B Base, part b of two
+# (split by sites to stay within a job's 6 hours): D51's design, the subspace spanning the 12 tokens.
+name: das_d53
+seed: 20260916
+output_dir: results
+
+model:
+  backend: hf
+  name: Qwen/Qwen3-4B-Base
+  dtype: bfloat16
+  device: cuda             # fail fast rather than fall back to the CPU (docs/INFRA.md)
+  batch_size: 128          # the state captures; the fits run on batch_size below
+
+task: three_lane
+positions: non_digit           # one subspace of the 12 swapped tokens' concatenated states (D53)
+sites: [25, 26]                   # D52's rule; this part's share (D53)
+control_site: null            # the control is in part a
+variables: [S1, S2, S3, T, U, Y]   # the digit a dropped: its token is outside the set
+ks: [16, 32, 64]
+null_k: 64                    # the shuffled-target null at the largest k
+n_train: 1536                 # bases per split, disjoint expressions
+n_val: 256
+n_test: 512
+n_shots: 8
+n_demo_pool: 96
+batch_size: 32
+epochs: 20
+lr: 0.05
+lambdas: [0.1, 1.0, 10.0, 100.0]   # the projection-decodability check's ridge grid (D46's probe)
+n_boot: 1000
+alpha: 0.05
+k_tolerance: 0.05             # k* = the smallest k within this of the best validation Cause
+cause_lower: 0.5              # D48 reading: held when Cause lo >= 0.5 and Isolate lo >= 0.75 at k*
+isolate_lower: 0.75
+determinism_check: true
+figures: true

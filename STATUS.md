@@ -5172,6 +5172,55 @@ Findings:
     depends on state at other positions, spread over them (job 1), and a joint subspace across positions is not
     part of D51.
 
+### D52: the position-set check (Qwen3 4B, 8B, 14B Base, three brackets, seed 20260916)
+
+D45's whole-state swap, with a set of query tokens swapped together at one read point, read against the answer
+token alone. It asks where the part of the answer that the answer token does not carry after the gather lives
+(D51), and so whether a joint subspace across tokens (D53) is worth fitting.
+
+```
+# workflow runs
+#   38980786015: request d52_posset_qwen3_4b_8b_seed20260916, commit 76972a6, RTX 4090 (ADA_24), EUR-NO-1, ci;
+#     stages 7.9 and 11.8 min (about 0.5 USD)
+#   38980798799: request d52_posset_qwen3_14b_seed20260916, commit a8c092c, H100 80GB HBM3 (ADA_80_PRO), US-CA-2,
+#     ci-8b; 7.0 min (about 0.8 USD)
+# identity check (every query token's own state swapped back) and determinism (a repeated set-swap batch)
+# identical on all three
+uv run python scripts/stages.py \
+  'uv run directions posset --config configs/posset_qwen3_4b.yaml --run-id posset_qwen3_4b_seed20260916' \
+  'uv run directions posset --config configs/posset_qwen3_8b.yaml --run-id posset_qwen3_8b_seed20260916'
+uv run python scripts/stages.py 'uv run directions posset --config configs/posset_qwen3_14b.yaml --run-id posset_qwen3_14b_seed20260916'
+uv run python scripts/posset_summary.py results/remote/run-38980786015 results/remote/run-38980798799 \
+  --out docs/posset/summary.json --figures docs/posset
+```
+
+Figures: `docs/posset/qwen3_<size>_three_lane.png` (rate against read point, one line per set, per source).
+256 bases per model, of which 168–201 are kept per source (few-shot accuracy 0.87, 0.86, 0.81).
+
+The table gives the source's answer with every sum changed: the range before G3 → from G3 to F.
+
+| model | answer token | answer + `=` | non-digit tokens | answer + digits | every query token (check) |
+|---|---|---|---|---|---|
+| 4B | 0.01–0.06 → 0.73–0.90 | 0.01–0.08 → 0.78–0.98 | 0.02–0.09 → 0.84–0.98 | 0.81–0.88 → 0.90–0.92 | 0.995–1.00 |
+| 8B | 0.02–0.07 → 0.74–0.76 | 0.03–0.12 → 0.91–0.95 | 0.06–0.11 → 0.92–0.96 | 0.82–0.84 → 0.77–0.82 | 1.00 |
+| 14B | 0.02–0.06 → 0.76–0.79 | 0.05–0.08 → 0.95–0.98 | 0.09–0.16 → 0.97–0.99 | 0.82–0.83 → 0.79–0.83 | 1.00 |
+
+- **The rule passes on all three models, so each gets the joint DAS (D53).** From G3 on, the non-digit set adds
+  0.07–0.11 (4B), 0.18–0.21 (8B) and 0.20–0.22 (14B) to the answer token's rate with every sum changed (Bonferroni
+  lower bounds 0.02–0.13). Single-bracket sources add 0.08–0.16 on the 8B and 14B, and on the 4B only before G3
+  (S2 and S3, 0.06–0.09).
+- **The rest of the answer sits at `=`.** On the 8B and 14B, answer + `=` recovers nearly all of the non-digit
+  set's gain from G3 on (0.17–0.20 of 0.18–0.22). `=` alone moves the answer in at most 0.05 (D51), so the answer
+  is carried jointly by two tokens: neither holds it alone.
+- **The operands are not re-read.** Adding the digit tokens to the answer token changes nothing after G3 on the
+  8B and 14B. On the 4B they add 0.17 at G3 with every sum changed, and 0.01–0.03 after it.
+- **Before G3 the subtrahends are partly at the structural tokens.** On the 8B at read points 22–23, the
+  non-digit set carries S2 in 0.46–0.57 and S3 in 0.38–0.46 of the bases, against 0.32–0.38 at the answer token
+  alone. This is where the second and third brackets arrive early (D51).
+- **Sites for D53 by the rule:** 4B 21, 23, 24, 25, 26; 8B 21, 23, 25, 26, 27; 14B 27, 30, 31, 32, 34. The 8B's
+  G3 (24) ranks fifth and is left out. Answer + `=` does not stand for the set, because the passing pairs before
+  G3 come from the other non-digit tokens.
+
 ## Not yet run / known limitations
 
 - The variable map (D45) has run once per model (Qwen3 0.6B, 1.7B, 4B Base; seed 20260916) on two expression tasks

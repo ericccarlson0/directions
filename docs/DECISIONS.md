@@ -3251,3 +3251,54 @@ Decision (the first map; exploratory):
   - Its design (variables, k, one basis per position or one shared) is fixed in D53 before its run.
 * **Runs.** One execution, seed 20260916. The 4B and 8B in one job on an RTX 4090 (EUR-NO-1; the 8B at batch 64),
   the 14B on an H100 (US-CA-2).
+* **Outcome (2026-10-16; runs 38980786015 and 38980798799).** The check passes on all three models; the joint DAS
+  runs at the non-digit tokens on each.
+  - With every sum changed, from G3 to F, the source's answer comes back in:
+    - the answer token alone: 0.73–0.90 (4B), 0.74–0.76 (8B), 0.76–0.79 (14B);
+    - answer + `=`: 0.78–0.98, 0.91–0.95, 0.95–0.98;
+    - the non-digit set: 0.84–0.98, 0.92–0.96, 0.97–0.99.
+    So on the 8B and 14B, what the answer token lacks lies almost entirely at the `=` token, which alone moves
+    nothing (D51).
+  - Answer + digits adds nothing after G3 on the 8B and 14B, so the operands are not re-read.
+  - Before G3, the non-digit tokens carry part of the subtrahends: on the 8B at read points 22–23, S2 0.46–0.57
+    and S3 0.38–0.46, against 0.32–0.38 at the answer token alone.
+  - Answer + `=` does not stand for the set: the passing pairs before G3 come from the other non-digit tokens.
+  - Sites by the rule: 4B 21 (control), 23, 24, 25, 26; 8B 21 (control), 23, 25, 26, 27; 14B 27 (control), 30,
+    31, 32, 34. The 8B's G3 (24) is not among its sites: its largest gain, 0.18, ranks fifth. The rule stands.
+  - Checks: every query token swapped gives the source's answer in 0.995–1.00; the identity and determinism
+    checks are identical on all three.
+
+### D53. Joint DAS at the non-digit query tokens (Qwen3 4B, 8B, 14B Base, three brackets)
+
+* **Why.** D52: from G3 on, the non-digit query tokens together carry what the answer token alone does not, mostly
+  at `=`. A variable spread over the answer token and `=` cannot be held by a subspace of one token's state. This
+  entry repeats D51's DAS with the subspace allowed to span those tokens. The question is unchanged: how many sums
+  are held as separate variables at once, and in which order they merge.
+* **The joint subspace.** One k-dimensional subspace of the swapped tokens' states, concatenated (P·d
+  dimensions). The swap is D48's, h ← h + ((h_src − h)Bᵀ)B, on the concatenation. A subspace inside one token's
+  block is the special case of D51, so a variable at one token can still be found.
+* **The swapped tokens.** D52's non-digit set without the opening bracket before the first operand digit (its
+  state is identical in a base and its source): `+`, `)`, `-`, `(` of each bracket, `=` and the answer token, 12
+  tokens. The prompt is cached up to the first swapped token, and the last 17 query tokens are rerun on every pass.
+  Verified against the native full pass with the set swapped (tests/test_das.py).
+* **Design, otherwise D51's.**
+  - Variables: S1, S2, S3, T, U, Y. The digit a is dropped, since its token is outside the set.
+  - Isolate sources and the held criterion as in D51.
+  - k ∈ {16, 32, 64}; the shuffled-target null at k = 64; 20 epochs, learning rate 0.05, batch 32.
+  - Splits 1536 / 256 / 512 with D51's seed, so the same bases and sources as D51, and the cells can be compared
+    at the shared sites.
+* **Sites.** D52's rule (its outcome above).
+* **Readouts.**
+  - As in D51: the variables held per site, the count of sums held, the merge-order reading, Y's decodability
+    from its subspace, and the overlaps of the stored bases.
+  - New: beside each Cause, D52's ceiling for the set at that site; beside each cell, D51's answer-token result
+    where the site is shared.
+  - The control: at the D51 control the set moves the answer in 0.03–0.15 (D52). A variable held there would be
+    the fit reaching what no whole-state swap does, the Makelov et al. illusion.
+* **Runs.** Seed 20260916, one execution.
+  - Each model in two jobs, split by sites, to stay within a job's 6 hours: 4B {21, 23, 24} and {25, 26}; 8B
+    {21, 23, 25} and {26, 27} (batch 64 for the captures, D51); 14B {27, 30, 31} and {32, 34}. The control is in
+    the first part.
+  - Fits are seeded per site, variable and k, and trained independently, so the split changes no fit. Only the
+    bootstrap draws of the intervals differ from one joint run.
+  - The 4B and 8B run on RTX 4090s (EUR-NO-1, lanes ci and ci-b), the 14B on an H100 (US-CA-2).

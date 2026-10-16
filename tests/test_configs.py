@@ -35,7 +35,7 @@ def test_all_configs_load():
             from directions.config import load_das_config
 
             cfg = load_das_config(p)
-            assert cfg.sites and cfg.control_site in cfg.sites, p
+            assert cfg.sites and (cfg.control_site in cfg.sites or (cfg.control_site is None and "_b.yaml" in p.name)), p
             continue
         if p.name.startswith("posset_"):  # the position-set check (D52)
             from directions.config import load_posset_config
@@ -545,3 +545,23 @@ def test_position_set_configs_follow_d52():
         if ref is None:
             ref = dict(c, **varying)
         assert dict(c, **varying) == ref, p.name
+
+
+def test_joint_das_configs_follow_d53():
+    """D53: D51's DAS configs but for the sites (D52's rule, split in two parts with the control in the first), the
+    positions (the non-digit set) and the variables (a dropped)."""
+    from dataclasses import asdict
+
+    from directions.config import load_das_config
+
+    rule = {"4b": [21, 23, 24, 25, 26], "8b": [21, 23, 25, 26, 27], "14b": [27, 30, 31, 32, 34]}  # D52's outcome
+    for size, sites in rule.items():
+        d51 = asdict(load_das_config(CONFIGS / f"das_d51_qwen3_{size}.yaml"))
+        a = asdict(load_das_config(CONFIGS / f"das_d53_qwen3_{size}_a.yaml"))
+        b = asdict(load_das_config(CONFIGS / f"das_d53_qwen3_{size}_b.yaml"))
+        assert sorted(a["sites"] + b["sites"]) == sites and not set(a["sites"]) & set(b["sites"]), size
+        assert a["control_site"] == d51["control_site"] == sites[0] and b["control_site"] is None, size
+        for c in (a, b):
+            assert c["positions"] == "non_digit" and c["variables"] == ["S1", "S2", "S3", "T", "U", "Y"], size
+            varying = dict(name=None, sites=None, control_site=None, positions=None, variables=None)
+            assert dict(c, **varying) == dict(d51, **varying), size
