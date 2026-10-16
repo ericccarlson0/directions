@@ -1,0 +1,244 @@
+{
+ "varsplit_three_qwen3_8b_seed20260916": {
+  "three_lane": {
+   "gather": 24,
+   "probe": {
+    "S1|Y": {
+     "accuracy": {
+      "h22": 0.586,
+      "mid23": 0.589,
+      "h23": 0.573,
+      "mid24": 0.77,
+      "h24": 0.88,
+      "mid25": 0.89,
+      "h25": 0.952,
+      "mid26": 0.95,
+      "h26": 0.958,
+      "mid27": 0.956,
+      "h27": 0.96
+     },
+     "blocks": {
+      "23": {
+       "gain": -0.014,
+       "share": -0.17,
+       "ci": [
+        -5.0,
+        1.62
+       ],
+       "reading": "no gain"
+      },
+      "24": {
+       "gain": 0.307,
+       "share": 0.64,
+       "ci": [
+        0.6,
+        0.69
+       ],
+       "reading": "attention"
+      },
+      "25": {
+       "gain": 0.073,
+       "share": 0.14,
+       "ci": [
+        0.03,
+        0.24
+       ],
+       "reading": "no gain"
+      },
+      "26": {
+       "gain": 0.006,
+       "share": -0.3,
+       "ci": [
+        -4.05,
+        1.25
+       ],
+       "reading": "no gain"
+      },
+      "27": {
+       "gain": 0.002,
+       "share": -1.0,
+       "ci": [
+        null,
+        5.0
+       ],
+       "reading": "no gain"
+      }
+     }
+    },
+    "Y": {
+     "accuracy": {
+      "h22": 0.331,
+      "mid23": 0.341,
+      "h23": 0.342,
+      "mid24": 0.342,
+      "h24": 0.363,
+      "mid25": 0.361,
+      "h25": 0.529,
+      "mid26": 0.537,
+      "h26": 0.865,
+      "mid27": 0.868,
+      "h27": 0.914
+     },
+     "blocks": {
+      "23": {
+       "gain": 0.011,
+       "share": 0.89,
+       "ci": [
+        -2.13,
+        7.67
+       ],
+       "reading": "no gain"
+      },
+      "24": {
+       "gain": 0.021,
+       "share": 0.0,
+       "ci": [
+        -1.47,
+        0.7
+       ],
+       "reading": "no gain"
+      },
+      "25": {
+       "gain": 0.166,
+       "share": -0.01,
+       "ci": [
+        -0.08,
+        0.05
+       ],
+       "reading": "mlp"
+      },
+      "26": {
+       "gain": 0.336,
+       "share": 0.02,
+       "ci": [
+        -0.01,
+        0.05
+       ],
+       "reading": "mlp"
+      },
+      "27": {
+       "gain": 0.049,
+       "share": 0.07,
+       "ci": [
+        -0.04,
+        0.18
+       ],
+       "reading": "no gain"
+      }
+     }
+    }
+   },
+   "accuracy": 0.8271484375,
+   "n_kept": 1694,
+   "additivity": {
+    "max": 0.014747794717550278,
+    "median": 0.0045027355663478374
+   },
+   "heads": {
+    "24": {
+     "reading": "mixed",
+     "carries_S1": [
+      4
+     ],
+     "carries_S2": [],
+     "S1_only": [
+      4
+     ],
+     "S2_only": [],
+     "carries_S3": [],
+     "S3_only": [],
+     "all_heads": {
+      "S1": 0.69,
+      "S2": 0.17,
+      "S3": 0.22,
+      "all": 0.3
+     },
+     "sum_of_heads": {
+      "S1": 0.49,
+      "S2": 0.12,
+      "S3": 0.19,
+      "all": 0.54
+     },
+     "n": {
+      "S1": 53,
+      "S1_same": 48,
+      "S2": 56,
+      "S2_same": 49,
+      "S3": 51,
+      "S3_same": 46,
+      "all": 50
+     },
+     "S1_carriers_holding_a_digit": [],
+     "S2_carriers_holding_a_digit": [],
+     "S3_carriers_holding_a_digit": []
+    },
+    "25": {
+     "reading": "no carrier",
+     "carries_S1": [],
+     "carries_S2": [],
+     "S1_only": [],
+     "S2_only": [],
+     "carries_S3": [],
+     "S3_only": [],
+     "all_heads": {
+      "S1": 0.01,
+      "S2": 0.0,
+      "S3": 0.01,
+      "all": 0.0
+     },
+     "sum_of_heads": {
+      "S1": 0.06,
+      "S2": 0.01,
+      "S3": 0.05,
+      "all": 0.06
+     },
+     "n": {
+      "S1": 53,
+      "S1_same": 48,
+      "S2": 56,
+      "S2_same": 49,
+      "S3": 51,
+      "S3_same": 46,
+      "all": 50
+     },
+     "S1_carriers_holding_a_digit": [],
+     "S2_carriers_holding_a_digit": [],
+     "S3_carriers_holding_a_digit": []
+    },
+    "26": {
+     "reading": "no carrier",
+     "carries_S1": [],
+     "carries_S2": [],
+     "S1_only": [],
+     "S2_only": [],
+     "carries_S3": [],
+     "S3_only": [],
+     "all_heads": {
+      "S1": 0.0,
+      "S2": 0.0,
+      "S3": 0.0,
+      "all": 0.0
+     },
+     "sum_of_heads": {
+      "S1": 0.05,
+      "S2": -0.0,
+      "S3": 0.04,
+      "all": 0.05
+     },
+     "n": {
+      "S1": 53,
+      "S1_same": 48,
+      "S2": 56,
+      "S2_same": 49,
+      "S3": 51,
+      "S3_same": 46,
+      "all": 50
+     },
+     "S1_carriers_holding_a_digit": [],
+     "S2_carriers_holding_a_digit": [],
+     "S3_carriers_holding_a_digit": []
+    }
+   }
+  }
+ }
+}
