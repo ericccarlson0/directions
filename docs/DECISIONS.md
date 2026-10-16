@@ -3139,3 +3139,9 @@ Decision (the first map; exploratory):
   only if it carries most of what the whole state carries. The D46 Y probe reaches 0.9 of its final accuracy at
   read point 34 (G+4), outside the DAS window, and the lens reads Y from 34. The D47 file uses blocks 29–33
   (split) and 30–32 (heads).
+* **Outcome (2026-10-16; STATUS, D50).** Run 38918531708: no variable is held at read points 30–32. S1 and S2
+  reach Cause 0.29 and 0.27 at G (k = 32, still rising with k; Isolate lower bounds 0.59), Y 0.73 at read point
+  31, failing only Isolate (lower bound 0.72); the control is clean. The count of sums held separately at the
+  gather is 0, 1, 2, 0 on 1.7B, 4B, 8B, 14B. Read with the 14B's partial gather (whole-state ceiling about 0.67)
+  and its gradual sums (readable from read point 28): its computation is less concentrated at the answer token,
+  the one position the DAS examines.

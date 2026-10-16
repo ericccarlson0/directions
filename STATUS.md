@@ -4948,6 +4948,54 @@ both `depth.png`.
   0.84 at G−1, against 0.45 at G−1 on the 8B), and the answer forms four blocks after G (Y probe 0.9 at 34).
 - **Accuracy is lower on two brackets** than the 4B's and 8B's (0.85 on 2048 expressions, against 0.97 and 0.99).
 
+**Job 2: the block split and DAS on the 14B**
+
+```
+# workflow run 38918531708 (request d50_varsplit_das_qwen3_14b_seed20260916), commit 241342e, H100 80GB HBM3
+# (ADA_80_PRO), US-CA-2, ci-8b; stages 8.5 and 47 min (about 4.6 USD; the 14B line in all about 7.2 USD);
+# determinism identical in both stages
+uv run python scripts/stages.py \
+  'uv run directions varsplit --config configs/varsplit_qwen3_14b.yaml --run-id varsplit_qwen3_14b_seed20260916' \
+  'uv run directions das --config configs/das_d50_qwen3_14b.yaml --run-id das_d50_qwen3_14b_seed20260916'
+# on the download (scripts/runpod_log.py 38918531708 --datacenter US-CA-2 --download results/remote/run-38918531708):
+uv run python scripts/varsplit_summary.py results/remote/run-38918531708 --out docs/varsplit/summary_14b.json --figures docs/varsplit
+uv run python scripts/das_summary.py <a directory holding only the das_d50 run> --out docs/das/summary_14b.json
+```
+
+Figures: `docs/varsplit/qwen3_14b_<task>.png`, `docs/das/qwen3_14b.png`. DAS kept 1109 / 180 / 369 Cause pairs
+(the 14B's lower two-lane accuracy).
+
+| DAS, 14B read point | S1 | S2 | Y | a | held |
+|---|---|---|---|---|---|
+| 28 (control) | 0.08–0.11 | 0.08–0.12 | 0.10–0.13 | 0.06–0.11 | – |
+| 30 (G) | 0.29 [0.24, 0.33], Iso 0.68 (0.59), k 32 | 0.27 [0.23, 0.32], Iso 0.64 (0.59), k 32 | 0.38 [0.33, 0.42], Iso 0.63 (0.58) | 0.14–0.17 | – |
+| 31 | 0.16–0.22 | 0.19–0.21 | 0.73 [0.69, 0.78], Iso 0.76 (0.72), k 32, dec 0.31 (0.16) | 0.12–0.15 | – |
+| 32 | 0.09–0.17 | 0.15–0.16 | 0.63 [0.59, 0.69], Iso 0.71 (0.66), k 32, dec 0.44 | 0.10–0.13 | – |
+
+(Test Cause at k* with its interval, Isolate and its lower bound; for the other cells the range over k. Shuffled-
+target nulls at k = 32: 0.04–0.10 for S1, S2 and a, 0.08–0.13 for Y. The whole-state swap at the answer token
+gives the source's answer in about 0.67 of the D45 bases at these read points, the ceiling a subspace can reach.)
+
+Block split (D47), two-lane: S1 given Y rises over several blocks without a step (0.75, 0.84, 0.90 at read points
+28–30), so no block crosses D47's gain threshold. Y forms in the MLPs of blocks 32 (0.49 → 0.72; attention's share
+0.15 [0.09, 0.20]) and 33 (→ 0.87; 0.00). Block 30's heads together deliver 0.37 of the second bracket (head 11
+carries it alone, the D47 reading "mixed") and 0.11 of the first; blocks 31–32's heads nothing. The first bracket
+reaches the answer token before block 30 (D45: the S1 swap moves the answer in 0.26 of the bases at read point 29).
+
+- **The 14B holds no sub-result as a separate variable at its gather.** S1 and S2 reach Cause 0.29 and 0.27 at
+  read point 30 (about 0.4 of the whole-state ceiling; on the 8B the held sums reached 0.71 and 0.58 of a ceiling
+  near 1). Both rise with k (S1 0.14, 0.18, 0.29 at k = 8, 16, 32) and had levelled off in training by the last
+  epochs, so a larger k is the open direction, not a longer budget. Y comes closest at read point 31: Cause 0.73,
+  failing only Isolate (lower bound 0.72 against 0.75), and does not decode from its subspace (0.31).
+- **The count at the gather is 0, 1, 2 and 0 on 1.7B, 4B, 8B and 14B.** It does not rise with size past the 8B.
+  The 14B also differs from the 8B in two ways that bear on it: its gather is partial (a third of the bases are
+  answered from state the answer token does not hold at read points 30–39), and its sums become readable gradually
+  from read point 28, before the gather, rather than in one block. Its arithmetic is less concentrated at the
+  answer token, which is the one place this DAS looks. The measurement here is the count at the answer token, not
+  the number of sub-results the model computes.
+- **Limits.** One seed; the grid's top k (32) is where S1 and S2 were still rising; the 14B is less accurate on this
+  prompt (0.85) than the 4B and 8B, so 28% of its training bases did not enter.
+
 ## Not yet run / known limitations
 
 - The variable map (D45) has run once per model (Qwen3 0.6B, 1.7B, 4B Base; seed 20260916) on two expression tasks
@@ -4958,7 +5006,8 @@ both `depth.png`.
   once, with both sums held at its gather. Every DAS run so far used seed 20260916, which fixes the splits, the
   demonstrations and each fit's initial subspace: rerunning 1.7B and 4B at the 8B's design on that seed would
   reproduce the extension's k = 16 and 32 cells exactly, so the replication of the 0 / 1 / 2 count needs a second
-  seed. The other families are not mapped.
+  seed (not planned: later tasks test the count again). The 14B (D50) has run D45–D48 once, on an H100; it holds
+  no sum at its gather. The other families are not mapped.
 - The weight-decayed learned vector (D43) has run once per Qwen3 Base model (seed 20260916) with one weight decay,
   one step size and one budget fixed on a CPU probe of one task; the hand-over, the source test and the geometry
   test have run on it (D44), the all-to-all trajectories (D32–D34), the composition tests (D41, D42) and OLMo 3 and
@@ -5119,6 +5168,9 @@ uv run python scripts/das_summary.py results/remote/run-38672212264 --out docs/d
 # D49, the 8B: job 1 (run 38738001665), job 2 (run 38748328299):
 uv run python scripts/stages.py 'uv run python scripts/volume_cleanup.py --delete-model allenai/Olmo-3-1025-7B --delete-incomplete --yes' 'uv run directions varmap --config configs/varmap_qwen3_8b.yaml --run-id varmap_qwen3_8b_seed20260916' 'uv run directions varprobe --config configs/varprobe_qwen3_8b.yaml --run-id varprobe_qwen3_8b_seed20260916'
 uv run python scripts/stages.py 'uv run directions varsplit --config configs/varsplit_qwen3_8b.yaml --run-id varsplit_qwen3_8b_seed20260916' 'uv run directions das --config configs/das_d49_qwen3_8b.yaml --run-id das_d49_qwen3_8b_seed20260916'
+# D50, the 14B on an H100 in US-CA-2 (gpu_tier ADA_80_PRO, datacenter US-CA-2, flash_env ci-8b): job 1 (run 38913588733), job 2 (run 38918531708):
+uv run python scripts/stages.py 'uv run python scripts/volume_cleanup.py --delete-model google/gemma-4-12B --delete-model Qwen/Qwen3-8B-Base --delete-incomplete --yes' 'uv run directions varmap --config configs/varmap_qwen3_14b.yaml --run-id varmap_qwen3_14b_seed20260916' 'uv run directions varprobe --config configs/varprobe_qwen3_14b.yaml --run-id varprobe_qwen3_14b_seed20260916'
+uv run python scripts/stages.py 'uv run directions varsplit --config configs/varsplit_qwen3_14b.yaml --run-id varsplit_qwen3_14b_seed20260916' 'uv run directions das --config configs/das_d50_qwen3_14b.yaml --run-id das_d50_qwen3_14b_seed20260916'
 # iteration 10 (D33 amended: quarter strength, the neighbouring candidate layers, the patch test at every compared
 # layer on eighths of the depth for the learned and the head-mean vector, per-block writing), on a second seed,
 # as run (workflow runs in the iteration-10 entry): first the learned-vector protocol (D31) at seed 20260916 on

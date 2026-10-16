@@ -1,0 +1,482 @@
+{
+ "das_d50_qwen3_14b_seed20260916": {
+  "control_site": 28,
+  "control_clean": true,
+  "n": {
+   "test": {
+    "bases": 512,
+    "kept": 369
+   },
+   "train": {
+    "bases": 1536,
+    "kept": 1109
+   },
+   "val": {
+    "bases": 256,
+    "kept": 180
+   }
+  },
+  "sites": {
+   "28": {
+    "held": [],
+    "count": 0,
+    "digits_in_use": false,
+    "variables": {
+     "S1": {
+      "k_star": 8,
+      "cause": 0.09,
+      "cause_ci": [
+       0.07,
+       0.13
+      ],
+      "isolate": 0.75,
+      "isolate_lo": 0.62,
+      "isolate_by_kind": {
+       "only_S2": 0.66,
+       "same_S1": 0.84
+      },
+      "untrained": 0.0,
+      "null": 0.04,
+      "decodability": 0.18,
+      "decodability_chance": 0.12,
+      "cause_by_k": {
+       "8": 0.09,
+       "16": 0.11,
+       "32": 0.08
+      }
+     },
+     "S2": {
+      "k_star": 8,
+      "cause": 0.08,
+      "cause_ci": [
+       0.06,
+       0.11
+      ],
+      "isolate": 0.77,
+      "isolate_lo": 0.69,
+      "isolate_by_kind": {
+       "only_S1": 0.73,
+       "same_S2": 0.81
+      },
+      "untrained": 0.0,
+      "null": 0.05,
+      "decodability": 0.2,
+      "decodability_chance": 0.11,
+      "cause_by_k": {
+       "8": 0.08,
+       "16": 0.11,
+       "32": 0.12
+      }
+     },
+     "Y": {
+      "k_star": 32,
+      "cause": 0.13,
+      "cause_ci": [
+       0.09,
+       0.16
+      ],
+      "isolate": 0.64,
+      "isolate_lo": 0.59,
+      "isolate_by_kind": {
+       "same_Y": 0.64
+      },
+      "untrained": 0.0,
+      "null": 0.08,
+      "decodability": 0.29,
+      "decodability_chance": 0.16,
+      "cause_by_k": {
+       "8": 0.1,
+       "16": 0.1,
+       "32": 0.13
+      }
+     },
+     "a": {
+      "k_star": 8,
+      "cause": 0.07,
+      "cause_ci": [
+       0.04,
+       0.1
+      ],
+      "isolate": 0.77,
+      "isolate_lo": 0.65,
+      "isolate_by_kind": {
+       "only_S2": 0.7,
+       "only_b": 0.84
+      },
+      "untrained": 0.0,
+      "null": 0.05,
+      "decodability": 0.44,
+      "decodability_chance": 0.16,
+      "cause_by_k": {
+       "8": 0.07,
+       "16": 0.06,
+       "32": 0.11
+      }
+     }
+    },
+    "overlap": {
+     "S1-S2": {
+      "share": 0.256,
+      "max_cos": 0.814,
+      "chance": 0.002
+     },
+     "S1-Y": {
+      "share": 0.413,
+      "max_cos": 0.887,
+      "chance": 0.006
+     },
+     "S2-Y": {
+      "share": 0.368,
+      "max_cos": 0.879,
+      "chance": 0.006
+     }
+    }
+   },
+   "30": {
+    "held": [],
+    "count": 0,
+    "digits_in_use": false,
+    "variables": {
+     "S1": {
+      "k_star": 32,
+      "cause": 0.29,
+      "cause_ci": [
+       0.24,
+       0.33
+      ],
+      "isolate": 0.68,
+      "isolate_lo": 0.59,
+      "isolate_by_kind": {
+       "only_S2": 0.64,
+       "same_S1": 0.72
+      },
+      "untrained": 0.0,
+      "null": 0.07,
+      "decodability": 0.28,
+      "decodability_chance": 0.12,
+      "cause_by_k": {
+       "8": 0.14,
+       "16": 0.18,
+       "32": 0.29
+      }
+     },
+     "S2": {
+      "k_star": 32,
+      "cause": 0.27,
+      "cause_ci": [
+       0.23,
+       0.32
+      ],
+      "isolate": 0.64,
+      "isolate_lo": 0.59,
+      "isolate_by_kind": {
+       "only_S1": 0.64,
+       "same_S2": 0.64
+      },
+      "untrained": 0.0,
+      "null": 0.07,
+      "decodability": 0.25,
+      "decodability_chance": 0.11,
+      "cause_by_k": {
+       "8": 0.16,
+       "16": 0.14,
+       "32": 0.27
+      }
+     },
+     "Y": {
+      "k_star": 16,
+      "cause": 0.38,
+      "cause_ci": [
+       0.33,
+       0.42
+      ],
+      "isolate": 0.63,
+      "isolate_lo": 0.58,
+      "isolate_by_kind": {
+       "same_Y": 0.63
+      },
+      "untrained": 0.0,
+      "null": 0.11,
+      "decodability": 0.28,
+      "decodability_chance": 0.16,
+      "cause_by_k": {
+       "8": 0.37,
+       "16": 0.38,
+       "32": 0.41
+      }
+     },
+     "a": {
+      "k_star": 8,
+      "cause": 0.16,
+      "cause_ci": [
+       0.12,
+       0.2
+      ],
+      "isolate": 0.71,
+      "isolate_lo": 0.65,
+      "isolate_by_kind": {
+       "only_S2": 0.69,
+       "only_b": 0.72
+      },
+      "untrained": 0.0,
+      "null": 0.06,
+      "decodability": 0.56,
+      "decodability_chance": 0.16,
+      "cause_by_k": {
+       "8": 0.16,
+       "16": 0.14,
+       "32": 0.17
+      }
+     }
+    },
+    "overlap": {
+     "S1-S2": {
+      "share": 0.111,
+      "max_cos": 0.775,
+      "chance": 0.006
+     },
+     "S1-Y": {
+      "share": 0.187,
+      "max_cos": 0.813,
+      "chance": 0.006
+     },
+     "S2-Y": {
+      "share": 0.195,
+      "max_cos": 0.782,
+      "chance": 0.006
+     }
+    }
+   },
+   "31": {
+    "held": [],
+    "count": 0,
+    "digits_in_use": false,
+    "variables": {
+     "S1": {
+      "k_star": 8,
+      "cause": 0.16,
+      "cause_ci": [
+       0.12,
+       0.2
+      ],
+      "isolate": 0.59,
+      "isolate_lo": 0.5,
+      "isolate_by_kind": {
+       "only_S2": 0.55,
+       "same_S1": 0.63
+      },
+      "untrained": 0.0,
+      "null": 0.09,
+      "decodability": 0.22,
+      "decodability_chance": 0.12,
+      "cause_by_k": {
+       "8": 0.16,
+       "16": 0.17,
+       "32": 0.22
+      }
+     },
+     "S2": {
+      "k_star": 8,
+      "cause": 0.19,
+      "cause_ci": [
+       0.15,
+       0.23
+      ],
+      "isolate": 0.6,
+      "isolate_lo": 0.51,
+      "isolate_by_kind": {
+       "only_S1": 0.56,
+       "same_S2": 0.63
+      },
+      "untrained": 0.0,
+      "null": 0.08,
+      "decodability": 0.19,
+      "decodability_chance": 0.11,
+      "cause_by_k": {
+       "8": 0.19,
+       "16": 0.19,
+       "32": 0.21
+      }
+     },
+     "Y": {
+      "k_star": 32,
+      "cause": 0.73,
+      "cause_ci": [
+       0.69,
+       0.78
+      ],
+      "isolate": 0.76,
+      "isolate_lo": 0.72,
+      "isolate_by_kind": {
+       "same_Y": 0.76
+      },
+      "untrained": 0.0,
+      "null": 0.13,
+      "decodability": 0.31,
+      "decodability_chance": 0.16,
+      "cause_by_k": {
+       "8": 0.36,
+       "16": 0.44,
+       "32": 0.73
+      }
+     },
+     "a": {
+      "k_star": 8,
+      "cause": 0.12,
+      "cause_ci": [
+       0.08,
+       0.15
+      ],
+      "isolate": 0.65,
+      "isolate_lo": 0.6,
+      "isolate_by_kind": {
+       "only_S2": 0.66,
+       "only_b": 0.64
+      },
+      "untrained": 0.0,
+      "null": 0.08,
+      "decodability": 0.45,
+      "decodability_chance": 0.16,
+      "cause_by_k": {
+       "8": 0.12,
+       "16": 0.15,
+       "32": 0.15
+      }
+     }
+    },
+    "overlap": {
+     "S1-S2": {
+      "share": 0.234,
+      "max_cos": 0.814,
+      "chance": 0.002
+     },
+     "S1-Y": {
+      "share": 0.286,
+      "max_cos": 0.749,
+      "chance": 0.006
+     },
+     "S2-Y": {
+      "share": 0.278,
+      "max_cos": 0.746,
+      "chance": 0.006
+     }
+    }
+   },
+   "32": {
+    "held": [],
+    "count": 0,
+    "digits_in_use": false,
+    "variables": {
+     "S1": {
+      "k_star": 8,
+      "cause": 0.09,
+      "cause_ci": [
+       0.07,
+       0.12
+      ],
+      "isolate": 0.69,
+      "isolate_lo": 0.61,
+      "isolate_by_kind": {
+       "only_S2": 0.66,
+       "same_S1": 0.72
+      },
+      "untrained": 0.0,
+      "null": 0.1,
+      "decodability": 0.2,
+      "decodability_chance": 0.12,
+      "cause_by_k": {
+       "8": 0.09,
+       "16": 0.17,
+       "32": 0.17
+      }
+     },
+     "S2": {
+      "k_star": 8,
+      "cause": 0.15,
+      "cause_ci": [
+       0.12,
+       0.19
+      ],
+      "isolate": 0.67,
+      "isolate_lo": 0.61,
+      "isolate_by_kind": {
+       "only_S1": 0.65,
+       "same_S2": 0.69
+      },
+      "untrained": 0.0,
+      "null": 0.08,
+      "decodability": 0.2,
+      "decodability_chance": 0.11,
+      "cause_by_k": {
+       "8": 0.15,
+       "16": 0.16,
+       "32": 0.16
+      }
+     },
+     "Y": {
+      "k_star": 32,
+      "cause": 0.63,
+      "cause_ci": [
+       0.59,
+       0.69
+      ],
+      "isolate": 0.71,
+      "isolate_lo": 0.66,
+      "isolate_by_kind": {
+       "same_Y": 0.71
+      },
+      "untrained": 0.0,
+      "null": 0.13,
+      "decodability": 0.44,
+      "decodability_chance": 0.16,
+      "cause_by_k": {
+       "8": 0.41,
+       "16": 0.66,
+       "32": 0.63
+      }
+     },
+     "a": {
+      "k_star": 8,
+      "cause": 0.1,
+      "cause_ci": [
+       0.07,
+       0.13
+      ],
+      "isolate": 0.67,
+      "isolate_lo": 0.61,
+      "isolate_by_kind": {
+       "only_S2": 0.66,
+       "only_b": 0.69
+      },
+      "untrained": 0.0,
+      "null": 0.07,
+      "decodability": 0.39,
+      "decodability_chance": 0.16,
+      "cause_by_k": {
+       "8": 0.1,
+       "16": 0.13,
+       "32": 0.13
+      }
+     }
+    },
+    "overlap": {
+     "S1-S2": {
+      "share": 0.211,
+      "max_cos": 0.707,
+      "chance": 0.002
+     },
+     "S1-Y": {
+      "share": 0.289,
+      "max_cos": 0.779,
+      "chance": 0.006
+     },
+     "S2-Y": {
+      "share": 0.306,
+      "max_cos": 0.751,
+      "chance": 0.006
+     }
+    }
+   }
+  }
+ }
+}
