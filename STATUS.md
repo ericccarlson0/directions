@@ -4913,6 +4913,41 @@ share 0.28 [0.22, 0.35] ("MLP"). Heads: no single head of blocks 24–26 carries
 - **Limits.** One seed, one task. The 4B S1 result that this extends is exploratory, so the scale trend has one
   preregistered point with both sums (8B) and one preregistered null at k ≤ 16 (1.7B and 4B, 6 epochs).
 
+### D50: the variable-map line on Qwen3-14B Base (seed 20260916)
+
+D45 and D46 unchanged on the 14B (job 1); D47 and DAS with D49's design at the 14B's gather (job 2). Both jobs on
+an H100 in US-CA-2: the right-sized 48 GB tier has never been assigned in a usable data center (D50).
+
+```
+# job 1: workflow run 38913588733 (request d50_varmap_varprobe_qwen3_14b_seed20260916), commit c8f6fd4, H100 80GB
+# HBM3 (ADA_80_PRO), US-CA-2, Flash environment ci-8b; stages 4 s (the Gemma 4 12B and Qwen3-8B Base caches deleted
+# to make room), 30 and 1.9 min (about 2.6 USD at 4.81 USD/h); determinism (a repeated swap batch, a repeated
+# capture batch and probe) identical. (scripts/runpod_log.py needs --datacenter US-CA-2 for these runs.)
+uv run python scripts/stages.py \
+  'uv run python scripts/volume_cleanup.py --delete-model google/gemma-4-12B --delete-model Qwen/Qwen3-8B-Base --delete-incomplete --yes' \
+  'uv run directions varmap --config configs/varmap_qwen3_14b.yaml --run-id varmap_qwen3_14b_seed20260916' \
+  'uv run directions varprobe --config configs/varprobe_qwen3_14b.yaml --run-id varprobe_qwen3_14b_seed20260916'
+# summaries and depth figures as for D49, with the 14B run directories added (the scripts order models by size)
+```
+
+Figures: `docs/varmap/qwen3_14b_<task>.png`, `docs/varprobe/qwen3_14b_<task>.png` (gather marked), the 14B rows of
+both `depth.png`.
+
+| 14B task | few-shot accuracy (D45 / D46) | gather G (fraction) | last digit read point | whole-state swap at the answer token, G..39 → L | bracket swaps at G−1 | S1 given Y: G−1 → G → peak (read point) → L | Y probe 0.9 of final at; lens reads Y from |
+|---|---|---|---|---|---|---|---|
+| two-lane | 0.922 / 0.847 (1735) | 30 (0.75) | 29 | 0.65–0.75 → 1.00 (both-swap source answer at G 0.67) | S1 0.26, S2 0.08 | 0.84 → 0.89 → 0.92 (32) → 0.84 | 34; 34 |
+| one-lane | 1.000 / 0.998 (573) | 30 (0.75) | 27 | 0.64–0.81 → 1.00 (0.67) | S1 0.42, S2 0.02 | 0.62 → 0.71 → 0.82 (34) → 0.81 | 37; 33 |
+
+- **The 14B gathers later in the stack than the 4B and 8B** (0.75 against 0.67), at the 1.7B's fraction.
+- **The gather is partial.** On the smaller models a whole-state swap at the answer token from G on gives the
+  source's answer in 0.92–1.00 of the bases. On the 14B it gives it in 0.64–0.81 at read points 30 to 39 (rising
+  slowly with depth) and in all of them only at L. For about a third of the bases, the answer token's state at those read points does
+  not determine the answer: the last block reads what it needs from other positions. No single other position
+  carries a sum (D45's "present elsewhere" is false for both), so that information is spread over positions.
+- **The sums become readable more gradually and earlier than the gather** (S1 given Y 0.52 before G on average,
+  0.84 at G−1, against 0.45 at G−1 on the 8B), and the answer forms four blocks after G (Y probe 0.9 at 34).
+- **Accuracy is lower on two brackets** than the 4B's and 8B's (0.85 on 2048 expressions, against 0.97 and 0.99).
+
 ## Not yet run / known limitations
 
 - The variable map (D45) has run once per model (Qwen3 0.6B, 1.7B, 4B Base; seed 20260916) on two expression tasks

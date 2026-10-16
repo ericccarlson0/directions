@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -23,6 +24,12 @@ import numpy as np
 # the D45 gather read point per model (runs 38502381471 and, for the 8B, 38738001665; the configs' marks)
 GATHER = {"qwen3_0.6b": 21, "qwen3_1.7b": 21, "qwen3_4b": 24, "qwen3_8b": 24, "qwen3_14b": 30}
 
+
+
+def by_size(path: Path) -> tuple:
+    """Run directories in model-size order (``..._qwen3_14b_...`` after ``..._qwen3_8b_...``), then by name."""
+    m = re.search(r"_(\d+(?:\.\d+)?)b(?:_|$)", path.name)
+    return (float(m.group(1)) if m else float("inf"), path.name)
 
 def model_key(run: str) -> str:
     return next(k for k in GATHER if f"_{k}_" in f"_{run}_")
@@ -115,7 +122,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--figure", type=Path)
     args = ap.parse_args(argv)
     summary, two_lane = {}, {}
-    for run in sorted(args.root.glob("varprobe_*")):
+    for run in sorted(args.root.glob("varprobe_*"), key=by_size):
         key = model_key(run.name)
         for task_dir in sorted((run / "core" / "tasks").glob("*")):
             r = json.loads((task_dir / "varprobe.json").read_text())

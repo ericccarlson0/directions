@@ -29,6 +29,12 @@ N_BOOT, ALPHA, SEED = 1000, 0.05, 20260916
 HANDOVER = {"qwen3_0.6b": (20, 19.0), "qwen3_1.7b": (20, 18.5), "qwen3_4b": (24, 23.0), "qwen3_8b": (26, 23.0)}
 
 
+
+def by_size(path: Path) -> tuple:
+    """Run directories in model-size order (``..._qwen3_14b_...`` after ``..._qwen3_8b_...``), then by name."""
+    m = re.search(r"_(\d+(?:\.\d+)?)b(?:_|$)", path.name)
+    return (float(m.group(1)) if m else float("inf"), path.name)
+
 def parse_expr(text: str) -> Expr:
     """``(a+b) - (c+d)`` or ``(a+b) - c`` as written by :meth:`Expr.text`."""
     return Expr(*[int(x) for x in re.findall(r"\d", text)])
@@ -156,7 +162,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--figure", type=Path)
     args = ap.parse_args(argv)
     summary = {}
-    for run in sorted(args.root.glob("varmap_*")):
+    for run in sorted(args.root.glob("varmap_*"), key=by_size):
         for task_dir in sorted((run / "core" / "tasks").glob("*")):
             if (task_dir / "varmap.json").exists():
                 summary.setdefault(run.name, {})[task_dir.name] = summarise_task(task_dir)

@@ -3132,7 +3132,7 @@ Decision (the first map; exploratory):
   before any DAS data:
   - few-shot accuracy is lower on two-lane (0.922 on the 64 D45 bases; 0.847 on D46's 2048), so fewer bases enter;
   - the gather is partial: from read point 30 to 39 a whole-state swap at the answer token moves the answer in
-    only 0.65–0.72 of the bases (both-swap source answer at G 0.667), and in all of them only at L. The rest of
+    only 0.65–0.75 of the two-lane bases (one-lane 0.64–0.81) (both-swap source answer at G 0.667), and in all of them only at L. The rest of
     the bases are answered from state the answer token does not hold at those read points.
   The design stands as fixed: sites 30, 31 and 32, the control 28 by D50's rule (bracket swaps there 0.00 and
   0.06). DAS Cause at these sites is read against that ceiling (about 0.67): a variable can pass the criteria
