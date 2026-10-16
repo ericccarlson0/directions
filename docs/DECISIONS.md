@@ -3192,3 +3192,7 @@ Decision (the first map; exploratory):
 * **Runs.** Seed 20260916, one execution, no further seeds. Qwen3 1.7B, 4B and 8B on RTX 4090s (EUR-NO-1), the 14B
   on an H100 (US-CA-2, D50). Job 1 per model: D45 and D46; job 2: D47 and DAS. A model whose three-bracket
   few-shot accuracy on the D45 bases is below 0.5 is skipped by the stages' own gate, and gets no DAS.
+* **Amended at job 1 (2026-10-16).** The 8B's three-bracket map ran out of memory on the 24 GB card at the
+  two-bracket batch of 128 (run 38934354426: a 564 MiB MLP activation; the three-bracket prompts are longer). Its
+  map and probe run at batch 64. The batch only groups prompts for the forward pass. The 1.7B's three-bracket
+  few-shot accuracy is 0.27 on the D45 bases (run 38934415363), below the gate: it is skipped, as fixed above.

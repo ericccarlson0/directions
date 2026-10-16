@@ -10,7 +10,7 @@ model:
   name: Qwen/Qwen3-8B-Base
   dtype: bfloat16          # model execution; states captured as float32
   device: cuda             # fail fast rather than fall back to the CPU (docs/INFRA.md)
-  batch_size: 128
+  batch_size: 64            # 128 ran out of memory on the 24 GB card with the longer three-bracket prompts (D51)
 
 expressions: [three_lane]     # (a+b) - (c+d) - (e+f) = Y (D51)
 n_examples: 2048              # per task, outside the demonstration pool (one-lane has 574); the answered ones enter

@@ -10,7 +10,7 @@ model:
   name: Qwen/Qwen3-8B-Base
   dtype: bfloat16          # model execution; swapped states stay in the model's dtype (a swap of a run's own state is exact)
   device: cuda             # fail fast rather than fall back to the CPU (docs/INFRA.md)
-  batch_size: 128
+  batch_size: 64            # 128 ran out of memory on the 24 GB card with the longer three-bracket prompts (D51)
 
 expressions: [three_lane]     # (a+b) - (c+d) - (e+f) = Y; digits 0-9, Y a single digit (D51)
 n_bases: 64                   # base expressions per task; one source per base and source type

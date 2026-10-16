@@ -481,5 +481,7 @@ def test_three_bracket_map_and_probe_configs_differ_from_two_brackets_only_in_th
         assert set(three) == {f"{fam}_three_qwen3_{s}.yaml" for s in ("1.7b", "4b", "8b", "14b")}
         for name, c in three.items():
             two = asdict(load(CONFIGS / name.replace("_three", "")))
-            assert c["expressions"] == ["three_lane"] and c["model"] == two["model"], name
-            assert dict(c, expressions=None, marks=None) == dict(two, expressions=None, marks=None), name
+            # the 8B runs at batch 64: 128 ran out of memory on the 24 GB card with the longer prompts (D51)
+            batch = 64 if "_8b" in name else two["model"]["batch_size"]
+            assert c["expressions"] == ["three_lane"] and c["model"] == dict(two["model"], batch_size=batch), name
+            assert dict(c, expressions=None, marks=None, model=None) == dict(two, expressions=None, marks=None, model=None), name
