@@ -205,11 +205,12 @@ def _math_attention():
 class LastToken:
     """A batch of prompts with every token but the last ``n_tail`` run once (keys and values cached), and passes of
     those last tokens alone, optionally with a subspace swap at one read point. The swap acts on the tail tokens
-    ``swap_idx`` jointly: their states are concatenated, ``(P d)``, and the subspace lives in that space (D53). The
-    default, one tail token swapped alone, is the answer token of D48."""
+    ``swap_idx`` jointly: their states are concatenated, ``(P d)``, and the subspace lives in that space (D53); or,
+    with ``shared``, one subspace of the residual stream, ``(k, d)``, is swapped at each of them (D54). The default,
+    one tail token swapped alone, is the answer token of D48."""
 
     def __init__(self, backend: ModelBackend, prompts: Sequence[Prompt], n_tail: int = 1,
-                 swap_idx: Sequence[int] | None = None) -> None:
+                 swap_idx: Sequence[int] | None = None, shared: bool = False) -> None:
         self.backend = backend
         ids = [backend._encode_prompt(p)[0] for p in prompts]
         if not ids:
@@ -224,6 +225,7 @@ class LastToken:
         self.swap_idx = list(swap_idx) if swap_idx is not None else [n_tail - 1]
         if not self.swap_idx or min(self.swap_idx) < 0 or max(self.swap_idx) >= n_tail:
             raise ValueError("swap_idx must index the tail tokens")
+        self.shared = shared
         with torch.no_grad(), _math_attention():
             out = backend.model.model(input_ids=self.ids[:, :-n_tail], use_cache=True)
         self.cache = out.past_key_values
@@ -235,7 +237,8 @@ class LastToken:
                basis: torch.Tensor | None = None) -> torch.Tensor:
         """Next-token logits (B, V) float32 at the last prompt token. With ``read_point``, the swapped tokens' states
         there, concatenated (``h``, ``(B, P d)``), are replaced by ``h + ((values - h) B^T) B`` (``basis``
-        ``(k, P d)``), or by ``values`` when ``basis`` is None."""
+        ``(k, P d)``), or by ``values`` when ``basis`` is None. With ``shared``, ``basis`` is ``(k, d)`` and the
+        same swap acts on each token's state."""
         backend = self.backend
         L = backend.n_layers
         handle = None
@@ -250,11 +253,16 @@ class LastToken:
                     return torch.cat([hidden[:, :-1], new[:, None].to(hidden.dtype)], dim=1)
                 h = hidden[:, idx].float()  # (B, P, d)
                 shape = h.shape
-                hf = h.reshape(shape[0], -1)
-                v = values.to(h.device).float().reshape(shape[0], -1)
-                new = v if basis is None else hf + ((v - hf) @ basis.T) @ basis
+                v = values.to(h.device).float().reshape(shape)
+                if basis is None:
+                    new = v
+                elif self.shared:  # one subspace of the residual stream at every swapped token (D54)
+                    new = h + ((v - h) @ basis.T) @ basis
+                else:  # one subspace of the concatenated states (D53)
+                    hf, vf = h.reshape(shape[0], -1), v.reshape(shape[0], -1)
+                    new = (hf + ((vf - hf) @ basis.T) @ basis).reshape(shape)
                 out = hidden.clone()
-                out[:, idx] = new.reshape(shape).to(hidden.dtype)
+                out[:, idx] = new.to(hidden.dtype)
                 return out
 
             if read_point < L:
@@ -360,7 +368,8 @@ class DAS:
             log.info("%s: %d bases, %d kept for the Cause pairs (base answered in both passes, source answered)", name,
                      len(dd["bases"]), int(dd["keep"].sum()))
 
-        D = backend.hidden_size * len(self.swap_idx)  # the concatenated states of the swapped tokens (D53)
+        # the concatenated states of the swapped tokens (D53), or one token's state for a subspace shared by them (D54)
+        D = backend.hidden_size * (1 if cfg.shared_basis else len(self.swap_idx))
         fits = [Fit(s, v, k, D, backend.device, derive_seed(cfg.seed, "das", "fit", s, v, k), cfg.lr)
                 for s in cfg.sites for v in cfg.variables for k in cfg.ks]
         fits += [Fit(s, v, cfg.null_k, D, backend.device, derive_seed(cfg.seed, "das", "null", s, v), cfg.lr,
@@ -433,12 +442,13 @@ class DAS:
         self.swap_idx = [j - min(J) for j in J]
         self.swap_q = J  # query-token indices of the swapped tokens
         self.metadata["swap"] = {"positions": cfg.positions, "labels": labels, "tokens": J,
-                                 "token_labels": [labels[j] for j in J], "n_tail": self.n_tail}
+                                 "token_labels": [labels[j] for j in J], "n_tail": self.n_tail,
+                                 "shared_basis": cfg.shared_basis}
         self.log.info("swapped tokens %s of the query %s (rerun from query token %d: %d tokens per pass)",
                       [labels[j] for j in J], labels, min(J), self.n_tail)
 
     def _tail(self, prompts: Sequence[Prompt]) -> LastToken:
-        return LastToken(self.backend, prompts, self.n_tail, self.swap_idx)
+        return LastToken(self.backend, prompts, self.n_tail, self.swap_idx, shared=self.cfg.shared_basis)
 
     def _states(self, prompts: list[Prompt], sites: Sequence[int]) -> tuple[dict[int, torch.Tensor], np.ndarray]:
         """The swapped tokens' states at the sites and the model's answer, in chunks. The answer token alone (D48):
@@ -570,6 +580,8 @@ class DAS:
                     sel = dd["keep"][rows]
                     hit = am[sel] == tid[dd["targets"][f.var][rows[sel]]]
                     out["cause"][f.key] = hit
+                    # per-base hits, for paired comparisons between fits (D54's control rule)
+                    out["pred"][f.key]["cause_hit"] = np.stack([rows[sel], hit.astype(np.int64)], axis=1)
                 else:
                     sel = dd["src_ok"][kind][rows]
                     out["isolate"][f.key][kind] = am[sel] == tid[dd["Y"][rows[sel]]]
@@ -644,7 +656,7 @@ class DAS:
         self.log.info("held per site: %s", {s: x["held"] for s, x in sites.items()})
         clean = None if cfg.control_site is None else not sites[cfg.control_site]["held"]
         return {"task": cfg.task, "sites": cfg.sites, "control_site": cfg.control_site, "variables": list(cfg.variables), "ks": list(cfg.ks),
-                "positions": cfg.positions, "swap": self.metadata.get("swap"),
+                "positions": cfg.positions, "shared_basis": cfg.shared_basis, "swap": self.metadata.get("swap"),
                 "cells": cells, "per_site": sites, "control_clean": clean,
                 "n": {name: {"bases": len(dd["bases"]), "kept": int(dd["keep"].sum())} for name, dd in data.items()},
                 "thresholds": {"cause_lower": cfg.cause_lower, "isolate_lower": cfg.isolate_lower, "k_tolerance": cfg.k_tolerance}}
@@ -656,7 +668,10 @@ class DAS:
             return {"accuracy": float("nan"), "chance": float("nan")}
         with torch.no_grad():
             B = fit.basis(fit.best)
-            x = (_take(dd["base_states"][site], idx, B.device).float() @ B.T).double()
+            st = _take(dd["base_states"][site], idx, B.device).float()
+            if self.cfg.shared_basis:  # the projection at each swapped token, side by side (D54)
+                st = st.reshape(len(idx), len(self.swap_idx), -1)
+            x = (st @ B.T).reshape(len(idx), -1).double()
         y = np.array([variable_value(var, dd["bases"][i]) for i in idx])
         C = N_CLASSES[var]
         allowed = torch.ones(len(idx), C, dtype=torch.bool, device=x.device)
@@ -731,7 +746,8 @@ def plot(result: dict[str, Any], path: Path, model_name: str) -> None:
     where = "the answer token"
     if joint:
         sw = result.get("swap") or {}
-        where = f"{len(sw.get('tokens', []))} query tokens jointly ({result['positions'].replace('_', '-')} set)"
+        where = f"{len(sw.get('tokens', []))} query tokens jointly ({result['positions'].replace('_', '-')} set"
+        where += ", one subspace shared by the tokens)" if result.get("shared_basis") else ")"
     fig.suptitle(f"DAS at {where} of {template} ({model_name}): which sub-results are held as separate "
                  f"variables", fontsize=8.5, x=0.01, y=1.06, ha="left")
     fig.savefig(path, dpi=170, bbox_inches="tight", facecolor="#fcfcfb")

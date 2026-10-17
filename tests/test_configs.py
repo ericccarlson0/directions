@@ -565,3 +565,22 @@ def test_joint_das_configs_follow_d53():
             assert c["positions"] == "non_digit" and c["variables"] == ["S1", "S2", "S3", "T", "U", "Y"], size
             varying = dict(name=None, sites=None, control_site=None, positions=None, variables=None)
             assert dict(c, **varying) == dict(d51, **varying), size
+
+
+def test_two_token_das_configs_follow_d54():
+    """D54: D51's DAS configs but for the sites (control, G3, G3 + 1), the positions (answer + =), the variables (a
+    dropped) and the variant (joint or shared basis)."""
+    from dataclasses import asdict
+
+    from directions.config import load_das_config
+
+    sites = {"4b": [21, 24, 25], "8b": [21, 24, 25], "14b": [27, 30, 31]}
+    for size, ss in sites.items():
+        d51 = asdict(load_das_config(CONFIGS / f"das_d51_qwen3_{size}.yaml"))
+        assert ss[0] == d51["control_site"] and set(ss) <= set(d51["sites"]), size
+        for variant in ("joint", "shared"):
+            c = asdict(load_das_config(CONFIGS / f"das_d54_qwen3_{size}_{variant}.yaml"))
+            assert c["sites"] == ss and c["control_site"] == ss[0] and c["positions"] == "answer_eq", size
+            assert c["shared_basis"] == (variant == "shared") and c["variables"] == ["S1", "S2", "S3", "T", "U", "Y"]
+            varying = dict(name=None, sites=None, control_site=None, positions=None, variables=None, shared_basis=None)
+            assert dict(c, **varying) == dict(d51, **varying), (size, variant)

@@ -223,6 +223,7 @@ def test_joint_swaps_on_the_tail_path_match_set_site_patches(backend, prompts_an
     src = backend.capture_sites(src_prompts, pos)  # (N, L+1, P, d), the sources share the base's token geometry
     d = backend.hidden_size
     lt = LastToken(backend, prompts, n_tail=tail, swap_idx=P)
+    shared = LastToken(backend, prompts, n_tail=tail, swap_idx=P, shared=True)
     rng = np.random.default_rng(2)
     B1 = np.linalg.qr(rng.normal(size=(d, 3)))[0].T  # (3, d)
     joint = np.zeros((3 * len(P), d * len(P)), dtype=np.float32)
@@ -237,6 +238,10 @@ def test_joint_swaps_on_the_tail_path_match_set_site_patches(backend, prompts_an
             with torch.no_grad():
                 got = lt.logits(m, vals.reshape(len(prompts), -1).float(), jb)
             np.testing.assert_allclose(torch.log_softmax(got, dim=1).numpy(), ref, rtol=0, atol=2e-4)
+            if basis is not None:  # D54: one (k, d) subspace shared by the tokens is the set patch's per-token basis
+                with torch.no_grad():
+                    sh = shared.logits(m, vals.reshape(len(prompts), -1).float(), torch.as_tensor(B1, dtype=torch.float32))
+                np.testing.assert_allclose(torch.log_softmax(sh, dim=1).numpy(), ref, rtol=0, atol=2e-4)
 
 
 def test_a_joint_basis_inside_one_token_equals_that_tokens_swap(backend, prompts_and_sources):
@@ -274,3 +279,18 @@ def test_three_lane_joint_toy_run(tmp_path):
     meta = json.loads((root / "metadata.json").read_text())
     assert meta["determinism_check"]["training"]["identical"] and meta["determinism_check"]["evaluation"]["identical"]
     assert (root / "figures" / "das.png").exists()
+
+
+def test_three_lane_two_token_shared_toy_run(tmp_path):
+    """D54: the answer token and = with one subspace shared by both; the kept bases are (k, d)."""
+    cfg = load_das_config("configs/smoke_toy_das.yaml")
+    cfg.output_dir, cfg.task, cfg.variables = str(tmp_path), "three_lane", ["S1", "U", "Y"]
+    cfg.sites, cfg.control_site, cfg.ks, cfg.null_k, cfg.epochs = [1, 4], 1, [2], 2, 1
+    cfg.positions, cfg.shared_basis = "answer_eq", True
+    root = run_das(cfg, run_id="toy3s")
+    r = json.loads((root / "core" / "das.json").read_text())
+    sw = r["swap"]
+    assert r["shared_basis"] and [sw["labels"][j].strip() for j in sw["tokens"]] == ["=", "␣"] and sw["n_tail"] == 2
+    d = ModelBackend(cfg.model, run_seed=cfg.seed).hidden_size
+    assert np.load(root / "core" / "das_bases.npz")["4/U/2"].shape == (2, d)
+    assert r["control_clean"] is not None and (root / "figures" / "das.png").exists()

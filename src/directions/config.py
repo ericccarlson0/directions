@@ -1198,6 +1198,7 @@ class DasConfig:
     task             two_lane, or three_lane (D51)
     positions        the swapped tokens: "answer" (the answer token, D48), or a D52 set swapped jointly, "answer_eq" or
                      "non_digit" (one subspace of their concatenated states, D53)
+    shared_basis     with a set: one subspace of the residual stream swapped at each of its tokens instead (D54)
     variables        S1, S2, Y and the digit a (the control variable); three brackets also S3, T = S1 - S2, U = S2 + S3
     ks               subspace dimensions; null_k the shuffled-target null's
     n_train/val/test bases per split (disjoint expressions); each with one Cause source, test bases with Isolate sources
@@ -1214,6 +1215,7 @@ class DasConfig:
     sites: list[int] = field(default_factory=list)
     control_site: int | None = 0
     positions: str = "answer"     # or a D52 set swapped jointly (D53)
+    shared_basis: bool = False    # one subspace shared by the set's tokens (D54)
     variables: list[str] = field(default_factory=lambda: ["S1", "S2", "Y", "a"])
     ks: list[int] = field(default_factory=lambda: [1, 2, 4, 8, 16])
     null_k: int = 16
@@ -1244,6 +1246,8 @@ def load_das_config(path: str | Path) -> DasConfig:
         raise ValueError("sites must be increasing, distinct and include control_site")
     if cfg.positions not in ("answer", "answer_eq", "non_digit"):
         raise ValueError("positions must be answer, answer_eq or non_digit")
+    if cfg.shared_basis and cfg.positions == "answer":
+        raise ValueError("shared_basis needs a set of tokens (positions answer_eq or non_digit)")
     allowed = {"two_lane": ("S1", "S2", "Y", "a"), "three_lane": ("S1", "S2", "S3", "T", "U", "Y", "a")}
     if cfg.task not in allowed:
         raise ValueError("task must be two_lane or three_lane")

@@ -3324,3 +3324,41 @@ Decision (the first map; exploratory):
     not requested.
   - D52's finding stands: the rest of the answer lies at `=`. Testing it needs a constrained joint subspace,
     such as the answer token and `=` only, or one basis shared by the tokens. That would be a new entry.
+
+### D54. Two-token DAS at the answer token and `=` (Qwen3 4B, 8B, 14B Base, three brackets)
+
+* **Why.** D52: from G3 on, the answer token and `=` together carry nearly all that the answer token alone lacks.
+  The pair recovers 0.89–0.95 of the non-digit set's gain on the 8B and 14B, and on the 4B 0.48 at G3 and 0.94 or
+  more after it. D53 fitted one subspace across 12 tokens and failed: 12·d dimensions on about 1,000 training
+  pairs overfit, and the control scored as high as the gather.
+  - D52's rule chose those 12 tokens. It asked the pair to recover 0.8 of the set's gain at every passing read
+    point, including those before the gather, where the extra comes from other tokens (the 8B's subtrahends at
+    `)` and `-`). It weighed the ceiling and not the freedom a larger subspace adds.
+  - This entry fits the two tokens.
+* **Two variants per model.**
+  - Joint: one k-dimensional subspace of the two tokens' concatenated states (2·d dimensions; D53's swap).
+  - Shared: one k-dimensional subspace of the residual stream, swapped at both tokens (d dimensions, the
+    freedom of D51's fits; 2k coordinates move).
+  - The shared variant assumes that a variable uses the same directions at both tokens; the joint variant does
+    not, at twice the freedom.
+* **Design, otherwise D51's.**
+  - Variables: S1, S2, S3, T, U, Y; D51's Isolate sources and held criterion.
+  - k ∈ {16, 32, 64}; the shuffled-target null at k = 64; 20 epochs, learning rate 0.05, batch 32.
+  - Splits 1536 / 256 / 512 with D51's seed, so the same bases and sources as D51.
+  - The prompt is cached up to `=`, and the last two tokens are rerun on every pass.
+* **Sites.** The D51 control, G3 (where the count is asked) and G3 + 1: 21, 24, 25 on the 4B and 8B; 27, 30, 31
+  on the 14B. All are among D51's sites.
+* **The control, now a rule (fixed before the run, after D53).** A variable is read as held at G3 or G3 + 1 only
+  when two conditions hold:
+  - D48's criterion holds there;
+  - its test Cause there exceeds the same variable's Cause at the control, paired by test base, with the 95%
+    percentile-bootstrap lower bound of the difference (1000 resamples) above 0.
+  - A held variable at the control itself voids that variant on that model.
+  - Per-base Cause hits are stored for this (`das_predictions.npz`, `cause_hit__<fit>`).
+* **Readouts.**
+  - As in D51: the variables held per site and variant, the count of sums held at G3, the merge-order reading
+    (T against U), Y's decodability from its subspace, and the overlaps of the stored bases.
+  - Beside each cell: D51's answer-token result at the same site, and D52's whole-state ceiling for answer + `=`.
+* **Runs.** Seed 20260916, one execution. Each model's two variants run as two stages of one job: the 4B and 8B
+  on RTX 4090s (EUR-NO-1, lanes ci and ci-b; the 8B's captures at batch 64), the 14B on an H100 (US-CA-2).
+  About 18 USD.
