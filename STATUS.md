@@ -5221,6 +5221,56 @@ The table gives the source's answer with every sum changed: the range before G3 
   G3 (24) ranks fifth and is left out. Answer + `=` does not stand for the set, because the passing pairs before
   G3 come from the other non-digit tokens.
 
+### D53: joint DAS at the non-digit query tokens (Qwen3 4B, 14B Base, three brackets; stopped after wave 1)
+
+D51's DAS, with one subspace spanning the concatenated states of D52's 12 non-digit query tokens (`+`, `)`, `-`,
+`(` of each bracket, `=` and the answer token). The prompt is cached up to the first swapped token and 17 tokens
+are rerun per pass, verified against the native set swap (tests/test_das.py).
+
+```
+# wave 1 (each model's sites split over two jobs to stay within a job's 6 hours):
+#   38983297559: request d53_das_qwen3_4b_a_seed20260916, commit e16cdc2, RTX 4090, EUR-NO-1, ci; 128 min (about 2.3 USD)
+#   38983310968: request d53_das_qwen3_4b_b_seed20260916, commit e18977f, RTX 4090, EUR-NO-1, ci-b; 92 min (about 1.7 USD)
+#   38983324767: request d53_das_qwen3_14b_a_seed20260916, commit 3c6ad06, H100 80GB HBM3, US-CA-2, ci-8b; 96 min (about 7.7 USD)
+# determinism (a repeated evaluation, a fit trained twice for two steps) identical in all three; wave 2 (the 8B,
+# the 14B's 32 and 34) not requested (DECISIONS D53, outcome)
+uv run python scripts/stages.py 'uv run directions das --config configs/das_d53_qwen3_4b_a.yaml --run-id das_d53_qwen3_4b_a_seed20260916'
+# likewise das_d53_qwen3_4b_b and das_d53_qwen3_14b_a; then, on the downloads:
+uv run python scripts/d53_compare.py --d53 results/remote/run-38983297559 results/remote/run-38983310968 results/remote/run-38983324767 \
+  --d51 results/remote/run-38943185906 results/remote/run-38941017556 --d52 results/remote/run-38980786015 results/remote/run-38980798799 \
+  --out docs/das/d53_compare.json
+```
+
+Figures: `docs/das/d53_qwen3_4b_a.png`, `d53_qwen3_4b_b.png`, `d53_qwen3_14b_a.png`. The test Cause range at k*
+over S1, S2, S3, T, U and Y, beside D52's whole-state ceiling for the same tokens (source changing every sum) and
+D51's answer-token range at the same read point:
+
+| model, read point | joint (D53) | ceiling, non-digit set | D51 answer token | held |
+|---|---|---|---|---|
+| 4B 21 (control) | 0.21–0.36 | 0.01–0.06 | 0.03–0.14 | – |
+| 4B 23 | 0.25–0.38 | 0.05–0.27 | – | – |
+| 4B 24 (G3) | 0.22–0.36 | 0.84–0.93 | 0.14–0.73 | – |
+| 4B 25 | 0.22–0.36 | 0.97–0.99 | 0.13–0.79 | – |
+| 4B 26 | 0.20–0.59 (Y 0.59) | 0.97–0.99 | 0.15–0.88 (Y held) | – |
+| 14B 27 (control) | 0.30–0.42 | 0.09–0.15 | 0.12–0.19 | – |
+| 14B 30 (G3) | 0.27–0.41 | 0.97–0.99 | 0.13–0.51 | – |
+| 14B 31 | 0.23–0.39 | 0.99 | 0.15–0.49 | – |
+
+(Shuffled-target nulls at k = 64: 0.07–0.22. For S1–S3 the ceiling is the bracket's own source.)
+
+- **No variable is held anywhere, and the result says nothing about the model.** The joint fits move the answer
+  about equally at the controls, where the 12 tokens' whole states move it in 0.01–0.15 of the bases, and at the
+  gathers, where they move it in 0.84–0.99. A subspace that does three to thirty times more than the whole state
+  it lies in uses directions the model does not use (the Makelov et al. illusion), and Isolate fails with it
+  (lower bounds 0.28–0.73).
+- **The fits overfit.** Training loss falls to 0.03–0.12 (D51: 0.88), validation Cause peaks by epochs 6–11, and
+  k* is the grid's smallest (16) in 44 of 48 cells. They fall short of their own special case: Y, held at the
+  4B's answer token at 26 (0.88), reaches 0.59 jointly.
+- **Stopped after the first wave.** The 8B and the 14B's 32 and 34 (about 14 USD) would measure the same
+  failure. D52's finding stands (the rest of the answer lies at `=`); testing whether sums are held across the
+  answer token and `=` needs a constrained joint subspace (those two tokens, or one basis shared by the tokens),
+  a new entry.
+
 ## Not yet run / known limitations
 
 - The variable map (D45) has run once per model (Qwen3 0.6B, 1.7B, 4B Base; seed 20260916) on two expression tasks
@@ -5234,7 +5284,10 @@ The table gives the source's answer with every sum changed: the range before G3 
   seed (not planned: later tasks test the count again). The 14B (D50) has run D45–D48 once, on an H100; it holds
   no sum at its gather. The three-bracket task (D51) has run once on the 4B, 8B and 14B (the 1.7B is below the
   accuracy gate): no model holds a sum at its gather, and the merge order is undetermined (neither T nor U is
-  held). The other families are not mapped.
+  held). D52's position-set check (4B, 8B, 14B) places the rest of the answer at `=`; D53's joint DAS over the
+  12 non-digit tokens overfit and was stopped after its first wave (4B, half the 14B): a constrained joint
+  subspace (the answer token and `=`, or a basis shared by the tokens) is not yet run. The other families are not
+  mapped.
 - The weight-decayed learned vector (D43) has run once per Qwen3 Base model (seed 20260916) with one weight decay,
   one step size and one budget fixed on a CPU probe of one task; the hand-over, the source test and the geometry
   test have run on it (D44), the all-to-all trajectories (D32–D34), the composition tests (D41, D42) and OLMo 3 and
@@ -5407,6 +5460,13 @@ uv run python scripts/d51_sites.py results/remote/run-38934415363 results/remote
 uv run python scripts/stages.py 'uv run directions varsplit --config configs/varsplit_three_qwen3_4b.yaml --run-id varsplit_three_qwen3_4b_seed20260916' 'uv run directions das --config configs/das_d51_qwen3_4b.yaml --run-id das_d51_qwen3_4b_seed20260916'
 uv run python scripts/stages.py 'uv run directions varsplit --config configs/varsplit_three_qwen3_8b.yaml --run-id varsplit_three_qwen3_8b_seed20260916' 'uv run directions das --config configs/das_d51_qwen3_8b.yaml --run-id das_d51_qwen3_8b_seed20260916'
 uv run python scripts/stages.py 'uv run directions varsplit --config configs/varsplit_three_qwen3_14b.yaml --run-id varsplit_three_qwen3_14b_seed20260916' 'uv run directions das --config configs/das_d51_qwen3_14b.yaml --run-id das_d51_qwen3_14b_seed20260916'
+# D52, the position-set check (runs 38980786015 for the 4B and 8B, 38980798799 for the 14B):
+uv run python scripts/stages.py 'uv run directions posset --config configs/posset_qwen3_4b.yaml --run-id posset_qwen3_4b_seed20260916' 'uv run directions posset --config configs/posset_qwen3_8b.yaml --run-id posset_qwen3_8b_seed20260916'
+uv run python scripts/stages.py 'uv run directions posset --config configs/posset_qwen3_14b.yaml --run-id posset_qwen3_14b_seed20260916'
+# D53, the joint DAS at the non-digit tokens (wave 1: runs 38983297559, 38983310968, 38983324767; wave 2 not run):
+uv run python scripts/stages.py 'uv run directions das --config configs/das_d53_qwen3_4b_a.yaml --run-id das_d53_qwen3_4b_a_seed20260916'
+uv run python scripts/stages.py 'uv run directions das --config configs/das_d53_qwen3_4b_b.yaml --run-id das_d53_qwen3_4b_b_seed20260916'
+uv run python scripts/stages.py 'uv run directions das --config configs/das_d53_qwen3_14b_a.yaml --run-id das_d53_qwen3_14b_a_seed20260916'
 # iteration 10 (D33 amended: quarter strength, the neighbouring candidate layers, the patch test at every compared
 # layer on eighths of the depth for the learned and the head-mean vector, per-block writing), on a second seed,
 # as run (workflow runs in the iteration-10 entry): first the learned-vector protocol (D31) at seed 20260916 on

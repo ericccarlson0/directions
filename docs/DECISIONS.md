@@ -3302,3 +3302,25 @@ Decision (the first map; exploratory):
   - Fits are seeded per site, variable and k, and trained independently, so the split changes no fit. Only the
     bootstrap draws of the intervals differ from one joint run.
   - The 4B and 8B run on RTX 4090s (EUR-NO-1, lanes ci and ci-b), the 14B on an H100 (US-CA-2).
+* **Outcome (2026-10-17): stopped after the first wave; the design cannot answer its question.**
+  - **What ran.** The 4B (both parts: 21, 23, 24, 25, 26) and the 14B's first part (27, 30, 31). Runs
+    38983297559, 38983310968 and 38983324767; determinism identical in all three.
+  - **Nothing is held.** No variable is held at any site.
+  - **The control is no cleaner than the gather, and well above its ceiling.** At the controls the joint fits
+    reach Cause 0.21–0.36 (4B, 21) and 0.30–0.42 (14B, 27). The whole-state swap of the same tokens there gives
+    0.01–0.06 and 0.09–0.15 (D52), and D51's answer-token fits there gave 0.03–0.19. A subspace that moves the
+    answer three to thirty times more than the whole state it is part of is using directions the model does not
+    use: the Makelov et al. illusion. At the gathers the joint fits reach about the same, 0.22–0.36 (4B, 24) and
+    0.27–0.41 (14B, 30).
+  - **The fits overfit.** Training loss falls to 0.03–0.12 by epoch 20 (D51: 0.88 on the 4B); validation Cause
+    peaks around epochs 6–11 and then flattens or falls. k* is 16, the grid's smallest, in 44 of 48 cells.
+  - **They do worse than their own special case.** Y, held at the answer token alone on the 4B at 26 (Cause
+    0.88, D51), reaches 0.59 jointly, although a subspace confined to the answer token's block is among the
+    joint fits.
+  - **Diagnosis.** With 12 tokens the fitted space has 12·d dimensions, and about 1,000 training pairs do not
+    constrain it. The fits find swaps that move held-out answers in the right direction without matching any
+    variable, at any read point.
+  - **The second wave** (the 8B, and the 14B's 32 and 34, about 14 USD) would measure the same failure, so it was
+    not requested.
+  - D52's finding stands: the rest of the answer lies at `=`. Testing it needs a constrained joint subspace,
+    such as the answer token and `=` only, or one basis shared by the tokens. That would be a new entry.
