@@ -3362,3 +3362,24 @@ Decision (the first map; exploratory):
 * **Runs.** Seed 20260916, one execution. Each model's two variants run as two stages of one job: the 4B and 8B
   on RTX 4090s (EUR-NO-1, lanes ci and ci-b; the 8B's captures at batch 64), the 14B on an H100 (US-CA-2).
   About 18 USD.
+* **Outcome (2026-10-17; runs 39031654601, 39031665353, 39031675436).** No variable is held at any site, in
+  either variant, on any model. The controls are clean (nothing held). Determinism is identical in all six stages.
+  - **Count.** The count of sums held at G3 stays 0 on the 4B, 8B and 14B.
+  - **Sums.** Only S1 beats its control, on the 4B and 8B (+0.09 to +0.20, paired lower bounds above 0), at
+    Cause 0.27–0.38. That is D51's answer-token value at the same sites (0.25–0.36), so `=` adds nothing to it.
+    S2 and S3 sit at their controls (−0.06 to +0.08). On the 14B no sum beats its control by more than +0.07.
+  - **Merge order.** U beats its control on the 4B and 8B (+0.10 to +0.20), T by at most +0.06, as at the
+    answer token alone (D51). U fails Isolate (lower bounds 0.38–0.49). No merge is held: neither.
+  - **Y.**
+    - Gains a little from `=` with the shared basis: on the 4B at G3 + 1, Cause 0.84 [0.80, 0.87] against D51's
+      0.79, but the Isolate lower bound is 0.69 (not held).
+    - At G3 it reaches the pair's whole-state ceiling on the 4B (0.74 against 0.78), and fails same-Y Isolate
+      (0.50): a joint code of the sums, as in D51.
+  - **The variants.** The shared basis matches or beats the joint one on every model. The joint basis, at twice
+    the freedom, falls below D51 for Y on the 4B and 8B (0.63–0.69 against 0.78–0.79 at G3 + 1), a milder form of
+    D53's overfitting.
+  - **The control floor.** Even with two tokens, the fits at the controls reach 0.08–0.33 where the pair's whole
+    state moves the answer in 0.01–0.07. The paired control rule was needed: it rejects every sum on the 14B.
+  - **Reading.** `=` carries part of the answer (D52), but not as separate sums: the sums are no more separable
+    across the answer token and `=` than at the answer token alone. On three brackets the answer token and `=`
+    hold a joint code of the sums from G3 on, and Y becomes a variable of its own later.

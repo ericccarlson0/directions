@@ -5271,6 +5271,73 @@ D51's answer-token range at the same read point:
   answer token and `=` needs a constrained joint subspace (those two tokens, or one basis shared by the tokens),
   a new entry.
 
+### D54: two-token DAS at the answer token and `=` (Qwen3 4B, 8B, 14B Base, three brackets)
+
+D51's DAS at the control, G3 and G3 + 1, with the subspace spanning the answer token and `=`. Two variants: one
+subspace of the two tokens' concatenated states (joint, 2·d), or one subspace of the residual stream swapped at
+both (shared, d, the freedom of D51's fits). A variable is read as held only if D48's criterion holds and its Cause
+beats the same variable's at the control, paired by test base (D54's control rule).
+
+```
+# workflow runs (each job: the joint then the shared variant)
+#   39031654601: request d54_das_qwen3_4b_seed20260916, commit 1a767b9, RTX 4090, EUR-NO-1, ci; stages 110 and
+#     105 min (about 3.9 USD)
+#   39031665353: request d54_das_qwen3_8b_seed20260916, commit 84f6d11, RTX 4090, EUR-NO-1, ci-b; 106 and 108 min
+#     (about 3.9 USD)
+#   39031675436: request d54_das_qwen3_14b_seed20260916, commit 1f32615, H100 80GB HBM3, US-CA-2, ci-8b; 68 and
+#     68 min (about 10.9 USD)
+# determinism (a repeated evaluation, a fit trained twice for two steps) identical in all six stages
+uv run python scripts/stages.py \
+  'uv run directions das --config configs/das_d54_qwen3_4b_joint.yaml --run-id das_d54_qwen3_4b_joint_seed20260916' \
+  'uv run directions das --config configs/das_d54_qwen3_4b_shared.yaml --run-id das_d54_qwen3_4b_shared_seed20260916'
+# likewise the 8B and the 14B (configs/das_d54_qwen3_<size>_{joint,shared}.yaml); then, on the downloads:
+uv run python scripts/d54_compare.py --d54 results/remote/run-39031654601 results/remote/run-39031665353 results/remote/run-39031675436 \
+  --d51 results/remote/run-38943185906 results/remote/run-38948683390 results/remote/run-38941017556 \
+  --d52 results/remote/run-38980786015 results/remote/run-38980798799 --out docs/das/d54_compare.json
+```
+
+Figures: `docs/das/d54_qwen3_<size>_<variant>.png`.
+
+Cells give test Cause at k* (in parentheses, the difference from the same variable's Cause at the control, paired
+by base); Y's column gives Cause with the Isolate lower bound in parentheses. The last column is D51's answer-token
+Y.
+
+| model, variant, read point | S1 | S2 | S3 | T | U | Y | D51 Y |
+|---|---|---|---|---|---|---|---|
+| 4B joint 24 (G3) | 0.35 (+0.17) | 0.15 (+0.00) | 0.14 (−0.03) | 0.14 (+0.04) | 0.30 (+0.12) | 0.38 (0.32) | 0.73 |
+| 4B joint 25 | 0.27 (+0.09) | 0.17 (+0.01) | 0.17 (−0.01) | 0.15 (+0.06) | 0.31 (+0.12) | 0.69 (0.52) | 0.79 |
+| 4B shared 24 (G3) | 0.38 (+0.20) | 0.16 (+0.08) | 0.13 (−0.01) | 0.16 (+0.06) | 0.34 (+0.20) | 0.74 (0.50) | 0.73 |
+| 4B shared 25 | 0.28 (+0.11) | 0.17 (+0.08) | 0.17 (+0.03) | 0.12 (+0.03) | 0.29 (+0.15) | 0.84 (0.69) | 0.79 |
+| 8B joint 24 (G3) | 0.35 (+0.14) | 0.19 (−0.06) | 0.19 (−0.03) | 0.17 (−0.02) | 0.34 (+0.10) | 0.38 (0.31) | 0.58 |
+| 8B joint 25 | 0.32 (+0.10) | 0.20 (−0.05) | 0.21 (−0.01) | 0.16 (−0.03) | 0.36 (+0.12) | 0.63 (0.48) | 0.78 |
+| 8B shared 24 (G3) | 0.32 (+0.12) | 0.17 (+0.05) | 0.17 (−0.02) | 0.16 (+0.03) | 0.36 (+0.17) | 0.43 (0.31) | 0.58 |
+| 8B shared 25 | 0.34 (+0.13) | 0.16 (+0.03) | 0.20 (+0.01) | 0.14 (+0.01) | 0.30 (+0.11) | 0.65 (0.47) | 0.78 |
+| 14B joint 30 (G3) | 0.29 (−0.04) | 0.17 (−0.10) | 0.19 (−0.05) | 0.16 (+0.00) | 0.29 (−0.04) | 0.45 (0.40) | 0.51 |
+| 14B joint 31 | 0.27 (−0.05) | 0.15 (−0.12) | 0.21 (−0.03) | 0.17 (+0.01) | 0.31 (−0.02) | 0.52 (0.46) | 0.49 |
+| 14B shared 30 (G3) | 0.33 (+0.07) | 0.10 (−0.10) | 0.18 (−0.01) | 0.19 (+0.03) | 0.30 (+0.04) | 0.35 (0.34) | 0.51 |
+| 14B shared 31 | 0.27 (+0.01) | 0.14 (−0.06) | 0.19 (−0.01) | 0.17 (+0.01) | 0.29 (+0.03) | 0.55 (0.41) | 0.49 |
+
+(Controls: 4B and 8B 21, 14B 27. Nothing is held there; Cause there 0.08–0.33, against 0.01–0.07 for the pair's
+whole state (D52). Shuffled-target nulls at k = 64: 0.05–0.20. Ceilings for answer + `=` at G3 and G3 + 1:
+0.78–0.99.)
+
+- **No variable is held, so the count of sums held at the gather stays 0 on all three models.** Adding `=` to the
+  subspace does not make the sums separable.
+  - S1 is the only sum above its control (4B and 8B, +0.09 to +0.20), at D51's answer-token level (0.25–0.36).
+  - S2 and S3 stay within −0.06 to +0.08 of their controls, at Cause 0.10–0.21.
+  - On the 14B no sum beats its control by more than +0.07.
+- **The merge order is still undetermined.** U is above its control on the 4B and 8B (+0.10 to +0.20), T by at
+  most +0.06, as at the answer token alone, and U still fails Isolate (0.38–0.49).
+- **`=` adds a little to the answer, not to the sums.** With the shared basis, the 4B's Y at G3 + 1 rises to
+  0.84 (D51 0.79), its Isolate lower bound 0.69 just short of the criterion. At G3 the 4B's Y reaches the pair's
+  ceiling (0.74 against 0.78) and fails same-Y Isolate (0.50): what the two tokens hold at the gather is a joint
+  code of the sums, as D51 found at the answer token alone.
+- **The shared basis matches or beats the joint one everywhere.** The joint basis, with twice the freedom, falls
+  below D51 for Y on the 4B and 8B: D53's overfitting, milder.
+- **The control rule did its job.** Even two-token fits move the answer at the controls several times more than
+  the pair's whole state does (0.08–0.33 against 0.01–0.07). On the 14B the sums score 0.10–0.33 at G3 and G3 + 1,
+  about what they score at the control, and the paired comparison rejects all of them.
+
 ## Not yet run / known limitations
 
 - The variable map (D45) has run once per model (Qwen3 0.6B, 1.7B, 4B Base; seed 20260916) on two expression tasks
@@ -5285,8 +5352,8 @@ D51's answer-token range at the same read point:
   no sum at its gather. The three-bracket task (D51) has run once on the 4B, 8B and 14B (the 1.7B is below the
   accuracy gate): no model holds a sum at its gather, and the merge order is undetermined (neither T nor U is
   held). D52's position-set check (4B, 8B, 14B) places the rest of the answer at `=`; D53's joint DAS over the
-  12 non-digit tokens overfit and was stopped after its first wave (4B, half the 14B): a constrained joint
-  subspace (the answer token and `=`, or a basis shared by the tokens) is not yet run. The other families are not
+  12 non-digit tokens overfit and was stopped after its first wave (4B, half the 14B): D54's two-token DAS (the answer
+  token and `=`, joint and shared basis) holds no sum either: the count at the gather stays 0. The other families are not
   mapped.
 - The weight-decayed learned vector (D43) has run once per Qwen3 Base model (seed 20260916) with one weight decay,
   one step size and one budget fixed on a CPU probe of one task; the hand-over, the source test and the geometry
@@ -5467,6 +5534,8 @@ uv run python scripts/stages.py 'uv run directions posset --config configs/posse
 uv run python scripts/stages.py 'uv run directions das --config configs/das_d53_qwen3_4b_a.yaml --run-id das_d53_qwen3_4b_a_seed20260916'
 uv run python scripts/stages.py 'uv run directions das --config configs/das_d53_qwen3_4b_b.yaml --run-id das_d53_qwen3_4b_b_seed20260916'
 uv run python scripts/stages.py 'uv run directions das --config configs/das_d53_qwen3_14b_a.yaml --run-id das_d53_qwen3_14b_a_seed20260916'
+# D54, the two-token DAS (runs 39031654601, 39031665353, 39031675436), per size the joint then the shared variant:
+uv run python scripts/stages.py 'uv run directions das --config configs/das_d54_qwen3_4b_joint.yaml --run-id das_d54_qwen3_4b_joint_seed20260916' 'uv run directions das --config configs/das_d54_qwen3_4b_shared.yaml --run-id das_d54_qwen3_4b_shared_seed20260916'
 # iteration 10 (D33 amended: quarter strength, the neighbouring candidate layers, the patch test at every compared
 # layer on eighths of the depth for the learned and the head-mean vector, per-block writing), on a second seed,
 # as run (workflow runs in the iteration-10 entry): first the learned-vector protocol (D31) at seed 20260916 on
