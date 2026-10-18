@@ -39,7 +39,7 @@ VARIABLES = ("S1", "S2", "Y", "a")
 # the Isolate sources of each variable: the answer must stay at the base's when the variable's subspace is swapped
 ISOLATE = {"S1": ("only_S2", "same_S1"), "S2": ("only_S1", "same_S2"), "Y": ("same_Y",), "a": ("only_S2", "only_b")}
 SOURCE_KINDS = ("cause", "only_S1", "only_S2", "same_S1", "same_S2", "only_b", "same_Y")
-N_CLASSES = {"S1": 19, "S2": 19, "S3": 19, "T": 19, "U": 19, "Y": 10, "a": 10}
+N_CLASSES = {"S1": 19, "S2": 19, "S3": 19, "T": 19, "U": 19, "Y": 10, "a": 10, "C": 2}
 # three brackets (D51): the sums, the merge intermediates T = S1 - S2 and U = S2 + S3, the answer and the digit a
 TASK_VARIABLES = {"two_lane": VARIABLES, "three_lane": ("S1", "S2", "S3", "T", "U", "Y", "a")}
 TASK_ISOLATE = {"two_lane": ISOLATE, "three_lane": {
@@ -47,6 +47,19 @@ TASK_ISOLATE = {"two_lane": ISOLATE, "three_lane": {
     "T": ("only_S3", "same_T"), "U": ("only_S1", "same_U"), "Y": ("same_Y",), "a": ("only_S2", "only_b")}}
 TASK_SOURCE_KINDS = {"two_lane": SOURCE_KINDS, "three_lane": ("cause", "only_S1", "only_S2", "only_S3", "same_S1", "same_S2",
                                                               "same_S3", "same_T", "same_U", "only_b", "same_Y")}
+# max (D55): the sums, the comparison bit C (S1 > S2), the answer and the digit a. No one source tells all their
+# hypotheses apart (max's predictions coincide), so each variable has a Cause source of its own.
+TASK_VARIABLES["max"] = ("S1", "S2", "C", "Y", "a")
+TASK_ISOLATE["max"] = {"S1": ("only_S2", "same_S1"), "S2": ("only_S1", "same_S2"), "C": ("same_C",), "Y": ("same_Y",),
+                       "a": ("only_S2", "only_b")}
+TASK_CAUSE = {"max": {v: f"cause_{v}" for v in TASK_VARIABLES["max"]}}
+TASK_SOURCE_KINDS["max"] = tuple(TASK_CAUSE["max"].values()) + ("only_S1", "only_S2", "same_S1", "same_S2", "same_C",
+                                                                  "same_Y", "only_b")
+
+
+def cause_kind(task: str, var: str) -> str:
+    """The source kind a variable's Cause is measured on: one shared source (D48, D51), or its own (max, D55)."""
+    return TASK_CAUSE.get(task, {}).get(var, "cause")
 
 
 # --------------------------------------------------------------------------- #
@@ -65,6 +78,8 @@ def source_mask(kind: str, base: Expr, D: np.ndarray) -> np.ndarray:
     ``base`` (D48, D51)."""
     if D.shape[1] == 6:
         return _source_mask3(kind, base, D)
+    if base.op == "max":
+        return _source_mask_max(kind, base, D)
     a, b, c, d = D.T
     S1, S2 = a + b, c + d
     Y = S1 - S2
@@ -136,13 +151,61 @@ def _source_mask3(kind: str, base: Expr, D: np.ndarray) -> np.ndarray:
     raise ValueError(f"unknown source kind {kind!r}")
 
 
+def _max_targets(base: Expr, a: np.ndarray, b: np.ndarray, c: np.ndarray, d: np.ndarray) -> dict[str, np.ndarray]:
+    """Max (D55): the answer a swap of each variable from sources with digits a, b, c, d predicts."""
+    S1, S2 = a + b, c + d
+    return {"S1": np.maximum(S1, base.S2), "S2": np.maximum(base.S1, S2),
+            "C": np.where(S1 > S2, base.S1, base.S2), "Y": np.maximum(S1, S2), "a": np.maximum(a + base.b, base.S2)}
+
+
+def _source_mask_max(kind: str, base: Expr, D: np.ndarray) -> np.ndarray:
+    """Max (D55). A variable's Cause source: its swap's answer is a digit that differs from the base answer and from
+    the answers of the S1, S2 and C swaps from the same source (the other sub-results; a subspace holding the whole
+    answer is caught by Isolate). Isolate sources: the source's own answer differs from the base's (so that a
+    subspace carrying more than the variable fails), except the same-value ones. Max leaves no room above a 9, so
+    some bases have no source of some kind (sample_splits keeps them, without it)."""
+    a, b, c, d = D.T
+    S1, S2 = a + b, c + d
+    Y, C = np.maximum(S1, S2), (S1 > S2).astype(np.int64)
+    t = _max_targets(base, a, b, c, d)
+    same12 = (a == base.a) & (b == base.b)
+    same34 = (c == base.c) & (d == base.d)
+    moves = Y != base.Y
+    if kind.startswith("cause_"):
+        v = kind[len("cause_"):]
+        ok = (t[v] != base.Y) & (t[v] >= 0) & (t[v] <= 9)
+        for u in ("S1", "S2", "C"):
+            if u != v:
+                ok &= t[v] != t[u]
+        return ok
+    if kind == "only_S1":
+        return same34 & (S1 != base.S1) & moves
+    if kind == "only_S2":
+        return same12 & (S2 != base.S2) & moves
+    if kind == "same_S1":
+        return same34 & ~same12 & (S1 == base.S1)
+    if kind == "same_S2":
+        return same12 & ~same34 & (S2 == base.S2)
+    if kind == "only_b":
+        return (a == base.a) & same34 & (b != base.b) & moves
+    if kind == "same_C":
+        return (S1 != base.S1) & (S2 != base.S2) & (C == base.C) & moves
+    if kind == "same_Y":
+        return (S1 != base.S1) & (S2 != base.S2) & (Y == base.Y)
+    raise ValueError(f"unknown source kind {kind!r}")
+
+
 def targets(var: str, base: Expr, src: Expr) -> int:
-    """The answer a Cause swap of ``var`` predicts (D48; three brackets D51, where S3 = 0 on two brackets)."""
+    """The answer a Cause swap of ``var`` predicts (D48; three brackets D51, where S3 = 0 on two brackets; max D55)."""
+    if base.op == "max":
+        return int(_max_targets(base, *(np.array([x]) for x in (src.a, src.b, src.c, src.d)))[var][0])
     return {"S1": src.S1 - base.S2 - base.S3, "S2": base.S1 - src.S2 - base.S3, "S3": base.S1 - base.S2 - src.S3,
             "T": src.T - base.S3, "U": base.S1 - src.U, "Y": src.Y, "a": src.a + base.b - base.S2 - base.S3}[var]
 
 
 def variable_value(var: str, e: Expr) -> int:
+    if var == "C":
+        return e.C
     return {"S1": e.S1, "S2": e.S2, "S3": e.S3, "T": e.T, "U": e.U, "Y": e.Y, "a": e.a}[var]
 
 
@@ -155,7 +218,9 @@ class Split:
 
 def sample_splits(seed: int, sizes: dict[str, int], n_shots: int, n_demo_pool: int, kinds: dict[str, Sequence[str]],
                   rejections: RejectionLog | None = None, task: str = "two_lane") -> tuple[dict[str, Split], dict[str, Any]]:
-    """Bases split by expression (train, val, test; disjoint), each with its demonstrations and one source per kind."""
+    """Bases split by expression (train, val, test; disjoint), each with its demonstrations and one source per kind.
+    On max (D55) a kind without a valid source is left None for that base, and a base is skipped only when it has
+    no Cause source at all."""
     exprs = all_exprs(task)
     order = rng_for(seed, "das", "split").permutation(len(exprs))
     pool = [exprs[i] for i in order[:n_demo_pool]]
@@ -170,7 +235,9 @@ def sample_splits(seed: int, sizes: dict[str, int], n_shots: int, n_demo_pool: i
             base = rest[cursor]
             cursor += 1
             masks = {k: source_mask(k, base, D) for k in kinds[name]}
-            if not all(m.any() for m in masks.values()):
+            optional = task in TASK_CAUSE
+            if (not all(m.any() for m in masks.values()) if not optional
+                    else not any(m.any() for k, m in masks.items() if k.startswith("cause"))):
                 skipped += 1
                 if rejections is not None:
                     rejections.add("source", name, "no valid source of some kind", {"base": base.text()})
@@ -178,7 +245,7 @@ def sample_splits(seed: int, sizes: dict[str, int], n_shots: int, n_demo_pool: i
             i = len(sp.bases)
             for k, m in masks.items():
                 cand = np.flatnonzero(m)
-                sp.sources[k].append(rest[int(cand[rng_for(seed, "das", name, i, k).integers(len(cand))])])
+                sp.sources[k].append(rest[int(cand[rng_for(seed, "das", name, i, k).integers(len(cand))])] if len(cand) else None)
             r = rng_for(seed, "das", "demos", name, i)
             sp.demos.append([pool[j] for j in r.choice(len(pool), size=n_shots, replace=False)])
             sp.bases.append(base)
@@ -357,7 +424,10 @@ class DAS:
         self.tid = np.array([self._single_token(str(k)) for k in range(10)], dtype=np.int64)
         t0 = time.time()
         self.isolate = TASK_ISOLATE[cfg.task]
-        kinds = {"train": ("cause",), "val": ("cause",), "test": TASK_SOURCE_KINDS[cfg.task]}
+        self.cause_of = {v: cause_kind(cfg.task, v) for v in cfg.variables}  # a variable's Cause source kind (D55)
+        causes = tuple(dict.fromkeys(self.cause_of.values()))
+        kinds = {"train": causes, "val": causes, "test": tuple(k for k in TASK_SOURCE_KINDS[cfg.task]
+                                                                 if not k.startswith("cause") or k in causes)}
         splits, info = sample_splits(cfg.seed, {"train": cfg.n_train, "val": cfg.n_val, "test": cfg.n_test}, cfg.n_shots,
                                      cfg.n_demo_pool, kinds, self.rejections, cfg.task)
         self.metadata["sampling"] = info
@@ -367,6 +437,8 @@ class DAS:
         for name, dd in data.items():
             log.info("%s: %d bases, %d kept for the Cause pairs (base answered in both passes, source answered)", name,
                      len(dd["bases"]), int(dd["keep"].sum()))
+            if len(set(self.cause_of.values())) > 1:  # a Cause source per variable (max, D55)
+                log.info("%s: kept per variable %s", name, {v: int(x.sum()) for v, x in dd["keep_by_var"].items()})
 
         # the concatenated states of the swapped tokens (D53), or one token's state for a subspace shared by them (D54)
         D = backend.hidden_size * (1 if cfg.shared_basis else len(self.swap_idx))
@@ -495,16 +567,24 @@ class DAS:
                                 {"n": int((ok_full != ok_last).sum())})
         src_states, src_ok = {}, {}
         for kind, srcs in sp.sources.items():
-            sp_prompts = [render(sp.demos[i], s) for i, s in enumerate(srcs)]
+            # a base without a source of this kind (max, D55) runs its own prompt in its place, never used
+            present = np.array([x is not None for x in srcs])
+            sp_prompts = [render(sp.demos[i], x if x is not None else sp.bases[i]) for i, x in enumerate(srcs)]
             st, am = self._states(sp_prompts, cfg.sites)
-            src_states[kind], src_ok[kind] = st, am == self.tid[[s.Y for s in srcs]]
-        if not cfg.gate:  # the toy smoke: every base and source enters
+            ys = np.array([x.Y if x is not None else 0 for x in srcs])
+            src_states[kind], src_ok[kind] = st, present & (am == self.tid[ys])
+        if not cfg.gate:  # the toy smoke: every base and present source enters
             ok_full = ok_last = np.ones(len(prompts), dtype=bool)
-            src_ok = {k: np.ones(len(prompts), dtype=bool) for k in src_ok}
-        keep = ok_full & ok_last & src_ok["cause"]
-        tgt = {v: np.array([targets(v, b, sp.sources["cause"][i]) for i, b in enumerate(sp.bases)]) for v in cfg.variables}
-        return {"bases": sp.bases, "prompts": prompts, "Y": Y, "keep": keep, "base_ok": ok_full & ok_last,
-                "base_states": base_states, "src_states": src_states, "src_ok": src_ok, "targets": tgt}
+            src_ok = {k: np.array([x is not None for x in sp.sources[k]]) for k in src_ok}
+        keep_by_var = {v: ok_full & ok_last & src_ok[self.cause_of[v]] for v in cfg.variables}
+        keep = np.logical_or.reduce(list(keep_by_var.values()))
+        tgt = {}
+        for v in cfg.variables:
+            srcs = sp.sources[self.cause_of[v]]
+            tgt[v] = np.array([targets(v, b, srcs[i]) if srcs[i] is not None else 0 for i, b in enumerate(sp.bases)])
+        return {"bases": sp.bases, "prompts": prompts, "Y": Y, "keep": keep, "keep_by_var": keep_by_var,
+                "base_ok": ok_full & ok_last, "base_states": base_states, "src_states": src_states, "src_ok": src_ok,
+                "targets": tgt}
 
     # ------------------------------------------------------------------ #
 
@@ -517,12 +597,15 @@ class DAS:
         tr = data["train"]
         idx = np.flatnonzero(tr["keep"])
         tid = torch.as_tensor(self.tid, device=self.backend.device)
-        shuffled = {v: rng_for(cfg.seed, "das", "shuffle", v).permutation(len(idx)) for v in cfg.variables}
+        kv = {v: np.flatnonzero(tr["keep_by_var"][v]) for v in cfg.variables}
+        shuffled = {v: rng_for(cfg.seed, "das", "shuffle", v).permutation(len(kv[v])) for v in cfg.variables}
         target_tok = {}  # per fit, the target token of every training base (shuffled among the kept bases for a null)
+        mask = {v: torch.as_tensor(tr["keep_by_var"][v], device=self.backend.device) for v in cfg.variables}
+        shared = all(np.array_equal(tr["keep_by_var"][v], tr["keep"]) for v in cfg.variables)  # one Cause source (D48-D54)
         for f in fits:
             t = tr["targets"][f.var].copy()
             if f.shuffled:
-                t[idx] = t[idx][shuffled[f.var]]
+                t[kv[f.var]] = t[kv[f.var]][shuffled[f.var]]
             target_tok[f.key] = tid[torch.as_tensor(t, device=tid.device)]
         for epoch in range(cfg.epochs):
             order = idx[rng_for(cfg.seed, "das", "epoch", epoch).permutation(len(idx))]
@@ -530,12 +613,17 @@ class DAS:
             for b in self._batches(order):
                 lt = self._tail([tr["prompts"][i] for i in b])
                 bt = torch.as_tensor(b, device=self.backend.device)
-                src = {s: _take(tr["src_states"]["cause"][s], b, self.backend.device) for s in cfg.sites}
+                src = {(k, s): _take(tr["src_states"][k][s], b, self.backend.device)
+                       for k in sorted(set(self.cause_of.values())) for s in cfg.sites}
                 for f in fits:
+                    m = None if shared else mask[f.var][bt]
+                    if m is not None and not bool(m.any()):
+                        continue
                     with torch.enable_grad():
-                        logits = lt.logits(f.site, src[f.site], f.basis())
+                        logits = lt.logits(f.site, src[(self.cause_of[f.var], f.site)], f.basis())
                         y = target_tok[f.key][bt]
-                        loss = torch.nn.functional.cross_entropy(logits, y)
+                        loss = (torch.nn.functional.cross_entropy(logits, y) if m is None
+                                else torch.nn.functional.cross_entropy(logits[m], y[m]))
                         loss.backward()
                     f.opt.step()
                     f.opt.zero_grad(set_to_none=True)
@@ -566,18 +654,19 @@ class DAS:
             cache: dict[tuple[str, int], torch.Tensor] = {}
             for f in fits:
                 basis = f.basis(f.best if use_best else None)
-                kinds = ["cause"] + ([] if cause_only else list(self.isolate[f.var]))
-                for kind in kinds:
+                # "cause" names the variable's own Cause source (one shared source before D55)
+                kinds = [("cause", self.cause_of[f.var])] + ([] if cause_only else [(k, k) for k in self.isolate[f.var]])
+                for label, kind in kinds:
                     if (kind, f.site) not in cache:
                         cache[(kind, f.site)] = _take(dd["src_states"][kind][f.site], b, self.backend.device)
                     am = lt.logits(f.site, cache[(kind, f.site)], basis).argmax(dim=1).cpu().numpy()
-                    preds[f.key].setdefault(kind, []).append(np.stack([b, am], axis=1))
+                    preds[f.key].setdefault(label, []).append(np.stack([b, am], axis=1))
         for f in fits:
             for kind, parts in preds[f.key].items():
                 arr = np.concatenate(parts) if parts else np.zeros((0, 2), dtype=np.int64)
                 rows, am = arr[:, 0], arr[:, 1]
                 if kind == "cause":
-                    sel = dd["keep"][rows]
+                    sel = dd["keep_by_var"][f.var][rows]
                     hit = am[sel] == tid[dd["targets"][f.var][rows[sel]]]
                     out["cause"][f.key] = hit
                     # per-base hits, for paired comparisons between fits (D54's control rule)
@@ -591,11 +680,11 @@ class DAS:
     def _determinism_check(self, data: dict[str, Any], fit: Fit) -> None:
         """One fit trained twice for two steps from the same start must come out bit-identical."""
         tr = data["train"]
-        b = np.flatnonzero(tr["keep"])[: self.cfg.batch_size]
+        b = np.flatnonzero(tr["keep_by_var"][fit.var])[: self.cfg.batch_size]
         if len(b) == 0:
             raise RuntimeError("no training base passed the gate")
         lt = self._tail([tr["prompts"][i] for i in b])
-        src = _take(tr["src_states"]["cause"][fit.site], b, self.backend.device)
+        src = _take(tr["src_states"][self.cause_of[fit.var]][fit.site], b, self.backend.device)
         tid = torch.as_tensor(self.tid, device=self.backend.device)
         y = tid[torch.as_tensor(tr["targets"][fit.var][b], device=tid.device)]
         outs = []
@@ -658,7 +747,9 @@ class DAS:
         return {"task": cfg.task, "sites": cfg.sites, "control_site": cfg.control_site, "variables": list(cfg.variables), "ks": list(cfg.ks),
                 "positions": cfg.positions, "shared_basis": cfg.shared_basis, "swap": self.metadata.get("swap"),
                 "cells": cells, "per_site": sites, "control_clean": clean,
-                "n": {name: {"bases": len(dd["bases"]), "kept": int(dd["keep"].sum())} for name, dd in data.items()},
+                "n": {name: {"bases": len(dd["bases"]), "kept": int(dd["keep"].sum()),
+                             "kept_by_var": {v: int(x.sum()) for v, x in dd["keep_by_var"].items()}}
+                      for name, dd in data.items()},
                 "thresholds": {"cause_lower": cfg.cause_lower, "isolate_lower": cfg.isolate_lower, "k_tolerance": cfg.k_tolerance}}
 
     def _decodability(self, dd: dict[str, Any], site: int, var: str, fit: Fit) -> dict[str, float]:

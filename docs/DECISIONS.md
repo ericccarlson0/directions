@@ -3383,3 +3383,67 @@ Decision (the first map; exploratory):
   - **Reading.** `=` carries part of the answer (D52), but not as separate sums: the sums are no more separable
     across the answer token and `=` than at the answer token alone. On three brackets the answer token and `=`
     hold a joint code of the sums from G3 on, and Y becomes a variable of its own later.
+
+### D55. `max(a+b, c+d) = `: a task whose answer cannot be computed from a merged code (Qwen3 1.7B, 4B, 8B Base)
+
+* **Why.**
+  - In `(a+b) − (c+d) − (e+f)` the answer is a linear combination of the sums. A model never has to keep the sums
+    apart, and the evidence fits that: the sums are linearly decodable at the gather (D46), but none can be swapped
+    out on its own, even with the subspace spanning the answer token and `=` (D51–D54).
+  - In max, the answer depends on which sum is larger and then on that sum's value. No single linear combination
+    of the sums suffices.
+  - The hypothesis: the count of sums held separately is set by the operation, not by the model's capacity.
+    Then max holds both sums at its gather where subtraction held fewer: two-bracket counts were 0 (1.7B), 1 (4B)
+    and 2 (8B).
+  - Max also has an intermediate of a new kind: the comparison bit C (S1 > S2).
+* **The task.**
+  - `max(a+b, c+d) = Y`: digits 0–9, both sums single digits and unequal (no ties), 2640 expressions.
+  - Rendered as before, with 8 demonstrations from a pool of 96. The query's tokens are `max`, `(`, `a`, `+`, `b`,
+    `,`, ` `, `c`, `+`, `d`, `)`, ` =` and the answer position.
+* **D45 on max.**
+  - Swap types: S1 and S2 (one sum changes, the other bracket's digits kept), S1_same and S2_same, and both.
+  - A value-changing swap needs a source whose own prediction moves the answer: max(S1′, S2) ≠ Y for S1. A bracket
+    that cannot move the answer (the other sum is 9 and larger) has no such source, and that base is skipped.
+  - The "both" swap needs both sums to change and Y′ ≠ Y. Its hypotheses: S1′ only, S2′ only, C′ on the base's
+    sums (the sum that the source's comparison picks), both, none. They can coincide on a base, so the readout
+    used is the source answer.
+  - Gather G: the first read point with both sums present at the answer token.
+* **D46 on max.**
+  - Probe targets: Y, S1|Y and S2|Y (each sum is at most Y), C|Y, L|Y (the smaller sum, below Y), a|S1, c|S2.
+  - Lens candidates: Y, S1, S2, L and the four digits.
+* **D47 on max:** unchanged (the S1|Y and Y probes through the blocks, single heads for the bracket sources).
+* **DAS on max.**
+  - Variables: S1, S2, C, Y and a. The Cause target of each from a source:
+    - S1: max(S1′, S2);
+    - S2: max(S1, S2′);
+    - C: S1 if C′ else S2 (the base's sums, the source's comparison);
+    - Y: Y′;
+    - a: max(a′ + b, S2).
+  - No single source tells these apart: max's predictions coincide, for example S2's equals Y′ whenever S2′
+    exceeds both other sums. So each variable has a Cause source of its own. The variable's target must be a
+    digit that differs from Y and from the S1, S2 and C targets from the same source. A subspace that holds the
+    whole answer is caught by Isolate instead.
+  - Isolate sources (the answer must stay Y):
+    - S1: only S2 changes, and same S1;
+    - S2: only S1 changes, and same S2;
+    - C: same C (both sums change, the comparison is kept);
+    - Y: same Y;
+    - a: only S2 changes, and only b changes.
+    Each source's own answer must differ from Y, except for the same-value sources.
+  - Max leaves no room above a 9, so some bases have no source of some kind. A base enters each variable's test
+    where its source exists, and is skipped only without any Cause source. Each variable is scored on its own
+    bases; the counts are reported.
+  - Otherwise D51's design: k ∈ {16, 32, 64}, the shuffled-target null at k = 64, 20 epochs, learning rate 0.05,
+    batch 32, splits 1536 / 256 / 512 by expression; D48's held criterion with D54's control rule (Cause above the
+    same variable's at the control, paired by base).
+  - On the earlier tasks the stage is unchanged: one Cause source shared by the variables, and a toy run of the
+    three-bracket DAS is bit-identical before and after this change.
+* **Sites, from job 1 of each model.** D51's rule: the control (the latest read point at or below G − 2 where
+  both bracket swaps move the answer in at most 0.10), then G..max(G + 2, F) when F ≤ G + 3, else G, G + ⌊(F −
+  G)/3⌋, G + ⌊2(F − G)/3⌋ and F. F is where the Y probe reaches 0.9 of its final accuracy.
+* **Reading.**
+  - The count of sums held at G, against two-bracket subtraction (D48–D49): 1.7B 0, 4B 1, 8B 2.
+  - C held, on its own or before the sums are gone, is the comparison stored as a sub-result.
+  - A count of 2 on the 1.7B or the 4B supports the hypothesis; a count of 0 or 1 everywhere refutes it for max.
+* **Runs.** Seed 20260916, one execution, on RTX 4090s (EUR-NO-1). Job 1 per model: D45 and D46. Job 2: D47 and
+  DAS. A model whose few-shot accuracy on the D45 bases is below 0.5 is skipped. The 14B later, if wanted.

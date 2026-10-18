@@ -1,0 +1,27 @@
+# The conditional probe and the logit lens (docs/DECISIONS.md D46) on the max task (D55), Qwen3-1.7B Base. The files of this family differ only in
+# model (the 8B at batch 64), and from the three-bracket files only in expressions (tests/test_configs.py).
+name: varprobe
+seed: 20260916
+output_dir: results
+
+model:
+  backend: hf
+  name: Qwen/Qwen3-1.7B-Base
+  dtype: bfloat16          # model execution; states captured as float32
+  device: cuda             # fail fast rather than fall back to the CPU (docs/INFRA.md)
+  batch_size: 128
+
+expressions: [max]            # max(a+b, c+d) = Y, both sums single digits and unequal (D55)
+n_examples: 2048              # per task, outside the demonstration pool (one-lane has 574); the answered ones enter
+n_shots: 8
+n_demo_pool: 96
+n_folds: 5                    # outer cross-validation folds
+lambdas: [0.1, 1.0, 10.0, 100.0]   # ridge grid (the kernel's mean diagonal is 1), chosen by leave-one-out accuracy
+n_perm: 200                   # permutations within the conditioning classes (probe), shuffles (lens)
+alpha: 0.05                   # family-wise over the read points of one target, model and task
+min_accuracy: 0.5
+gate: true                    # only the expressions the model answers enter the probe and the lens
+positive_control: true        # a given S1 at the a token itself, read point L/2
+determinism_check: true
+figures: true
+marks: {}                     # the max gather: unknown before the map, which runs in the same job

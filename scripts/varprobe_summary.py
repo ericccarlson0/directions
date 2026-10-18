@@ -25,6 +25,8 @@ import numpy as np
 GATHER = {"qwen3_0.6b": 21, "qwen3_1.7b": 21, "qwen3_4b": 24, "qwen3_8b": 24, "qwen3_14b": 30}
 # the three-bracket gather G3 per model (D51; first read point with all three sums at the answer token)
 GATHER3 = {"qwen3_4b": 24, "qwen3_8b": 24, "qwen3_14b": 30}  # runs 38934415363, 38934932951, 38934471957
+# the max gather per model (D55; first read point with both sums at the answer token), from its job 1
+GATHER_MAX: dict[str, int] = {}
 
 
 
@@ -128,7 +130,7 @@ def main(argv: list[str] | None = None) -> int:
         key = model_key(run.name)
         for task_dir in sorted((run / "core" / "tasks").glob("*")):
             r = json.loads((task_dir / "varprobe.json").read_text())
-            G = (GATHER3 if task_dir.name == "three_lane" else GATHER).get(key)
+            G = {"three_lane": GATHER3, "max": GATHER_MAX}.get(task_dir.name, GATHER).get(key)
             if G is None:
                 print(f"{key} {task_dir.name}: no gather recorded for this model and task; skipped", file=sys.stderr)
                 continue

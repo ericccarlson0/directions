@@ -34,10 +34,12 @@ TARGETS = {
     "two_lane": ("Y", "S1|Y", "a|S1", "c|S2"),
     "one_lane": ("Y", "S1|Y", "a|S1"),
     "three_lane": ("Y", "S1|Y", "S2|Y", "S3|Y", "a|S1", "c|S2", "e|S3"),  # D51 (T|Y is S3|Y, U|Y is S1|Y relabelled)
+    "max": ("Y", "S1|Y", "S2|Y", "C|Y", "L|Y", "a|S1", "c|S2"),  # D55: the comparison bit C and the smaller sum L
 }
 # the logit lens's candidates: the answer, the sub-results (three brackets: and the intermediates T, U), the digits
 LENS_CANDIDATES = {"two_lane": ("Y", "S1", "S2", "a", "b", "c", "d"), "one_lane": ("Y", "S1", "S2", "a", "b", "c"),
-                   "three_lane": ("Y", "S1", "S2", "S3", "T", "U", "a", "b", "c", "d", "e", "f")}
+                   "three_lane": ("Y", "S1", "S2", "S3", "T", "U", "a", "b", "c", "d", "e", "f"),
+                   "max": ("Y", "S1", "S2", "L", "a", "b", "c", "d")}
 
 
 def variables(exprs: list[Expr]) -> dict[str, np.ndarray]:
@@ -48,6 +50,8 @@ def variables(exprs: list[Expr]) -> dict[str, np.ndarray]:
         "a": np.array([e.a for e in exprs]), "b": np.array([e.b for e in exprs]), "c": np.array([e.c for e in exprs]),
         "d": np.array([-1 if e.d is None else e.d for e in exprs]),
     }
+    if exprs and exprs[0].op == "max":  # D55: the comparison bit and the smaller sum
+        out.update({"C": np.array([e.C for e in exprs]), "L": np.array([e.L for e in exprs])})
     if exprs and exprs[0].e is not None:
         out.update({"S3": np.array([e.S3 for e in exprs]), "T": np.array([e.T for e in exprs]),
                     "U": np.array([e.U for e in exprs]), "e": np.array([e.e for e in exprs]), "f": np.array([e.f for e in exprs])})
@@ -59,6 +63,14 @@ def target_spec(name: str, task: str, v: dict[str, np.ndarray]) -> tuple[np.ndar
     n = len(v["Y"])
     if name == "Y":
         return v["Y"], np.zeros(n, dtype=np.int64), np.ones((n, 10), dtype=bool)
+    if task == "max" and name in ("S1|Y", "S2|Y"):  # D55: each sum is at most the answer, Y = max(S1, S2)
+        k = np.arange(10)[None, :]
+        return v[name[:2]], v["Y"], k <= v["Y"][:, None]
+    if name == "C|Y":  # D55: which sum is the larger, given the answer
+        return v["C"], v["Y"], np.ones((n, 2), dtype=bool)
+    if name == "L|Y":  # D55: the smaller sum, below the answer
+        k = np.arange(10)[None, :]
+        return v["L"], v["Y"], k < v["Y"][:, None]
     if name == "S1|Y":
         hi = 9 if task == "one_lane" else 18  # S1 - Y ranges over 0..18 (two, three brackets) or 0..9 (one-lane, S2 = c)
         k = np.arange(19)[None, :]
@@ -320,7 +332,7 @@ SERIES = "#2a78d6"  # one series per panel: the observed rate
 NULL_FILL, NULL_LINE = "#e4e3df", "#8a8985"
 INK, INK2 = "#0b0b0b", "#52514e"
 TITLES = {"Y": "Y (the answer)", "S1|Y": "S1 given Y", "S2|Y": "S2 given Y", "S3|Y": "S3 given Y", "a|S1": "a given S1",
-          "c|S2": "c given S2", "e|S3": "e given S3"}
+          "c|S2": "c given S2", "e|S3": "e given S3", "C|Y": "C (S1 > S2) given Y", "L|Y": "the smaller sum given Y"}
 
 
 def plot_task(result: dict[str, Any], path: Path, model_name: str, marks: dict[str, int] | None = None) -> None:

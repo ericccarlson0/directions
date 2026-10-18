@@ -37,21 +37,23 @@ from .tasks import Item
 # The tasks and their high-level causal model
 # --------------------------------------------------------------------------- #
 
-TASKS = ("two_lane", "one_lane", "three_lane")
+TASKS = ("two_lane", "one_lane", "three_lane", "max")
 SOURCE_TYPES = {"two_lane": ("S1", "S2", "S1_same", "S2_same", "both"), "one_lane": ("S1", "S2", "S1_same", "both"),
-                "three_lane": ("S1", "S2", "S3", "S1_same", "S2_same", "S3_same", "all")}
+                "three_lane": ("S1", "S2", "S3", "S1_same", "S2_same", "S3_same", "all"),
+                "max": ("S1", "S2", "S1_same", "S2_same", "both")}
 # the variable each value-changing type moves, and the same-value type that tests it as a value
 VALUE_TEST = {"S1": "S1_same", "S2": "S2_same", "S3": "S3_same"}
 # the sub-results counted at a site (D45; three brackets D51)
-BRACKETS = {"two_lane": ("S1", "S2"), "one_lane": ("S1", "S2"), "three_lane": ("S1", "S2", "S3")}
-TEMPLATES = {"two_lane": "(a+b) - (c+d) = ", "one_lane": "(a+b) - c = ", "three_lane": "(a+b) - (c+d) - (e+f) = "}
+BRACKETS = {"two_lane": ("S1", "S2"), "one_lane": ("S1", "S2"), "three_lane": ("S1", "S2", "S3"), "max": ("S1", "S2")}
+TEMPLATES = {"two_lane": "(a+b) - (c+d) = ", "one_lane": "(a+b) - c = ", "three_lane": "(a+b) - (c+d) - (e+f) = ",
+             "max": "max(a+b, c+d) = "}
 DIGITS = ("a", "b", "c", "d", "e", "f")
 
 
 @dataclass(frozen=True)
 class Expr:
-    """``(a+b) - (c+d)`` (two lanes), ``(a+b) - c`` (one lane, ``d`` None) or ``(a+b) - (c+d) - (e+f)`` (three lanes,
-    D51)."""
+    """``(a+b) - (c+d)`` (two lanes), ``(a+b) - c`` (one lane, ``d`` None), ``(a+b) - (c+d) - (e+f)`` (three lanes,
+    D51) or, with ``op`` "max", ``max(a+b, c+d)`` (D55)."""
 
     a: int
     b: int
@@ -59,6 +61,7 @@ class Expr:
     d: int | None = None
     e: int | None = None
     f: int | None = None
+    op: str = "-"
 
     @property
     def S1(self) -> int:
@@ -84,16 +87,32 @@ class Expr:
         return self.S2 + self.S3
 
     @property
+    def C(self) -> int:
+        """The comparison bit of max (D55): 1 when the first sum is the larger."""
+        return int(self.S1 > self.S2)
+
+    @property
+    def L(self) -> int:
+        """The smaller sum of max (D55)."""
+        return min(self.S1, self.S2)
+
+    @property
     def Y(self) -> int:
+        if self.op == "max":
+            return max(self.S1, self.S2)
         return self.S1 - self.S2 - self.S3
 
     def text(self) -> str:
+        if self.op == "max":
+            return f"max({self.a}+{self.b}, {self.c}+{self.d})"
         second = f"({self.c}+{self.d})" if self.d is not None else f"{self.c}"
         third = f" - ({self.e}+{self.f})" if self.e is not None else ""
         return f"({self.a}+{self.b}) - {second}{third}"
 
     def digit_slots(self) -> dict[int, str]:
         """Character index in :meth:`text` -> the digit's name."""
+        if self.op == "max":
+            return {4: "a", 6: "b", 9: "c", 11: "d"}
         slots = {1: "a", 3: "b"}
         slots.update({9: "c", 11: "d"} if self.d is not None else {8: "c"})
         if self.e is not None:
@@ -111,6 +130,9 @@ def all_exprs(task: str) -> list[Expr]:
         D = np.array(list(itertools.product(range(10), repeat=6)), dtype=np.int64)
         y = D[:, 0] + D[:, 1] - D[:, 2] - D[:, 3] - D[:, 4] - D[:, 5]
         return [Expr(*map(int, row)) for row in D[(y >= 0) & (y <= 9)]]
+    elif task == "max":  # D55: both sums single digits and unequal (the comparison has a winner)
+        return [Expr(a, b, c, d, op="max") for a, b, c, d in itertools.product(range(10), repeat=4)
+                if a + b <= 9 and c + d <= 9 and a + b != c + d]
     else:
         raise ValueError(f"unknown varmap task {task!r}")
     return [e for e in out if 0 <= e.Y <= 9]
@@ -119,7 +141,11 @@ def all_exprs(task: str) -> list[Expr]:
 def predictions(base: Expr, src: Expr) -> dict[str, int]:
     """The answer the swapped run gives if the site holds: the source's S1 only, its S2 only, both (its answer), or
     nothing of the source (the base answer). Three brackets (D51): each sum alone, the intermediates T (S1 and S2
-    together) and U (S2 and S3 together), all (the source's answer) or none."""
+    together) and U (S2 and S3 together), all (the source's answer) or none. Max (D55): each sum alone, the
+    comparison alone (C: the base's sum that the source's comparison picks), both or none."""
+    if base.op == "max":
+        return {"S1": max(src.S1, base.S2), "S2": max(base.S1, src.S2), "C": base.S1 if src.C else base.S2,
+                "both": src.Y, "none": base.Y}
     if base.e is None:
         return {"S1": src.S1 - base.S2, "S2": base.S1 - src.S2, "both": src.Y, "none": base.Y}
     return {"S1": src.S1 - base.S2 - base.S3, "S2": base.S1 - src.S2 - base.S3, "S3": base.S1 - base.S2 - src.S3,
@@ -140,6 +166,14 @@ def valid_source(kind: str, base: Expr, src: Expr) -> bool:
     same_second = (src.c, src.d) == (base.c, base.d)
     if base.e is not None:
         return bool(source_masks(kind, base, np.array([[src.a, src.b, src.c, src.d, src.e, src.f]]))[0])
+    if base.op == "max":  # D55: a value-changing swap must move the answer under its own prediction
+        p = predictions(base, src)
+        if kind == "S1":
+            return same_second and src.S1 != base.S1 and p["S1"] != base.Y
+        if kind == "S2":
+            return same_first and src.S2 != base.S2 and p["S2"] != base.Y
+        if kind == "both":
+            return src.S1 != base.S1 and src.S2 != base.S2 and src.Y != base.Y
     if kind == "S1":
         return same_second and src.S1 != base.S1
     if kind == "S2":
@@ -303,6 +337,8 @@ def query_tokens(backend: ModelBackend, prompt: Prompt, query: Expr) -> tuple[li
         if start != cursor:
             raise ValueError(f"query tokens do not tile the query text {qtext!r}")
         lab = "".join(slots.get(cursor + k, ch) for k, ch in enumerate(piece))
+        if lab in DIGITS and not any(cursor + k in slots for k in range(len(piece))):
+            lab = f"'{lab}'"  # a letter of the template (max's "a", D55), not the digit slot of that name
         labels.append("␣" if lab == " " and cursor + len(piece) == len(qtext) else lab)
         cursor += len(piece)
     if cursor != len(qtext):
@@ -565,10 +601,12 @@ def _first_site(mask: np.ndarray | None, read_points: list[int], labels: list[st
 
 SEQ = ["#fcfcfb", "#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"]  # sequential blue, light -> dark
 CAT = {"none": "#ecebe7", "S1": "#2a78d6", "S2": "#eb6834", "S3": "#8a5cd0", "T": "#d9a521", "U": "#c2417f",
-       "both": "#1baf7a", "all": "#1baf7a"}
+       "both": "#1baf7a", "all": "#1baf7a", "C": "#d9a521"}
 HYP_LABEL = {"S1": "S1' - S2", "S2": "S1 - S2'", "both": "S1' - S2'", "none": "base / none",
              "S1_3": "S1' only", "S2_3": "S2' only", "S3_3": "S3' only", "T_3": "T' (S1', S2')", "U_3": "U' (S2', S3')",
              "all_3": "all (source answer)"}
+HYP_LABEL_MAX = {"S1": "max(S1', S2)", "S2": "max(S1, S2')", "C": "C' on the base's sums", "both": "max(S1', S2')",
+                 "none": "base / none"}
 
 
 def plot_task(result: dict[str, Any], path: Path, model_name: str) -> None:
@@ -652,7 +690,8 @@ def plot_task(result: dict[str, Any], path: Path, model_name: str) -> None:
                   interpolation="nearest")
         ax.set_title(f"swap {combined}: which\nprediction wins (>= 0.5)", fontsize=7.5, loc="left")
         legend = [x for x in order[1:]] + ["none"]
-        text = [HYP_LABEL[f"{x}_3"] if three and x != "none" else HYP_LABEL[x] for x in legend]
+        text = [HYP_LABEL_MAX[x] if task == "max" else HYP_LABEL[f"{x}_3"] if three and x != "none" else HYP_LABEL[x]
+                for x in legend]
         if task == "one_lane":
             text = [t.replace("S2", "c") for t in text]
         ax.legend([plt.Rectangle((0, 0), 1, 1, color=CAT[x]) for x in legend], text, fontsize=6, loc="upper left",

@@ -1018,8 +1018,8 @@ def load_varmap_config(path: str | Path) -> VarmapConfig:
     with open(path) as f:
         data = yaml.safe_load(f) or {}
     cfg = _from_dict(VarmapConfig, data)
-    if not cfg.expressions or any(t not in ("two_lane", "one_lane", "three_lane") for t in cfg.expressions):
-        raise ValueError("expressions must be a non-empty subset of two_lane, one_lane, three_lane")
+    if not cfg.expressions or any(t not in ("two_lane", "one_lane", "three_lane", "max") for t in cfg.expressions):
+        raise ValueError("expressions must be a non-empty subset of two_lane, one_lane, three_lane, max")
     if cfg.n_bases < 2 or cfg.n_shots < 0 or cfg.n_demo_pool < cfg.n_shots:
         raise ValueError("n_bases must be at least 2 and n_demo_pool at least n_shots")
     if not (0 < cfg.present_flip <= 1 and 0 <= cfg.value_change < 1 and 0 < cfg.alpha < 1):
@@ -1172,8 +1172,8 @@ def load_varsplit_config(path: str | Path) -> VarsplitConfig:
     with open(path) as f:
         data = yaml.safe_load(f) or {}
     cfg = _from_dict(VarsplitConfig, data)
-    if not cfg.expressions or any(t not in ("two_lane", "one_lane", "three_lane") for t in cfg.expressions):
-        raise ValueError("expressions must be a non-empty subset of two_lane, one_lane, three_lane")
+    if not cfg.expressions or any(t not in ("two_lane", "one_lane", "three_lane", "max") for t in cfg.expressions):
+        raise ValueError("expressions must be a non-empty subset of two_lane, one_lane, three_lane, max")
     if not cfg.split_blocks or not cfg.head_blocks or min(cfg.split_blocks + cfg.head_blocks) < 1:
         raise ValueError("split_blocks and head_blocks must be non-empty lists of blocks >= 1")
     if not cfg.parts or any(x not in ("probe", "heads") for x in cfg.parts):
@@ -1211,7 +1211,7 @@ class DasConfig:
     seed: int = 20260916
     output_dir: str = "results"
     model: ModelConfig = field(default_factory=ModelConfig)
-    task: str = "two_lane"        # or "three_lane" (D51)
+    task: str = "two_lane"        # or "three_lane" (D51), "max" (D55)
     sites: list[int] = field(default_factory=list)
     control_site: int | None = 0
     positions: str = "answer"     # or a D52 set swapped jointly (D53)
@@ -1248,9 +1248,10 @@ def load_das_config(path: str | Path) -> DasConfig:
         raise ValueError("positions must be answer, answer_eq or non_digit")
     if cfg.shared_basis and cfg.positions == "answer":
         raise ValueError("shared_basis needs a set of tokens (positions answer_eq or non_digit)")
-    allowed = {"two_lane": ("S1", "S2", "Y", "a"), "three_lane": ("S1", "S2", "S3", "T", "U", "Y", "a")}
+    allowed = {"two_lane": ("S1", "S2", "Y", "a"), "three_lane": ("S1", "S2", "S3", "T", "U", "Y", "a"),
+               "max": ("S1", "S2", "C", "Y", "a")}
     if cfg.task not in allowed:
-        raise ValueError("task must be two_lane or three_lane")
+        raise ValueError("task must be two_lane, three_lane or max")
     if not cfg.variables or any(v not in allowed[cfg.task] for v in cfg.variables):
         raise ValueError(f"variables must be a non-empty subset of {', '.join(allowed[cfg.task])}")
     if not cfg.ks or any(k < 1 for k in cfg.ks) or list(cfg.ks) != sorted(set(cfg.ks)) or cfg.null_k < 1:
@@ -1264,8 +1265,8 @@ def load_varprobe_config(path: str | Path) -> VarprobeConfig:
     with open(path) as f:
         data = yaml.safe_load(f) or {}
     cfg = _from_dict(VarprobeConfig, data)
-    if not cfg.expressions or any(t not in ("two_lane", "one_lane", "three_lane") for t in cfg.expressions):
-        raise ValueError("expressions must be a non-empty subset of two_lane, one_lane, three_lane")
+    if not cfg.expressions or any(t not in ("two_lane", "one_lane", "three_lane", "max") for t in cfg.expressions):
+        raise ValueError("expressions must be a non-empty subset of two_lane, one_lane, three_lane, max")
     if cfg.n_examples < 2 * cfg.n_folds or cfg.n_folds < 2 or cfg.n_demo_pool < cfg.n_shots:
         raise ValueError("n_examples must be at least twice n_folds (>= 2), and n_demo_pool at least n_shots")
     if not cfg.lambdas or any(x <= 0 for x in cfg.lambdas) or list(cfg.lambdas) != sorted(cfg.lambdas):

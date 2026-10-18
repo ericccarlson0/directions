@@ -584,3 +584,18 @@ def test_two_token_das_configs_follow_d54():
             assert c["shared_basis"] == (variant == "shared") and c["variables"] == ["S1", "S2", "S3", "T", "U", "Y"]
             varying = dict(name=None, sites=None, control_site=None, positions=None, variables=None, shared_basis=None)
             assert dict(c, **varying) == dict(d51, **varying), (size, variant)
+
+
+def test_max_map_and_probe_configs_follow_d55():
+    """D55: the max map and probe files equal the three-bracket ones but for expressions (1.7B, 4B, 8B)."""
+    from dataclasses import asdict
+
+    from directions.config import load_varmap_config, load_varprobe_config
+
+    for fam, load in (("varmap", load_varmap_config), ("varprobe", load_varprobe_config)):
+        files = sorted(CONFIGS.glob(f"{fam}_max_qwen3_*.yaml"))
+        assert [p.name for p in files] == [f"{fam}_max_qwen3_{s}.yaml" for s in ("1.7b", "4b", "8b")]
+        for p in files:
+            c = asdict(load(p))
+            three = asdict(load(CONFIGS / p.name.replace("_max_", "_three_")))
+            assert c["expressions"] == ["max"] and dict(c, expressions=None) == dict(three, expressions=None), p.name
