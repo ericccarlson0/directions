@@ -618,3 +618,20 @@ def test_max_split_and_das_configs_follow_d55():
         ref = asdict(load_das_config(CONFIGS / f"das_d51_qwen3_{'4b' if size == '1.7b' else size}.yaml"))
         varying = dict(name=None, task=None, sites=None, control_site=None, variables=None, model=None)
         assert dict(d, **varying) == dict(ref, **varying), size
+
+
+def test_max_14b_job2_configs_follow_d55_amended():
+    """D55 amended for the 14B: the block split around G* = 30, and D54's shared two-token DAS at D51's spacing."""
+    from dataclasses import asdict
+
+    from directions.config import load_das_config, load_varsplit_config
+
+    c = asdict(load_varsplit_config(CONFIGS / "varsplit_max_qwen3_14b.yaml"))
+    assert c["expressions"] == ["max"] and c["gather"] == 30 and c["split_blocks"] == list(range(29, 34))
+    assert c["head_blocks"] == [30, 31, 32] and c["model"]["name"] == "Qwen/Qwen3-14B-Base"
+    d = asdict(load_das_config(CONFIGS / "das_d55_qwen3_14b.yaml"))
+    assert d["task"] == "max" and d["sites"] == [28, 30, 32, 34, 37] and d["control_site"] == 28
+    assert d["variables"] == ["S1", "S2", "C", "Y"] and d["positions"] == "answer_eq" and d["shared_basis"]
+    ref = asdict(load_das_config(CONFIGS / "das_d54_qwen3_14b_shared.yaml"))
+    varying = dict(name=None, task=None, sites=None, control_site=None, variables=None)
+    assert dict(d, **varying) == dict(ref, **varying)

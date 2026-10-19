@@ -3477,3 +3477,20 @@ Decision (the first map; exploratory):
   by D51's rule from job 1. Its two-bracket count at the gather was 0 (D50). It runs on the H100 (`ADA_80_PRO`,
   US-CA-2, `ci-8b`), oversized for the reason D50 gives: no 48 GB worker has been assigned. Batch 128, as in its
   three-bracket files. Nothing else changes; the reading above is unchanged and the 14B adds one more count.
+* **The 14B's job 2, amended after its job 1 and before its job 2 (2026-10-19; run 39252850362).**
+  - **What job 1 showed.** The 14B never gathers both sums at the answer token before its output. From read point
+    30 on, each bracket swap gives its prediction at the answer token in 0.44–0.67 of the bases and at `=` in up
+    to 0.38 (both brackets: 0.51–0.65 and up to 0.47). S2's lower bound peaks at 0.45, short of D45's 0.5, so G is
+    the last read point (40) and D51's rule yields sites past the stack (41, 42). The answer is shared between the
+    answer token and `=`, as D52 found for the 14B on three brackets.
+  - **The gather used instead, G\* = 30.** The first read point where swapping both brackets at the answer token gives
+    the source's answer in at least half of the bases (0.51; 0.24 at 29). It is also the 14B's two-bracket gather.
+  - **Sites.** D51's spacing with G\* and F = 37: 30, 32, 34, 37. Control 28 (both bracket swaps ≤ 0.10, at most
+    G\* − 2).
+  - **Design.** D54's shared variant (one (k, d) subspace swapped at the answer token and at `=`), because those two
+    tokens hold the sums on this model. Variables S1, S2, C and Y, each with its D55 Cause and Isolate sources; a
+    drops out because its token is not swapped (as in D53 and D54). Everything else is D55's, and the reading is
+    D54's control rule. The block split (D47) runs around G\*.
+  - **Reading.** The count of sums held at G\* in the pair, against the 14B's two-bracket count of 0 (D50, at the
+    answer token alone). The other three models were read at the answer token, so the 14B's count is not directly
+    comparable with theirs. A count of 2 would still support D55's hypothesis on the 14B, in this design.

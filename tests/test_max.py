@@ -137,3 +137,18 @@ def test_das_toy_run(tmp_path):
     assert set(r["cells"]["4/C"]["grid"]["2"]["isolate"]) == {"same_C"}
     meta = json.loads((root / "metadata.json").read_text())
     assert meta["determinism_check"]["training"]["identical"] and meta["determinism_check"]["evaluation"]["identical"]
+
+
+def test_das_two_token_shared_toy_run(tmp_path):
+    """The 14B's design (D55 amended): max's per-variable sources with D54's shared subspace at the answer token
+    and =; the swap spans the two tokens and determinism holds."""
+    cfg = load_das_config("configs/smoke_toy_das.yaml")
+    cfg.output_dir, cfg.task, cfg.variables = str(tmp_path), "max", ["S1", "S2", "C", "Y"]
+    cfg.positions, cfg.shared_basis = "answer_eq", True
+    cfg.sites, cfg.control_site, cfg.ks, cfg.null_k, cfg.epochs = [1, 4], 1, [2], 2, 1
+    root = das.run_das(cfg, run_id="dmax_eq")
+    r = json.loads((root / "core" / "das.json").read_text())
+    assert r["positions"] == "answer_eq" and r["shared_basis"] and len(r["swap"]["tokens"]) == 2
+    assert set(r["n"]["test"]["kept_by_var"]) == {"S1", "S2", "C", "Y"}
+    meta = json.loads((root / "metadata.json").read_text())
+    assert meta["determinism_check"]["training"]["identical"] and meta["determinism_check"]["evaluation"]["identical"]

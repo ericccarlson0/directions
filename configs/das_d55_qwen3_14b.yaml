@@ -1,0 +1,38 @@
+# DAS on the max task (docs/DECISIONS.md D55), Qwen3-14B Base, amended for this model: it never gathers both sums at
+# the answer token alone (job 1, run 39252850362), so D54's shared subspace at the answer token and = is used, at
+# D51's spacing from G* = 30 to F = 37. S1, S2, the comparison bit C and Y, each with its own Cause source.
+name: das_d55
+seed: 20260916
+output_dir: results
+
+model:
+  backend: hf
+  name: Qwen/Qwen3-14B-Base
+  dtype: bfloat16
+  device: cuda             # fail fast rather than fall back to the CPU (docs/INFRA.md)
+  batch_size: 128          # the state captures; the fits run on batch_size below
+
+task: max                     # max(a+b, c+d) = (D55)
+positions: answer_eq            # the answer token and = (D54)
+shared_basis: true             # one (k, d) subspace swapped at both tokens
+sites: [28, 30, 32, 34, 37]       # the control, then G*, G* + 2, G* + 4 and F (D51's spacing)
+control_site: 28              # both bracket swaps move the answer in <= 0.10 here
+variables: [S1, S2, C, Y]     # C: the comparison bit S1 > S2; a drops out (its token is not swapped)
+ks: [16, 32, 64]
+null_k: 64                    # the shuffled-target null at the largest k
+n_train: 1536                 # bases per split, disjoint expressions
+n_val: 256
+n_test: 512
+n_shots: 8
+n_demo_pool: 96
+batch_size: 32
+epochs: 20
+lr: 0.05
+lambdas: [0.1, 1.0, 10.0, 100.0]   # the projection-decodability check's ridge grid (D46's probe)
+n_boot: 1000
+alpha: 0.05
+k_tolerance: 0.05             # k* = the smallest k within this of the best validation Cause
+cause_lower: 0.5              # D48 reading: held when Cause lo >= 0.5 and Isolate lo >= 0.75 at k*
+isolate_lower: 0.75
+determinism_check: true
+figures: true
