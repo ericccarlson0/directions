@@ -1,0 +1,34 @@
+# Splitting the block where the sums appear (docs/DECISIONS.md D47) on the max task (D55), Qwen3-4B Base,
+# around its max gather G = 24 (job 1, run 39178177443).
+name: varsplit
+seed: 20260916
+output_dir: results
+
+model:
+  backend: hf
+  name: Qwen/Qwen3-4B-Base
+  dtype: bfloat16
+  device: cuda             # fail fast rather than fall back to the CPU (docs/INFRA.md)
+  batch_size: 128
+
+expressions: [max]
+n_examples: 2048              # Part 1: the D46 expressions (same draw)
+n_bases: 64                   # Part 2: the D45 bases and sources (same draw)
+n_shots: 8
+n_demo_pool: 96
+gather: 24                    # the D55 max gather G (job 1)
+split_blocks: [23, 24, 25, 26, 27]   # G-1..G+3: block b maps read point b-1 to b
+head_blocks: [24, 25, 26]     # G..G+2
+n_folds: 5
+lambdas: [0.1, 1.0, 10.0, 100.0]
+n_perm: 200
+alpha: 0.05
+n_boot: 1000
+min_accuracy: 0.5
+gate: true
+share_gain_min: 0.1           # D47 judgement thresholds
+carry_lower: 0.1
+not_carry_upper: 0.05
+digit_change: 0.25
+determinism_check: true
+figures: true

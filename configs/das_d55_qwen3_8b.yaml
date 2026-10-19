@@ -1,0 +1,35 @@
+# DAS at the answer token on the max task (docs/DECISIONS.md D55), Qwen3-8B Base: sites by D51's rule
+# from job 1 (run 39178188546: G = 24, F = 25); S1, S2, the comparison bit C, Y and a, each with its own Cause source.
+name: das_d55
+seed: 20260916
+output_dir: results
+
+model:
+  backend: hf
+  name: Qwen/Qwen3-8B-Base
+  dtype: bfloat16
+  device: cuda             # fail fast rather than fall back to the CPU (docs/INFRA.md)
+  batch_size: 64           # the state captures, as in the 8B's max map (D55); the fits run on batch_size below
+
+task: max                     # max(a+b, c+d) = (D55)
+sites: [21, 24, 25, 26]           # the control and G..max(G+2, F) (D51's rule)
+control_site: 21              # both bracket swaps move the answer in <= 0.10 here
+variables: [S1, S2, C, Y, a]  # C: the comparison bit S1 > S2 (D55)
+ks: [16, 32, 64]
+null_k: 64                    # the shuffled-target null at the largest k
+n_train: 1536                 # bases per split, disjoint expressions
+n_val: 256
+n_test: 512
+n_shots: 8
+n_demo_pool: 96
+batch_size: 32
+epochs: 20
+lr: 0.05
+lambdas: [0.1, 1.0, 10.0, 100.0]   # the projection-decodability check's ridge grid (D46's probe)
+n_boot: 1000
+alpha: 0.05
+k_tolerance: 0.05             # k* = the smallest k within this of the best validation Cause
+cause_lower: 0.5              # D48 reading: held when Cause lo >= 0.5 and Isolate lo >= 0.75 at k*
+isolate_lower: 0.75
+determinism_check: true
+figures: true

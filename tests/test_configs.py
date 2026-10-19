@@ -599,3 +599,22 @@ def test_max_map_and_probe_configs_follow_d55():
             c = asdict(load(p))
             three = asdict(load(CONFIGS / p.name.replace("_max_", "_three_")))
             assert c["expressions"] == ["max"] and dict(c, expressions=None) == dict(three, expressions=None), p.name
+
+
+def test_max_split_and_das_configs_follow_d55():
+    """D55 job 2: the block split around each model's max gather and DAS at D51's sites from job 1."""
+    from dataclasses import asdict
+
+    from directions.config import load_das_config, load_varsplit_config
+
+    jobs = {"1.7b": (21, [17, 21, 22, 23]), "4b": (24, [21, 24, 25, 26]), "8b": (24, [21, 24, 25, 26])}  # runs 39178177443, 39178188546
+    for size, (G, sites) in jobs.items():
+        c = asdict(load_varsplit_config(CONFIGS / f"varsplit_max_qwen3_{size}.yaml"))
+        assert c["expressions"] == ["max"] and c["gather"] == G and c["split_blocks"] == list(range(G - 1, G + 4))
+        assert c["head_blocks"] == [G, G + 1, G + 2] and c["model"]["name"] == f"Qwen/Qwen3-{size.upper()}-Base"
+        d = asdict(load_das_config(CONFIGS / f"das_d55_qwen3_{size}.yaml"))
+        assert d["task"] == "max" and d["sites"] == sites and d["control_site"] == sites[0]
+        assert d["variables"] == ["S1", "S2", "C", "Y", "a"] and d["model"]["name"] == f"Qwen/Qwen3-{size.upper()}-Base"
+        ref = asdict(load_das_config(CONFIGS / f"das_d51_qwen3_{'4b' if size == '1.7b' else size}.yaml"))
+        varying = dict(name=None, task=None, sites=None, control_site=None, variables=None, model=None)
+        assert dict(d, **varying) == dict(ref, **varying), size
