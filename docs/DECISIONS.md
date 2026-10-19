@@ -3447,3 +3447,29 @@ Decision (the first map; exploratory):
   - A count of 2 on the 1.7B or the 4B supports the hypothesis; a count of 0 or 1 everywhere refutes it for max.
 * **Runs.** Seed 20260916, one execution, on RTX 4090s (EUR-NO-1). Job 1 per model: D45 and D46. Job 2: D47 and
   DAS. A model whose few-shot accuracy on the D45 bases is below 0.5 is skipped. The 14B later, if wanted.
+* **Outcome (2026-10-19; job 1 runs 39178177443, 39178188546; job 2 runs 39180186358, 39180198181).** All three
+  models pass the accuracy gate (0.56–0.75 on D45's bases, 0.66–0.81 on D46's 2048 expressions). Determinism is
+  identical in every stage. Nothing is held at a control.
+  - **Count.** No sum is held at G on any model: 0, 0, 0, against two-bracket subtraction's 0, 1, 2. By the
+    reading above this refutes the hypothesis for max. Max holds fewer sums apart than subtraction on the 4B and 8B.
+  - **Gather.** Max gathers where subtraction did (21, 24, 24), with both sums coming straight from the digit
+    tokens to the answer token.
+  - **Sums.** From G on, the fits for S1 and S2 reach Cause 0.51–0.76, 0.24–0.60 above their controls, but fail
+    Isolate (lower bounds 0.05–0.45): they carry the answer. On max a sum's Cause target is the source's own
+    answer in 0.70–0.78 of the test pairs. On the remaining 39–68 pairs per model the swap gives the target in
+    0.12–0.41 (exploratory, `scripts/d55_decompose.py`). The design anticipated this coincidence and left the call
+    to Isolate.
+  - **C.** Not held anywhere (Cause 0.29–0.60, Isolate lower bounds 0.23–0.74). On the 8B it is strongest before
+    the gather: at the control its swap gives the base's other sum in 0.60 of the pairs, with an Isolate lower
+    bound of 0.68, and it falls below that after G. C given Y is decodable at 0.94–0.96 one block before G on every
+    model, while the sums given Y read 0.57–0.73.
+  - **Y.** Held from G on the 4B and from G + 1 on the 1.7B and 8B (Cause 0.80–0.91).
+  - **Block split.** No single head carries a bracket in blocks G..G+2. Block G's heads together move 0.36–0.48 of
+    each bracket, and the Y probe's gain in block G is mostly MLP.
+  - **Behaviour.** Accuracy rises with the gap between the sums. The 8B leans on the first sum (0.92 when it
+    wins, 0.58 when the second does), so its analysed bases over-represent the first sum winning.
+  - **Reading.** On max the sums reach the answer token in a code the DAS cannot split into separate sums, as on
+    three brackets, and Y becomes a variable at or right after the gather. On these models, and as far as
+    subspaces of up to 64 dimensions at the answer token can show, needing a non-linear readout of the sums does
+    not raise the count of separate sums. On the 8B a comparison-like code is at the answer token before the sums,
+    but it is not a clean variable.

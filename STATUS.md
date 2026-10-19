@@ -5338,6 +5338,128 @@ whole state (D52). Shuffled-target nulls at k = 64: 0.05–0.20. Ceilings for an
   the pair's whole state does (0.08–0.33 against 0.01–0.07). On the 14B the sums score 0.10–0.33 at G3 and G3 + 1,
   about what they score at the control, and the paired comparison rejects all of them.
 
+### D55: `max(a+b, c+d) = ` (Qwen3 1.7B, 4B, 8B Base, seed 20260916)
+
+D45 and D46 on max (job 1). Then D47, and DAS with the D55 variables, at sites taken by D51's rule from each
+model's job 1 (job 2). The D55 variables are S1, S2, the comparison bit C (S1 > S2), Y and a, each with its own
+Cause source. The question is whether the operation sets how many sums a model holds apart: on two-bracket
+subtraction the count at the gather was 0 (1.7B), 1 (4B) and 2 (8B).
+
+```
+# job 1: workflow runs
+#   39178177443: request d55_map_max_qwen3_1.7b_4b_seed20260916, commit 55422aa, RTX 4090 (ADA_24), EUR-NO-1, ci;
+#     25 min
+#   39178188546: request d55_map_max_qwen3_8b_seed20260916, commit bf63fb8, RTX 4090, ci-b; 24 min
+# about 1 USD; determinism (a repeated swap batch, capture batch and probe) identical in every stage
+uv run python scripts/stages.py \
+  'uv run directions varmap --config configs/varmap_max_qwen3_1.7b.yaml --run-id varmap_max_qwen3_1.7b_seed20260916' \
+  'uv run directions varmap --config configs/varmap_max_qwen3_4b.yaml --run-id varmap_max_qwen3_4b_seed20260916' \
+  'uv run directions varprobe --config configs/varprobe_max_qwen3_1.7b.yaml --run-id varprobe_max_qwen3_1.7b_seed20260916' \
+  'uv run directions varprobe --config configs/varprobe_max_qwen3_4b.yaml --run-id varprobe_max_qwen3_4b_seed20260916'
+# the 8B: the same two stages with configs/varmap_max_qwen3_8b.yaml and varprobe_max_qwen3_8b.yaml (batch 64)
+# the sites per model (D51's rule), and the summaries, on the downloads (results/remote/d55_job1 holds both runs'
+# varmap_max_* and varprobe_max_* directories):
+uv run python scripts/d51_sites.py --task max results/remote/run-39178177443 results/remote/run-39178188546
+uv run python scripts/varmap_summary.py results/remote/d55_job1 --out docs/varmap/summary_max.json --figure docs/varmap/depth_max.png
+uv run python scripts/varprobe_summary.py results/remote/d55_job1 --out docs/varprobe/summary_max.json --figure docs/varprobe/depth_max.png
+```
+
+Figures: `docs/varmap/qwen3_<size>_max.png`, `docs/varprobe/qwen3_<size>_max.png`, `docs/varmap/depth_max.png`,
+`docs/varprobe/depth_max.png`.
+
+| model | few-shot accuracy, D45 / D46 (kept) | G (fraction) | last digit read point | both-swap source answer at the answer token: at G, G..L−1 → L | bracket swaps S1, S2 at G−1 | S1, S2, C given Y at G−1 (nulls) | Y probe 0.9 of final at (F); lens reads Y from | DAS control; sites |
+|---|---|---|---|---|---|---|---|---|
+| 1.7B | 0.562 / 0.656 (1344) | 21 (0.75) | 18 | 0.81, 0.81–0.93 → 1.00 | 0.17, 0.25 | 0.57, 0.57, 0.94 (0.48, 0.40, 0.54) | 22; 22 | 17; 21, 22, 23 |
+| 4B | 0.750 / 0.809 (1656) | 24 (0.67) | 13 | 0.67, 0.67–0.93 → 1.00 | 0.13, 0.13 | 0.57, 0.64, 0.96 (0.47, 0.42, 0.51) | 25; 25 | 21; 24, 25, 26 |
+| 8B | 0.594 / 0.753 (1542) | 24 (0.67) | 23 | 0.66, 0.66–0.97 → 1.00 | 0.03, 0.13 | 0.73, 0.59, 0.96 (0.58, 0.29, 0.62) | 25; 25 | 21; 24, 25, 26 |
+
+(Swap rates over the 20–43 D45 bases kept per swap type. All three models pass the 0.5 accuracy gate.)
+
+- **Max gathers where subtraction does.** Both sums reach the answer token at the read point where the
+  two-bracket subtraction sums did (21, 24, 24). They come straight from the digit tokens: no sum is present at
+  `,`, `)` or `=` (a bracket swap there gives its predicted answer in at most 0.12 of the bases).
+- **The models get max wrong more often than subtraction.** The same prompts with subtraction scored 0.71, 0.97 and
+  0.99 on D46's 2048 expressions. Accuracy rises with the gap between the sums (8B: 0.66 at a gap of 1, 0.84 at
+  5 or more). The 8B leans on the first sum: 0.92 when it is the larger, 0.58 when the second is (1.7B 0.70 / 0.61,
+  4B 0.83 / 0.79). Its correct bases, the only ones analysed, over-represent the first sum winning.
+- **The comparison is readable before the sums.** C given Y is decodable at 0.94–0.96 one block before the gather
+  (nulls 0.51–0.62), where S1 and S2 given Y read 0.57–0.73 against nulls of 0.29–0.58. Decodable is not used; the
+  DAS tests use.
+
+**Job 2: the block split and DAS on the 1.7B, 4B and 8B**
+
+```
+# workflow runs
+#   39180186358: request d55_split_das_max_qwen3_1.7b_4b_seed20260916, commit 135dfde, RTX 4090 (ADA_24), EUR-NO-1,
+#     ci; stages 2, 63, 6 and 114 min (about 3.4 USD)
+#   39180198181: request d55_split_das_max_qwen3_8b_seed20260916, commit 192ffb5, RTX 4090, ci-b; stages 7 and
+#     110 min (about 2.1 USD; block split and state captures at batch 64)
+# 5.74 USD (the balance before and after; D55 in all about 6.7 USD); determinism (a repeated capture, no-op patch
+# and head patch; a repeated evaluation and a fit trained twice for two steps) identical in every stage
+uv run python scripts/stages.py \
+  'uv run directions varsplit --config configs/varsplit_max_qwen3_1.7b.yaml --run-id varsplit_max_qwen3_1.7b_seed20260916' \
+  'uv run directions das --config configs/das_d55_qwen3_1.7b.yaml --run-id das_d55_qwen3_1.7b_seed20260916' \
+  'uv run directions varsplit --config configs/varsplit_max_qwen3_4b.yaml --run-id varsplit_max_qwen3_4b_seed20260916' \
+  'uv run directions das --config configs/das_d55_qwen3_4b.yaml --run-id das_d55_qwen3_4b_seed20260916'
+# the 8B: the same two stages with configs/varsplit_max_qwen3_8b.yaml and das_d55_qwen3_8b.yaml; then, on the downloads:
+uv run python scripts/varsplit_summary.py results/remote/run-<run> --out <json per run, merged into docs/varsplit/summary_max.json> --figures docs/varsplit
+uv run python scripts/d54_compare.py --prefix das_d55_ --d54 results/remote/run-39180186358 results/remote/run-39180198181 --out docs/das/d55_compare.json
+uv run python scripts/d55_decompose.py --runs results/remote/run-39180186358/das_d55_qwen3_1.7b_seed20260916 \
+  results/remote/run-39180186358/das_d55_qwen3_4b_seed20260916 results/remote/run-39180198181/das_d55_qwen3_8b_seed20260916 \
+  --out docs/das/d55_decompose.json
+```
+
+Figures: `docs/varsplit/qwen3_<size>_max.png`, `docs/das/d55_qwen3_<size>.png`. DAS kept per variable (train /
+test): 1.7B S1 581 / 197, S2 503 / 167, C 639 / 209, Y 609 / 203, a 538 / 171; 4B 810 / 282, 778 / 260,
+896 / 305, 951 / 309, 761 / 271; 8B 830 / 291, 623 / 214, 754 / 271, 871 / 308, 761 / 264.
+
+Cells give test Cause at k*, with the Isolate lower bound in parentheses. Bold: held (D48's criterion and D54's
+control rule).
+
+| model, read point | S1 | S2 | C | Y | a |
+|---|---|---|---|---|---|
+| 1.7B 17 (control) | 0.16 (0.85) | 0.09 (0.90) | 0.29 (0.59) | 0.16 (0.65) | 0.28 (0.80) |
+| 1.7B 21 (G) | 0.66 (0.24) | 0.62 (0.21) | 0.39 (0.33) | 0.85 (0.72) | 0.44 (0.46) |
+| 1.7B 22 | 0.68 (0.14) | 0.69 (0.17) | 0.34 (0.27) | **0.88 (0.78)** | 0.36 (0.44) |
+| 1.7B 23 | 0.67 (0.05) | 0.69 (0.12) | 0.33 (0.23) | **0.89 (0.82)** | 0.30 (0.40) |
+| 4B 21 (control) | 0.17 (0.88) | 0.17 (0.86) | 0.34 (0.74) | 0.09 (0.54) | 0.23 (0.80) |
+| 4B 24 (G) | 0.58 (0.41) | 0.74 (0.45) | 0.51 (0.43) | **0.80 (0.79)** | 0.47 (0.54) |
+| 4B 25 | 0.65 (0.24) | 0.71 (0.30) | 0.37 (0.34) | **0.87 (0.80)** | 0.44 (0.55) |
+| 4B 26 | 0.64 (0.21) | 0.67 (0.30) | 0.38 (0.33) | **0.90 (0.86)** | 0.36 (0.54) |
+| 8B 21 (control) | 0.19 (0.82) | 0.26 (0.80) | 0.60 (0.68) | 0.18 (0.43) | 0.25 (0.80) |
+| 8B 24 (G) | 0.70 (0.34) | 0.51 (0.40) | 0.52 (0.36) | 0.84 (0.70) | 0.42 (0.43) |
+| 8B 25 | 0.76 (0.30) | 0.52 (0.31) | 0.47 (0.32) | **0.89 (0.85)** | 0.41 (0.50) |
+| 8B 26 | 0.76 (0.23) | 0.55 (0.27) | 0.51 (0.30) | **0.91 (0.87)** | 0.34 (0.45) |
+
+(Nothing is held at a control. Shuffled-target nulls at k = 64: 0.06–0.38. C's subspace decodes C at 0.73–0.94
+everywhere, chance about 0.5.)
+
+- **No sum is held at the gather on any model: the count is 0, 0, 0, against subtraction's 0, 1, 2.** By D55's
+  reading this refutes, for max, the hypothesis that the operation sets the count. Max, whose answer cannot be
+  read off one linear combination of the sums, holds fewer sums apart than subtraction on the 4B and 8B.
+- **The sums' subspaces carry the answer, not the sum.** From the gather on, the fits for S1 and S2 reach Cause
+  0.51–0.76 (0.24–0.60 above their controls) but fail Isolate (lower bounds 0.05–0.45): swapping them also moves
+  the answer when only the other sum changes. On max a sum's Cause target is the source's own answer in 0.70–0.78
+  of the test pairs. On the 39–68 pairs per model where it is not, the swap gives the target in only 0.12–0.41
+  of them and the source's answer in 0.28–0.71 (`scripts/d55_decompose.py`, exploratory).
+- **The comparison bit is not held either.** C's Cause stays 0.29–0.60 with Isolate lower bounds 0.23–0.74.
+  - On the 8B C is strongest before the gather: at the control its swap gives the base's other sum in 0.60 of the
+    pairs and the source's answer in 0.10, with an Isolate lower bound of 0.68, short of 0.75. After the gather it
+    falls (0.47–0.52, 0.08–0.13 below the control).
+  - On the 4B C peaks at the gather (0.51, +0.17 over its control); on the 1.7B it stays at or below 0.39.
+  - Read with the probe: on the 8B a comparison-like code sits at the answer token before the sums arrive, but
+    a same-comparison source still moves the answer in about a quarter of the bases.
+- **Y is held from the gather on the 4B and from G + 1 on the 1.7B and 8B** (Cause 0.80–0.91, Isolate lower
+  bounds 0.78–0.87). At the 8B's gather Y misses Isolate (0.70).
+- **The block split: no head carries a bracket.** In blocks G..G+2 no single head moves a bracket by the D47
+  threshold on any model. Block G's heads together move 0.36–0.48 of each bracket, the single heads summed
+  0.13–0.28. The Y probe's gain in block G is mostly MLP (4B and 8B, attention share 0.35–0.36) or mixed (1.7B,
+  0.42).
+- **Caveats.** The 8B's analysed bases over-represent the first sum winning (above). D55's Cause targets
+  coincide with the source answer on about three quarters of the pairs, so Cause alone cannot tell a sum from the
+  answer on max; Isolate does, as D55 intended. Restricting Cause to the other pairs would leave 39–68 test pairs per
+  model.
+
 ## Not yet run / known limitations
 
 - The variable map (D45) has run once per model (Qwen3 0.6B, 1.7B, 4B Base; seed 20260916) on two expression tasks
@@ -5353,8 +5475,10 @@ whole state (D52). Shuffled-target nulls at k = 64: 0.05–0.20. Ceilings for an
   accuracy gate): no model holds a sum at its gather, and the merge order is undetermined (neither T nor U is
   held). D52's position-set check (4B, 8B, 14B) places the rest of the answer at `=`; D53's joint DAS over the
   12 non-digit tokens overfit and was stopped after its first wave (4B, half the 14B): D54's two-token DAS (the answer
-  token and `=`, joint and shared basis) holds no sum either: the count at the gather stays 0. The other families are not
-  mapped.
+  token and `=`, joint and shared basis) holds no sum either: the count at the gather stays 0. The max task (D55)
+  has run once on the 1.7B, 4B and 8B (all at the answer token only): no model holds a sum at its gather, and the
+  comparison bit C is not held; the 14B, other tokens and the post-trained models are not run on it. The other
+  families are not mapped.
 - The weight-decayed learned vector (D43) has run once per Qwen3 Base model (seed 20260916) with one weight decay,
   one step size and one budget fixed on a CPU probe of one task; the hand-over, the source test and the geometry
   test have run on it (D44), the all-to-all trajectories (D32–D34), the composition tests (D41, D42) and OLMo 3 and
@@ -5536,6 +5660,10 @@ uv run python scripts/stages.py 'uv run directions das --config configs/das_d53_
 uv run python scripts/stages.py 'uv run directions das --config configs/das_d53_qwen3_14b_a.yaml --run-id das_d53_qwen3_14b_a_seed20260916'
 # D54, the two-token DAS (runs 39031654601, 39031665353, 39031675436), per size the joint then the shared variant:
 uv run python scripts/stages.py 'uv run directions das --config configs/das_d54_qwen3_4b_joint.yaml --run-id das_d54_qwen3_4b_joint_seed20260916' 'uv run directions das --config configs/das_d54_qwen3_4b_shared.yaml --run-id das_d54_qwen3_4b_shared_seed20260916'
+# D55, the max task: job 1 (runs 39178177443, 39178188546), job 2 (runs 39180186358, 39180198181); the 8B the same:
+uv run python scripts/stages.py 'uv run directions varmap --config configs/varmap_max_qwen3_1.7b.yaml --run-id varmap_max_qwen3_1.7b_seed20260916' 'uv run directions varmap --config configs/varmap_max_qwen3_4b.yaml --run-id varmap_max_qwen3_4b_seed20260916' 'uv run directions varprobe --config configs/varprobe_max_qwen3_1.7b.yaml --run-id varprobe_max_qwen3_1.7b_seed20260916' 'uv run directions varprobe --config configs/varprobe_max_qwen3_4b.yaml --run-id varprobe_max_qwen3_4b_seed20260916'
+uv run python scripts/stages.py 'uv run directions varsplit --config configs/varsplit_max_qwen3_1.7b.yaml --run-id varsplit_max_qwen3_1.7b_seed20260916' 'uv run directions das --config configs/das_d55_qwen3_1.7b.yaml --run-id das_d55_qwen3_1.7b_seed20260916' 'uv run directions varsplit --config configs/varsplit_max_qwen3_4b.yaml --run-id varsplit_max_qwen3_4b_seed20260916' 'uv run directions das --config configs/das_d55_qwen3_4b.yaml --run-id das_d55_qwen3_4b_seed20260916'
+uv run python scripts/d54_compare.py --prefix das_d55_ --d54 results/remote/run-39180186358 results/remote/run-39180198181 --out docs/das/d55_compare.json
 # iteration 10 (D33 amended: quarter strength, the neighbouring candidate layers, the patch test at every compared
 # layer on eighths of the depth for the learned and the head-mean vector, per-block writing), on a second seed,
 # as run (workflow runs in the iteration-10 entry): first the learned-vector protocol (D31) at seed 20260916 on
