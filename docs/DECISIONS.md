@@ -3494,3 +3494,16 @@ Decision (the first map; exploratory):
   - **Reading.** The count of sums held at G\* in the pair, against the 14B's two-bracket count of 0 (D50, at the
     answer token alone). The other three models were read at the answer token, so the 14B's count is not directly
     comparable with theirs. A count of 2 would still support D55's hypothesis on the 14B, in this design.
+* **Outcome on the 14B (2026-10-19; runs 39252850362, 39256611159).** Determinism is identical in every stage,
+  and nothing is held at the control.
+  - **Count.** No sum is held at G\* = 30, even with `=` in the subspace: 0, as on two brackets (D50).
+  - **The four models.** The count of sums held at the gather on max is 0 on the 1.7B, 4B, 8B and 14B.
+  - **Sums.** S1 and S2 reach Cause 0.70–0.77 from G\* on but fail Isolate (lower bounds 0.04–0.31), as on the
+    other models: they carry the answer.
+  - **C.** As on the 8B, C is strongest before the sums are at the answer token: at the control its swap gives
+    the base's other sum in 0.79 of the pairs, with an Isolate lower bound of 0.47 (not held). It falls to
+    0.28–0.47 from G\* on. On the two largest models a code of the comparison precedes the sums at the answer
+    token and fades as the answer forms, but it is not a clean variable.
+  - **Y.** Held from G\* on (0.92–0.98).
+  - **Behaviour.** The 14B is the most accurate on max (0.868) and the only model without a first-sum bias (0.88
+    against 0.86). Accuracy does not buy separate sums.

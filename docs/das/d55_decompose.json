@@ -973,5 +973,330 @@
     }
    }
   }
+ },
+ "qwen3_14b": {
+  "control_site": 28,
+  "cells": {
+   "28/S1": {
+    "n": 334,
+    "k_star": 32,
+    "target_is_source_answer": 0.751,
+    "out": {
+     "target": 0.518,
+     "source_answer": 0.428,
+     "base": 0.159
+    },
+    "n_target_differs": 83,
+    "out_where_target_differs": {
+     "target": 0.434,
+     "source_answer": 0.072,
+     "base": 0.145
+    }
+   },
+   "28/S2": {
+    "n": 303,
+    "k_star": 16,
+    "target_is_source_answer": 0.739,
+    "out": {
+     "target": 0.541,
+     "source_answer": 0.505,
+     "base": 0.158
+    },
+    "n_target_differs": 79,
+    "out_where_target_differs": {
+     "target": 0.329,
+     "source_answer": 0.19,
+     "base": 0.127
+    }
+   },
+   "28/C": {
+    "n": 345,
+    "k_star": 16,
+    "target_is_source_answer": 0.0,
+    "out": {
+     "target": 0.788,
+     "source_answer": 0.041,
+     "base": 0.075
+    },
+    "n_target_differs": 345,
+    "out_where_target_differs": {
+     "target": 0.788,
+     "source_answer": 0.041,
+     "base": 0.075
+    }
+   },
+   "28/Y": {
+    "n": 383,
+    "k_star": 32,
+    "target_is_source_answer": 1.0,
+    "out": {
+     "target": 0.713,
+     "source_answer": 0.713,
+     "base": 0.065
+    },
+    "n_target_differs": 0,
+    "out_where_target_differs": {
+     "target": null,
+     "source_answer": null,
+     "base": null
+    }
+   },
+   "30/S1": {
+    "n": 334,
+    "k_star": 16,
+    "target_is_source_answer": 0.751,
+    "out": {
+     "target": 0.772,
+     "source_answer": 0.728,
+     "base": 0.042
+    },
+    "n_target_differs": 83,
+    "out_where_target_differs": {
+     "target": 0.434,
+     "source_answer": 0.253,
+     "base": 0.096
+    }
+   },
+   "30/S2": {
+    "n": 303,
+    "k_star": 16,
+    "target_is_source_answer": 0.739,
+    "out": {
+     "target": 0.703,
+     "source_answer": 0.713,
+     "base": 0.05
+    },
+    "n_target_differs": 79,
+    "out_where_target_differs": {
+     "target": 0.342,
+     "source_answer": 0.38,
+     "base": 0.101
+    }
+   },
+   "30/C": {
+    "n": 345,
+    "k_star": 32,
+    "target_is_source_answer": 0.0,
+    "out": {
+     "target": 0.467,
+     "source_answer": 0.072,
+     "base": 0.125
+    },
+    "n_target_differs": 345,
+    "out_where_target_differs": {
+     "target": 0.467,
+     "source_answer": 0.072,
+     "base": 0.125
+    }
+   },
+   "30/Y": {
+    "n": 383,
+    "k_star": 16,
+    "target_is_source_answer": 1.0,
+    "out": {
+     "target": 0.919,
+     "source_answer": 0.919,
+     "base": 0.018
+    },
+    "n_target_differs": 0,
+    "out_where_target_differs": {
+     "target": null,
+     "source_answer": null,
+     "base": null
+    }
+   },
+   "32/S1": {
+    "n": 334,
+    "k_star": 16,
+    "target_is_source_answer": 0.751,
+    "out": {
+     "target": 0.734,
+     "source_answer": 0.754,
+     "base": 0.063
+    },
+    "n_target_differs": 83,
+    "out_where_target_differs": {
+     "target": 0.289,
+     "source_answer": 0.373,
+     "base": 0.157
+    }
+   },
+   "32/S2": {
+    "n": 303,
+    "k_star": 32,
+    "target_is_source_answer": 0.739,
+    "out": {
+     "target": 0.756,
+     "source_answer": 0.769,
+     "base": 0.043
+    },
+    "n_target_differs": 79,
+    "out_where_target_differs": {
+     "target": 0.316,
+     "source_answer": 0.367,
+     "base": 0.127
+    }
+   },
+   "32/C": {
+    "n": 345,
+    "k_star": 32,
+    "target_is_source_answer": 0.0,
+    "out": {
+     "target": 0.417,
+     "source_answer": 0.09,
+     "base": 0.168
+    },
+    "n_target_differs": 345,
+    "out_where_target_differs": {
+     "target": 0.417,
+     "source_answer": 0.09,
+     "base": 0.168
+    }
+   },
+   "32/Y": {
+    "n": 383,
+    "k_star": 16,
+    "target_is_source_answer": 1.0,
+    "out": {
+     "target": 0.948,
+     "source_answer": 0.948,
+     "base": 0.008
+    },
+    "n_target_differs": 0,
+    "out_where_target_differs": {
+     "target": null,
+     "source_answer": null,
+     "base": null
+    }
+   },
+   "34/S1": {
+    "n": 334,
+    "k_star": 16,
+    "target_is_source_answer": 0.751,
+    "out": {
+     "target": 0.763,
+     "source_answer": 0.763,
+     "base": 0.057
+    },
+    "n_target_differs": 83,
+    "out_where_target_differs": {
+     "target": 0.361,
+     "source_answer": 0.361,
+     "base": 0.181
+    }
+   },
+   "34/S2": {
+    "n": 303,
+    "k_star": 16,
+    "target_is_source_answer": 0.739,
+    "out": {
+     "target": 0.723,
+     "source_answer": 0.792,
+     "base": 0.05
+    },
+    "n_target_differs": 79,
+    "out_where_target_differs": {
+     "target": 0.228,
+     "source_answer": 0.494,
+     "base": 0.101
+    }
+   },
+   "34/C": {
+    "n": 345,
+    "k_star": 64,
+    "target_is_source_answer": 0.0,
+    "out": {
+     "target": 0.42,
+     "source_answer": 0.116,
+     "base": 0.162
+    },
+    "n_target_differs": 345,
+    "out_where_target_differs": {
+     "target": 0.42,
+     "source_answer": 0.116,
+     "base": 0.162
+    }
+   },
+   "34/Y": {
+    "n": 383,
+    "k_star": 16,
+    "target_is_source_answer": 1.0,
+    "out": {
+     "target": 0.966,
+     "source_answer": 0.966,
+     "base": 0.005
+    },
+    "n_target_differs": 0,
+    "out_where_target_differs": {
+     "target": null,
+     "source_answer": null,
+     "base": null
+    }
+   },
+   "37/S1": {
+    "n": 334,
+    "k_star": 16,
+    "target_is_source_answer": 0.751,
+    "out": {
+     "target": 0.76,
+     "source_answer": 0.826,
+     "base": 0.069
+    },
+    "n_target_differs": 83,
+    "out_where_target_differs": {
+     "target": 0.301,
+     "source_answer": 0.566,
+     "base": 0.229
+    }
+   },
+   "37/S2": {
+    "n": 303,
+    "k_star": 16,
+    "target_is_source_answer": 0.739,
+    "out": {
+     "target": 0.713,
+     "source_answer": 0.875,
+     "base": 0.056
+    },
+    "n_target_differs": 79,
+    "out_where_target_differs": {
+     "target": 0.089,
+     "source_answer": 0.709,
+     "base": 0.165
+    }
+   },
+   "37/C": {
+    "n": 345,
+    "k_star": 32,
+    "target_is_source_answer": 0.0,
+    "out": {
+     "target": 0.284,
+     "source_answer": 0.157,
+     "base": 0.287
+    },
+    "n_target_differs": 345,
+    "out_where_target_differs": {
+     "target": 0.284,
+     "source_answer": 0.157,
+     "base": 0.287
+    }
+   },
+   "37/Y": {
+    "n": 383,
+    "k_star": 16,
+    "target_is_source_answer": 1.0,
+    "out": {
+     "target": 0.977,
+     "source_answer": 0.977,
+     "base": 0.005
+    },
+    "n_target_differs": 0,
+    "out_where_target_differs": {
+     "target": null,
+     "source_answer": null,
+     "base": null
+    }
+   }
+  }
  }
 }
