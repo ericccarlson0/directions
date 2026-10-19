@@ -6,9 +6,11 @@ the site minus the same variable's hits at the control, paired by test base, wit
 interval (1000 resamples). A variable is read as held when D48's criterion holds and that lower bound is above 0;
 a variable held at the control voids the variant on that model. Beside each cell, D51's answer-token result at the
 site and D52's whole-state rate for answer + = (the bracket's own source for S1-S3, every sum otherwise).
+The same rule reads D55's max DAS at the answer token (`--prefix das_d55_`; no D51 or D52 runs beside it).
 
     uv run python scripts/d54_compare.py --d54 <dirs holding das_d54_* runs> --d51 <dirs holding das_d51_* runs> \
         --d52 <dirs holding posset_* runs> --out docs/das/d54_compare.json
+    uv run python scripts/d54_compare.py --prefix das_d55_ --d54 <dirs holding das_d55_* runs> --out docs/das/d55_compare.json
 """
 
 from __future__ import annotations
@@ -56,10 +58,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--d51", type=Path, nargs="+", default=[])
     ap.add_argument("--d52", type=Path, nargs="+", default=[])
     ap.add_argument("--out", type=Path)
+    ap.add_argument("--prefix", default="das_d54_", help="the run-name prefix of the DAS runs read with the control rule")
     args = ap.parse_args(argv)
     runs = []
     for root in args.d54:
-        for run in sorted(root.glob("das_d54_*")):
+        for run in sorted(root.glob(f"{args.prefix}*")):
             if (run / "core" / "das.json").exists() and size_of(run.name):
                 runs.append(run)
     d51 = {}
@@ -74,14 +77,14 @@ def main(argv: list[str] | None = None) -> int:
             if f.exists() and size_of(run.name):
                 d52[size_of(run.name)] = json.loads(f.read_text())
     if not runs:
-        print("no D54 runs found", file=sys.stderr)
+        print(f"no {args.prefix}* runs found", file=sys.stderr)
         return 1
     summary: dict[str, dict] = {}
     for run in sorted(runs, key=lambda r: (float(size_of(r.name)[:-1]), r.name)):
         r = json.loads((run / "core" / "das.json").read_text())
         pred = dict(np.load(run / "core" / "das_predictions.npz"))
         size = size_of(run.name)
-        variant = "shared" if r.get("shared_basis") else "joint"
+        variant = "shared" if r.get("shared_basis") else "joint" if r.get("positions", "answer") != "answer" else "answer"
         ctrl = r["control_site"]
         rng = np.random.default_rng(SEED)
         out = {"control_site": ctrl, "control_held": r["per_site"][str(ctrl)]["held"], "sites": {}}
@@ -100,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
                 if old and f"{s}/{v}" in old["cells"]:
                     row["answer_token_d51"] = cell(old["cells"][f"{s}/{v}"])
                 pz = d52.get(size)
-                if pz and s in pz["read_points"]:
+                if pz and s in pz["read_points"] and v in CEILING_SOURCE:
                     i = pz["read_points"].index(s)
                     src = CEILING_SOURCE[v]
                     row["ceiling_d52"] = {"answer_eq": round(float(pz["rates"][src]["answer_eq"]["flip"]["mean"][i]), 3),
@@ -111,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
         summary[f"qwen3_{size}/{variant}"] = out
         print(f"qwen3_{size} {variant}: control {ctrl} held {out['control_held']}{' (VOID)' if out['void'] else ''}")
         for s, per in out["sites"].items():
-            print(f"  read point {s}{' (control)' if s == ctrl else ''}: held (D48) {per['held_d48']}; held (D54) {per['held']}")
+            print(f"  read point {s}{' (control)' if s == ctrl else ''}: held (D48) {per['held_d48']}; held (D54) {per['held']}; sums held {per['sums_held']}")
             for v, row in per["variables"].items():
                 f = row["fit"]
                 line = (f"    {v:2s} {f['cause']:.2f} [{f['cause_ci'][0]:.2f}, {f['cause_ci'][1]:.2f}] iso_lo {f['isolate_lo']:.2f}"
