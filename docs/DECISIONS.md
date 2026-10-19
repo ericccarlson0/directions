@@ -3473,3 +3473,7 @@ Decision (the first map; exploratory):
     subspaces of up to 64 dimensions at the answer token can show, needing a non-linear readout of the sums does
     not raise the count of separate sums. On the 8B a comparison-like code is at the answer token before the sums,
     but it is not a clean variable.
+* **The 14B (added 2026-10-19, before its runs).** The same design on Qwen3-14B Base, job 1 then job 2 with sites
+  by D51's rule from job 1. Its two-bracket count at the gather was 0 (D50). It runs on the H100 (`ADA_80_PRO`,
+  US-CA-2, `ci-8b`), oversized for the reason D50 gives: no 48 GB worker has been assigned. Batch 128, as in its
+  three-bracket files. Nothing else changes; the reading above is unchanged and the 14B adds one more count.
