@@ -478,5 +478,173 @@
    "y_probe_formed_at": 25,
    "lens_reads_y_from": 25
   }
+ },
+ "qwen3_14b": {
+  "max": {
+   "accuracy": 0.8681640625,
+   "n_kept": 1778,
+   "gather": 30,
+   "L": 40,
+   "probes": {
+    "C|Y": {
+     "pre_mean": 0.93,
+     "at_G_minus_1": 0.926,
+     "peak_after": 0.938,
+     "peak_at": 40,
+     "at_L": 0.938,
+     "null_mean": 0.5,
+     "carried_after_G": true,
+     "carried_at_L": true
+    },
+    "L|Y": {
+     "pre_mean": 0.599,
+     "at_G_minus_1": 0.53,
+     "peak_after": 0.648,
+     "peak_at": 40,
+     "at_L": 0.648,
+     "null_mean": 0.186,
+     "carried_after_G": true,
+     "carried_at_L": true
+    },
+    "S1|Y": {
+     "pre_mean": 0.618,
+     "at_G_minus_1": 0.673,
+     "peak_after": 0.681,
+     "peak_at": 31,
+     "at_L": 0.674,
+     "null_mean": 0.455,
+     "carried_after_G": true,
+     "carried_at_L": true
+    },
+    "S2|Y": {
+     "pre_mean": 0.668,
+     "at_G_minus_1": 0.629,
+     "peak_after": 0.664,
+     "peak_at": 32,
+     "at_L": 0.648,
+     "null_mean": 0.412,
+     "carried_after_G": true,
+     "carried_at_L": true
+    },
+    "Y": {
+     "pre_mean": 0.603,
+     "at_G_minus_1": 0.827,
+     "peak_after": 0.982,
+     "peak_at": 40,
+     "at_L": 0.982,
+     "null_mean": 0.36,
+     "carried_after_G": true,
+     "carried_at_L": true
+    },
+    "a|S1": {
+     "pre_mean": 0.972,
+     "at_G_minus_1": 0.927,
+     "peak_after": 0.939,
+     "peak_at": 40,
+     "at_L": 0.939,
+     "null_mean": 0.187,
+     "carried_after_G": true,
+     "carried_at_L": true
+    },
+    "c|S2": {
+     "pre_mean": 0.977,
+     "at_G_minus_1": 0.936,
+     "peak_after": 0.938,
+     "peak_at": 30,
+     "at_L": 0.929,
+     "null_mean": 0.196,
+     "carried_after_G": true,
+     "carried_at_L": true
+    }
+   },
+   "lens": {
+    "L": {
+     "peak": 0.192,
+     "at": 32,
+     "null": 0.115,
+     "carried_at": [
+      28,
+      29,
+      30,
+      31,
+      32
+     ]
+    },
+    "S1": {
+     "peak": 0.181,
+     "at": 32,
+     "null": 0.116,
+     "carried_at": [
+      28,
+      29,
+      30,
+      31,
+      32
+     ]
+    },
+    "S2": {
+     "peak": 0.203,
+     "at": 32,
+     "null": 0.116,
+     "carried_at": [
+      28,
+      29,
+      30,
+      31,
+      32
+     ]
+    },
+    "a": {
+     "peak": 0.331,
+     "at": 29,
+     "null": 0.086,
+     "carried_at": [
+      28,
+      29,
+      30,
+      31,
+      32
+     ]
+    },
+    "b": {
+     "peak": 0.294,
+     "at": 31,
+     "null": 0.084,
+     "carried_at": [
+      28,
+      29,
+      30,
+      31,
+      32
+     ]
+    },
+    "c": {
+     "peak": 0.31,
+     "at": 29,
+     "null": 0.086,
+     "carried_at": [
+      28,
+      29,
+      30,
+      31,
+      32
+     ]
+    },
+    "d": {
+     "peak": 0.279,
+     "at": 31,
+     "null": 0.082,
+     "carried_at": [
+      28,
+      29,
+      30,
+      31,
+      32
+     ]
+    }
+   },
+   "y_probe_formed_at": 37,
+   "lens_reads_y_from": 34
+  }
  }
 }

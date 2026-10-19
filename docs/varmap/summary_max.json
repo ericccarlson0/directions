@@ -124,5 +124,47 @@
     "both_swap_source_answer_at_gather": 0.656
    }
   }
+ },
+ "varmap_max_qwen3_14b_seed20260916": {
+  "max": {
+   "accuracy": 0.828125,
+   "n_kept": {
+    "S1": 45,
+    "S1_same": 45,
+    "S2": 49,
+    "S2_same": 47,
+    "both": 51
+   },
+   "n_read_points": 41,
+   "as_run": {
+    "gather_read_point": 40,
+    "gather_fraction": 1.0,
+    "gather_holds_to_the_end": true,
+    "last_digit_read_point": 25,
+    "present_elsewhere": {
+     "S1": false,
+     "S2": false
+    },
+    "both_swap_source_answer_at_gather": 1.0
+   },
+   "fragile_rows": {
+    "S1": 0,
+    "S1_same": 0,
+    "S2": 0,
+    "S2_same": 0,
+    "both": 0
+   },
+   "fragile_dropped": {
+    "gather_read_point": 40,
+    "gather_fraction": 1.0,
+    "gather_holds_to_the_end": true,
+    "last_digit_read_point": 25,
+    "present_elsewhere": {
+     "S1": false,
+     "S2": false
+    },
+    "both_swap_source_answer_at_gather": 1.0
+   }
+  }
  }
 }

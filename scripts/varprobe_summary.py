@@ -26,7 +26,8 @@ GATHER = {"qwen3_0.6b": 21, "qwen3_1.7b": 21, "qwen3_4b": 24, "qwen3_8b": 24, "q
 # the three-bracket gather G3 per model (D51; first read point with all three sums at the answer token)
 GATHER3 = {"qwen3_4b": 24, "qwen3_8b": 24, "qwen3_14b": 30}  # runs 38934415363, 38934932951, 38934471957
 # the max gather per model (D55; first read point with both sums at the answer token), from its job 1
-GATHER_MAX = {"qwen3_1.7b": 21, "qwen3_4b": 24, "qwen3_8b": 24}  # runs 39178177443, 39178188546
+GATHER_MAX = {"qwen3_1.7b": 21, "qwen3_4b": 24, "qwen3_8b": 24,  # runs 39178177443, 39178188546
+              "qwen3_14b": 30}  # G* (D55 amended): the 14B never gathers at the answer token alone (run 39252850362)
 
 
 
