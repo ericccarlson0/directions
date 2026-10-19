@@ -5338,7 +5338,7 @@ whole state (D52). Shuffled-target nulls at k = 64: 0.05–0.20. Ceilings for an
   the pair's whole state does (0.08–0.33 against 0.01–0.07). On the 14B the sums score 0.10–0.33 at G3 and G3 + 1,
   about what they score at the control, and the paired comparison rejects all of them.
 
-### D55: `max(a+b, c+d) = ` (Qwen3 1.7B, 4B, 8B Base, seed 20260916)
+### D55: `max(a+b, c+d) = ` (Qwen3 1.7B, 4B, 8B, 14B Base, seed 20260916)
 
 D45 and D46 on max (job 1). Then D47, and DAS with the D55 variables, at sites taken by D51's rule from each
 model's job 1 (job 2). The D55 variables are S1, S2, the comparison bit C (S1 > S2), Y and a, each with its own
@@ -5460,6 +5460,60 @@ everywhere, chance about 0.5.)
   answer on max; Isolate does, as D55 intended. Restricting Cause to the other pairs would leave 39–68 test pairs per
   model.
 
+**The 14B (D55 amended for it before its job 2)**
+
+```
+# workflow runs, H100 80GB HBM3 (ADA_80_PRO), US-CA-2, ci-8b
+#   39252850362: request d55_map_max_qwen3_14b_seed20260916, commit 15f109c; stages 17 and 3 min (1.70 USD)
+#   39256611159: request d55_split_das_max_qwen3_14b_seed20260916, commit d5a9cf2; stages 7 and 78 min (6.94 USD)
+# 8.64 USD (the balance before and after each); determinism identical in all four stages
+uv run python scripts/stages.py \
+  'uv run directions varmap --config configs/varmap_max_qwen3_14b.yaml --run-id varmap_max_qwen3_14b_seed20260916' \
+  'uv run directions varprobe --config configs/varprobe_max_qwen3_14b.yaml --run-id varprobe_max_qwen3_14b_seed20260916'
+uv run python scripts/d51_sites.py --task max results/remote/run-39252850362     # G = 40 = L: no valid sites (below)
+uv run python scripts/stages.py \
+  'uv run directions varsplit --config configs/varsplit_max_qwen3_14b.yaml --run-id varsplit_max_qwen3_14b_seed20260916' \
+  'uv run directions das --config configs/das_d55_qwen3_14b.yaml --run-id das_d55_qwen3_14b_seed20260916'
+# the summaries above, rerun with the 14B's runs added (docs/*/summary_max.json, docs/das/d55_compare.json,
+# docs/das/d55_decompose.json)
+```
+
+Figures: `docs/varmap/qwen3_14b_max.png`, `docs/varprobe/qwen3_14b_max.png`, `docs/varsplit/qwen3_14b_max.png`,
+`docs/das/d55_qwen3_14b.png`.
+
+- **Job 1: the 14B never gathers both sums at the answer token alone.** Few-shot accuracy 0.828 on D45's bases
+  and 0.868 on D46's 2048 expressions, with no first-sum bias (0.88 when the first sum wins, 0.86 when the second
+  does; 0.80 at a gap of 1, 0.93 at 5 or more).
+  - From read point 30 on, each bracket swap at the answer token gives its prediction in 0.44–0.67 of the bases,
+    and at `=` in up to 0.38. Swapping both brackets gives 0.51–0.65 at the answer token and up to 0.47 at `=`.
+  - S2's lower bound peaks at 0.45, short of D45's 0.5, so G is the output (40), and D51's sites rule yields read
+    points past the stack. The answer is shared with `=`, as on three brackets (D52).
+  - Probe: C given Y 0.93 one block before G\* = 30 (null 0.50); S1 and S2 given Y 0.63–0.67 (nulls 0.41–0.46).
+    Y is readable at 0.83 there already (the other models: 0.56–0.64 one block before their gathers).
+- **Job 2 (DECISIONS D55, the 14B's amendment).** The control was 28, with G\* = 30, sites 32, 34 and 37, and D54's
+  shared subspace at the answer token and `=`. It kept 899–1051 train and 303–383 test pairs per variable.
+
+| 14B, read point | S1 | S2 | C | Y |
+|---|---|---|---|---|
+| 28 (control) | 0.52 (0.66) | 0.54 (0.61) | 0.79 (0.47) | 0.71 (0.55) |
+| 30 (G\*) | 0.77 (0.31) | 0.70 (0.31) | 0.47 (0.23) | **0.92 (0.75)** |
+| 32 | 0.73 (0.26) | 0.76 (0.28) | 0.42 (0.20) | **0.95 (0.79)** |
+| 34 | 0.76 (0.20) | 0.72 (0.21) | 0.42 (0.20) | **0.97 (0.85)** |
+| 37 (F) | 0.76 (0.06) | 0.71 (0.04) | 0.28 (0.30) | **0.98 (0.92)** |
+
+(Test Cause at k*, Isolate lower bound in parentheses; bold: held. Nothing is held at the control. Nulls at
+k = 64: 0.10–0.49.)
+
+- **No sum is held at G\* on the 14B either, even with `=` in the subspace: the count is 0.** S1 and S2 reach
+  Cause 0.70–0.77 (0.16–0.25 above the control) and fail Isolate (0.04–0.31). On the 79–83 test pairs per sum
+  whose target is not the source's answer, the swap gives the target in only 0.09–0.43.
+- **C is the strongest at the control and fades after.** At read point 28 C's swap gives the base's other sum in
+  0.79 of the pairs (the source's answer in 0.04), with an Isolate lower bound of 0.47. From G\* on it falls to
+  0.28–0.47, 0.32–0.50 below the control.
+- **Y is held from G\* on** (Cause 0.92–0.98).
+- **The block split.** No head of blocks 30–32 carries a bracket; together they move at most 0.09 of one. The Y
+  probe's gain is in block 29 (MLP, attention share 0.37).
+
 ## Not yet run / known limitations
 
 - The variable map (D45) has run once per model (Qwen3 0.6B, 1.7B, 4B Base; seed 20260916) on two expression tasks
@@ -5476,8 +5530,9 @@ everywhere, chance about 0.5.)
   held). D52's position-set check (4B, 8B, 14B) places the rest of the answer at `=`; D53's joint DAS over the
   12 non-digit tokens overfit and was stopped after its first wave (4B, half the 14B): D54's two-token DAS (the answer
   token and `=`, joint and shared basis) holds no sum either: the count at the gather stays 0. The max task (D55)
-  has run once on the 1.7B, 4B and 8B (all at the answer token only): no model holds a sum at its gather, and the
-  comparison bit C is not held; the 14B, other tokens and the post-trained models are not run on it. The other
+  has run once on the 1.7B, 4B and 8B at the answer token, and on the 14B at the answer token and `=` (it never
+  gathers at the answer token alone): no model holds a sum at its gather, and the comparison bit C is not held;
+  DAS with larger subspaces (k > 64) and the post-trained models are not run on it. The other
   families are not mapped.
 - The weight-decayed learned vector (D43) has run once per Qwen3 Base model (seed 20260916) with one weight decay,
   one step size and one budget fixed on a CPU probe of one task; the hand-over, the source test and the geometry
@@ -5664,6 +5719,9 @@ uv run python scripts/stages.py 'uv run directions das --config configs/das_d54_
 uv run python scripts/stages.py 'uv run directions varmap --config configs/varmap_max_qwen3_1.7b.yaml --run-id varmap_max_qwen3_1.7b_seed20260916' 'uv run directions varmap --config configs/varmap_max_qwen3_4b.yaml --run-id varmap_max_qwen3_4b_seed20260916' 'uv run directions varprobe --config configs/varprobe_max_qwen3_1.7b.yaml --run-id varprobe_max_qwen3_1.7b_seed20260916' 'uv run directions varprobe --config configs/varprobe_max_qwen3_4b.yaml --run-id varprobe_max_qwen3_4b_seed20260916'
 uv run python scripts/stages.py 'uv run directions varsplit --config configs/varsplit_max_qwen3_1.7b.yaml --run-id varsplit_max_qwen3_1.7b_seed20260916' 'uv run directions das --config configs/das_d55_qwen3_1.7b.yaml --run-id das_d55_qwen3_1.7b_seed20260916' 'uv run directions varsplit --config configs/varsplit_max_qwen3_4b.yaml --run-id varsplit_max_qwen3_4b_seed20260916' 'uv run directions das --config configs/das_d55_qwen3_4b.yaml --run-id das_d55_qwen3_4b_seed20260916'
 uv run python scripts/d54_compare.py --prefix das_d55_ --d54 results/remote/run-39180186358 results/remote/run-39180198181 --out docs/das/d55_compare.json
+# the 14B on the H100 (runs 39252850362, 39256611159; D55 amended for it: G* = 30, the shared two-token subspace):
+uv run python scripts/stages.py 'uv run directions varmap --config configs/varmap_max_qwen3_14b.yaml --run-id varmap_max_qwen3_14b_seed20260916' 'uv run directions varprobe --config configs/varprobe_max_qwen3_14b.yaml --run-id varprobe_max_qwen3_14b_seed20260916'
+uv run python scripts/stages.py 'uv run directions varsplit --config configs/varsplit_max_qwen3_14b.yaml --run-id varsplit_max_qwen3_14b_seed20260916' 'uv run directions das --config configs/das_d55_qwen3_14b.yaml --run-id das_d55_qwen3_14b_seed20260916'
 # iteration 10 (D33 amended: quarter strength, the neighbouring candidate layers, the patch test at every compared
 # layer on eighths of the depth for the learned and the head-mean vector, per-block writing), on a second seed,
 # as run (workflow runs in the iteration-10 entry): first the learned-vector protocol (D31) at seed 20260916 on
