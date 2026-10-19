@@ -36,8 +36,8 @@ def by_size(path: Path) -> tuple:
     return (float(m.group(1)) if m else float("inf"), path.name)
 
 def parse_expr(text: str) -> Expr:
-    """``(a+b) - (c+d)``, ``(a+b) - c`` or ``(a+b) - (c+d) - (e+f)`` as written by :meth:`Expr.text`."""
-    return Expr(*[int(x) for x in re.findall(r"\d", text)])
+    """``(a+b) - (c+d)``, ``(a+b) - c``, ``(a+b) - (c+d) - (e+f)`` or ``max(a+b, c+d)`` as written by :meth:`Expr.text`."""
+    return Expr(*[int(x) for x in re.findall(r"\d", text)], op="max" if text.startswith("max") else "-")
 
 
 def digit_token_ids(result: dict, arrays: dict[str, np.ndarray]) -> dict[int, int]:

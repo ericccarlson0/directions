@@ -1,0 +1,128 @@
+{
+ "varmap_max_qwen3_1.7b_seed20260916": {
+  "max": {
+   "accuracy": 0.5625,
+   "n_kept": {
+    "S1": 23,
+    "S1_same": 23,
+    "S2": 20,
+    "S2_same": 24,
+    "both": 27
+   },
+   "n_read_points": 29,
+   "as_run": {
+    "gather_read_point": 21,
+    "gather_fraction": 0.75,
+    "gather_holds_to_the_end": true,
+    "last_digit_read_point": 18,
+    "present_elsewhere": {
+     "S1": false,
+     "S2": false
+    },
+    "both_swap_source_answer_at_gather": 0.815
+   },
+   "fragile_rows": {
+    "S1": 1,
+    "S1_same": 1,
+    "S2": 1,
+    "S2_same": 0,
+    "both": 1
+   },
+   "fragile_dropped": {
+    "gather_read_point": 21,
+    "gather_fraction": 0.75,
+    "gather_holds_to_the_end": true,
+    "last_digit_read_point": 18,
+    "present_elsewhere": {
+     "S1": false,
+     "S2": false
+    },
+    "both_swap_source_answer_at_gather": 0.815
+   }
+  }
+ },
+ "varmap_max_qwen3_4b_seed20260916": {
+  "max": {
+   "accuracy": 0.75,
+   "n_kept": {
+    "S1": 38,
+    "S1_same": 32,
+    "S2": 38,
+    "S2_same": 35,
+    "both": 43
+   },
+   "n_read_points": 37,
+   "as_run": {
+    "gather_read_point": 24,
+    "gather_fraction": 0.667,
+    "gather_holds_to_the_end": true,
+    "last_digit_read_point": 13,
+    "present_elsewhere": {
+     "S1": false,
+     "S2": false
+    },
+    "both_swap_source_answer_at_gather": 0.674
+   },
+   "fragile_rows": {
+    "S1": 1,
+    "S1_same": 1,
+    "S2": 1,
+    "S2_same": 1,
+    "both": 1
+   },
+   "fragile_dropped": {
+    "gather_read_point": 25,
+    "gather_fraction": 0.694,
+    "gather_holds_to_the_end": true,
+    "last_digit_read_point": 12,
+    "present_elsewhere": {
+     "S1": false,
+     "S2": false
+    },
+    "both_swap_source_answer_at_gather": 0.86
+   }
+  }
+ },
+ "varmap_max_qwen3_8b_seed20260916": {
+  "max": {
+   "accuracy": 0.59375,
+   "n_kept": {
+    "S1": 30,
+    "S1_same": 30,
+    "S2": 23,
+    "S2_same": 32,
+    "both": 32
+   },
+   "n_read_points": 37,
+   "as_run": {
+    "gather_read_point": 24,
+    "gather_fraction": 0.667,
+    "gather_holds_to_the_end": true,
+    "last_digit_read_point": 23,
+    "present_elsewhere": {
+     "S1": false,
+     "S2": false
+    },
+    "both_swap_source_answer_at_gather": 0.656
+   },
+   "fragile_rows": {
+    "S1": 1,
+    "S1_same": 0,
+    "S2": 1,
+    "S2_same": 0,
+    "both": 0
+   },
+   "fragile_dropped": {
+    "gather_read_point": 24,
+    "gather_fraction": 0.667,
+    "gather_holds_to_the_end": true,
+    "last_digit_read_point": 23,
+    "present_elsewhere": {
+     "S1": false,
+     "S2": false
+    },
+    "both_swap_source_answer_at_gather": 0.656
+   }
+  }
+ }
+}
