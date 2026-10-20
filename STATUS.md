@@ -5514,6 +5514,66 @@ k = 64: 0.10–0.49.)
 - **The block split.** No head of blocks 30–32 carries a bracket; together they move at most 0.09 of one. The Y
   probe's gain is in block 29 (MLP, attention share 0.37).
 
+### D56: DAS trained on Isolate as well as Cause (Qwen3 1.7B, 4B, 8B Base, max, seed 20260916)
+
+D55's DAS on max, with each subspace also trained to keep the base answer when its variable's Isolate sources are
+swapped in, and kept by the mean of validation Cause and Isolate. Same bases, Cause pairs, sites, k and seed as
+D55; same test and criterion (D48 with D54's control rule).
+
+```
+# workflow runs, RTX 4090 (ADA_24), EUR-NO-1
+#   39371987637: request d56_das_iso_max_qwen3_4b_seed20260916_retry1, commit 960c984, ci; 227 min
+#   39372013186: request d56_das_iso_max_qwen3_8b_seed20260916_retry1, commit 271b47e, ci-b; 222 min
+#   39394639942: request d56_das_iso_max_qwen3_1.7b_seed20260916, commit d2ae569, ci-b; 127 min
+#   (first requests: 39370564079, the 8B, out of memory in its first batch; 39370537872, the 4B, cancelled 20 min
+#   in so that all three run the fixed step; DECISIONS D56)
+# 11.27 USD in all (the balance before and after, failed attempts included); training took 2.0-2.1x D55's;
+# determinism (a repeated evaluation, a fit trained twice for two steps with both terms) identical in all three
+uv run python scripts/stages.py 'uv run directions das --config configs/das_d56_qwen3_4b.yaml --run-id das_d56_qwen3_4b_seed20260916'
+# likewise the 8B and the 1.7B (configs/das_d56_qwen3_<size>.yaml); then, on the downloads:
+uv run python scripts/d54_compare.py --prefix das_d56_ --d54 results/remote/run-39394639942 results/remote/run-39371987637 results/remote/run-39372013186 --out docs/das/d56_compare.json
+uv run python scripts/d56_vs_d55.py --d55 results/remote/run-39180186358 results/remote/run-39180198181 \
+  --d56 results/remote/run-39394639942 results/remote/run-39371987637 results/remote/run-39372013186 --out docs/das/d56_vs_d55.json
+uv run python scripts/d55_decompose.py --runs <the three das_d56_* run directories> --out docs/das/d56_decompose.json
+```
+
+Figures: `docs/das/d56_qwen3_<size>.png`.
+
+Cells give test Cause at k* with its lower bound, then the Isolate lower bound, under D55 → D56. Bold: held.
+
+| model, read point | S1 | S2 | C | Y |
+|---|---|---|---|---|
+| 1.7B 17 (control) | 0.16 [0.11] / 0.85 → 0.14 [0.10] / 0.89 | 0.09 / 0.90 → 0.08 / 0.92 | 0.29 [0.23] / 0.59 → 0.20 [0.14] / 0.78 | 0.16 / 0.65 → 0.14 / 0.81 |
+| 1.7B 21 (G) | 0.66 [0.59] / 0.24 → 0.54 [0.48] / 0.58 | 0.62 [0.55] / 0.21 → 0.44 [0.36] / 0.68 | 0.39 / 0.33 → 0.31 / 0.64 | 0.85 / 0.72 → **0.85 / 0.87** |
+| 4B 21 (control) | 0.17 / 0.88 → 0.14 / 0.90 | 0.17 / 0.86 → 0.13 / 0.89 | 0.34 [0.29] / 0.74 → 0.30 [0.25] / 0.82 | 0.09 / 0.54 → 0.07 / 0.80 |
+| 4B 24 (G) | 0.58 [0.53] / 0.41 → 0.46 [0.40] / 0.71 | 0.74 [0.69] / 0.45 → 0.67 [0.61] / 0.74 | 0.51 [0.46] / 0.43 → 0.39 [0.33] / 0.71 | **0.80 / 0.79 → 0.80 / 0.90** |
+| 8B 21 (control) | 0.19 / 0.82 → 0.17 / 0.90 | 0.26 / 0.80 → 0.21 / 0.89 | 0.60 [0.54] / 0.68 → 0.51 [0.45] / 0.77 | 0.18 / 0.43 → 0.15 / 0.80 |
+| 8B 24 (G) | 0.70 [0.65] / 0.34 → 0.65 [0.60] / 0.64 | 0.51 [0.44] / 0.40 → 0.49 [0.42] / 0.78 | 0.52 [0.47] / 0.36 → 0.40 [0.34] / 0.72 | 0.84 / 0.70 → **0.87 / 0.93** |
+
+(The later sites, G + 1 and G + 2, read the same way: `docs/das/d56_vs_d55.json`. Nothing is held at a control.)
+
+- **No sum and no comparison bit is held under the joint objective either: the count of sums at the gather stays
+  0, 0, 0.** Training on Isolate does not uncover a clean sum or C subspace that Cause-only training missed.
+- **Isolate rises everywhere and Cause falls.** At the gathers the sums' Isolate lower bounds rise from 0.21–0.45
+  to 0.58–0.78. Their Cause falls by 0.02–0.18 (the 1.7B's S2 by 0.18). The D55 subspaces were mostly the answer;
+  the cleaner subspaces carry less of the sum.
+- **The near misses are on the larger models.**
+  - The 4B's S2 at the gather passes Cause (0.67, lower bound 0.61) and misses Isolate by 0.01: 0.74 against
+    0.75. The binding test is "only S1 changes", which rose from 0.50 to 0.79 [0.74, 0.84].
+  - The 8B's S2 at the gather and its C at the control pass Isolate (0.78, 0.77) and miss Cause: 0.49 [0.42] and
+    0.51 [0.45].
+  - On the 1.7B both fail at the gather (Cause lower bounds 0.36–0.48, Isolate 0.58–0.68).
+- **Where the sum's target differs from the source's answer** (39–68 test pairs per model and sum, exploratory),
+  the D56 swaps at the gather give the target more often and the source's answer less often than D55's on the 8B
+  (S1 0.43 against 0.37, S2 0.35 against 0.21). They do not on the 1.7B (S2 0.13 against 0.18 under D55).
+- **Y is now held from the gather on every model** (at G: 1.7B 0.85, Isolate 0.87; 4B 0.80, 0.90; 8B 0.87, 0.93).
+  D55 held it from G + 1 on the 1.7B and 8B.
+- **Reading by D56's preregistration.** No cell is "held under D56 only" except Y.
+  - For the sums and C the cells are "both fail" on the 1.7B, and for S1 on the 4B.
+  - The nearest cells sit at the edge of separability: the 4B's S2 and the 8B's S2 and C. There, what moves a sum
+    or the comparison in a 16–64-dimensional subspace at the answer token also moves the answer. The binding test
+    misses its threshold by 0.01–0.08.
+
 ## Not yet run / known limitations
 
 - The variable map (D45) has run once per model (Qwen3 0.6B, 1.7B, 4B Base; seed 20260916) on two expression tasks
@@ -5532,7 +5592,8 @@ k = 64: 0.10–0.49.)
   token and `=`, joint and shared basis) holds no sum either: the count at the gather stays 0. The max task (D55)
   has run once on the 1.7B, 4B and 8B at the answer token, and on the 14B at the answer token and `=` (it never
   gathers at the answer token alone): no model holds a sum at its gather, and the comparison bit C is not held;
-  DAS with larger subspaces (k > 64) and the post-trained models are not run on it. The other
+  DAS with larger subspaces (k > 64) and the post-trained models are not run on it. D56 retrained D55's DAS with
+  Isolate in the objective (1.7B, 4B, 8B): still no sum or C held, with near misses on the 4B and 8B. The other
   families are not mapped.
 - The weight-decayed learned vector (D43) has run once per Qwen3 Base model (seed 20260916) with one weight decay,
   one step size and one budget fixed on a CPU probe of one task; the hand-over, the source test and the geometry
@@ -5722,6 +5783,9 @@ uv run python scripts/d54_compare.py --prefix das_d55_ --d54 results/remote/run-
 # the 14B on the H100 (runs 39252850362, 39256611159; D55 amended for it: G* = 30, the shared two-token subspace):
 uv run python scripts/stages.py 'uv run directions varmap --config configs/varmap_max_qwen3_14b.yaml --run-id varmap_max_qwen3_14b_seed20260916' 'uv run directions varprobe --config configs/varprobe_max_qwen3_14b.yaml --run-id varprobe_max_qwen3_14b_seed20260916'
 uv run python scripts/stages.py 'uv run directions varsplit --config configs/varsplit_max_qwen3_14b.yaml --run-id varsplit_max_qwen3_14b_seed20260916' 'uv run directions das --config configs/das_d55_qwen3_14b.yaml --run-id das_d55_qwen3_14b_seed20260916'
+# D56, DAS trained on Cause and Isolate (runs 39394639942, 39371987637, 39372013186), one stage per model:
+uv run python scripts/stages.py 'uv run directions das --config configs/das_d56_qwen3_4b.yaml --run-id das_d56_qwen3_4b_seed20260916'
+uv run python scripts/d56_vs_d55.py --d55 results/remote/run-39180186358 results/remote/run-39180198181 --d56 results/remote/run-39394639942 results/remote/run-39371987637 results/remote/run-39372013186 --out docs/das/d56_vs_d55.json
 # iteration 10 (D33 amended: quarter strength, the neighbouring candidate layers, the patch test at every compared
 # layer on eighths of the depth for the learned and the head-mean vector, per-block writing), on a second seed,
 # as run (workflow runs in the iteration-10 entry): first the learned-vector protocol (D31) at seed 20260916 on

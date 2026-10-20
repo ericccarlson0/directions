@@ -3561,3 +3561,20 @@ Decision (the first map; exploratory):
   is the same sum, accumulated in two steps; a test checks it against the joint graph. The 4B's first request (run
   39370537872) ran the old step; it was cancelled 20 minutes in so that all three models run the same code. Both
   are re-requested. The Cause-only path is still byte-identical on the toy runs.
+* **Outcome (2026-10-20; runs 39394639942, 39371987637, 39372013186).** Determinism is identical in all three, and
+  nothing is held at a control.
+  - **Count.** No sum is held at the gather under the joint objective: 0, 0, 0, as under D55. C is held nowhere.
+  - **The trade-off.** Training on Isolate raises the sums' Isolate lower bounds at the gathers from 0.21–0.45 to
+    0.58–0.78, and lowers their Cause by 0.02–0.18. The D55 subspaces were mostly the answer, and the cleaner
+    subspaces carry less of the sum.
+  - **Near misses on the larger models.**
+    - 4B, S2 at the gather: Cause 0.67 [0.61, 0.73], Isolate lower bound 0.74, against 0.75.
+    - 8B, S2 at the gather: Isolate 0.78, Cause 0.49 [0.42, 0.55].
+    - 8B, C at the control: Isolate 0.77, Cause 0.51 [0.45, 0.56].
+    - The 1.7B is not close (Cause lower bounds 0.36–0.48, Isolate lower bounds 0.58–0.68 at the gather).
+  - **Y.** Held from the gather on all three models (D55: from G + 1 on the 1.7B and 8B).
+  - **Reading.** The preregistered outcome "held under D56 only" occurs for Y alone. For the sums and C, no linear
+    subspace of 16–64 dimensions at the answer token carries the variable without the answer. On the 1.7B neither
+    test comes close. On the 4B and 8B the nearest cells miss by 0.01–0.08 on whichever test binds. The sums and the
+    comparison are closer to separable on the larger models, but not separable by the criterion. The Cause-only
+    objective was not what hid them.
