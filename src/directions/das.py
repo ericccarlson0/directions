@@ -365,6 +365,20 @@ def _take(x: torch.Tensor, rows: np.ndarray, device: torch.device) -> torch.Tens
     return x[torch.as_tensor(rows, device=x.device)].to(device)
 
 
+def _backward_mean(terms: Sequence[Any]) -> float:
+    """Backpropagate the mean of the loss terms, each built by its callable, one graph at a time: a Cause and an
+    Isolate pass held together do not fit the 8B on a 24 GB card (D56). Returns the mean's value. One term is the
+    plain ``loss.backward()`` of D48-D55."""
+    w = 1.0 / len(terms)
+    total = 0.0
+    for build in terms:
+        with torch.enable_grad():
+            term = build()
+            (term if len(terms) == 1 else w * term).backward()
+        total += w * float(term.detach())
+    return total
+
+
 class Fit:
     """One subspace: a free d x k matrix whose QR gives the basis, with its own optimizer."""
 
@@ -638,21 +652,19 @@ class DAS:
                     has_iso = joint and bool(mi.any())
                     if not (has_cause or has_iso):
                         continue
-                    with torch.enable_grad():
-                        basis = f.basis()
-                        terms = []
-                        if has_cause:
-                            logits = lt.logits(f.site, src[(self.cause_of[f.var], f.site)], basis)
-                            y = target_tok[f.key][bt]
-                            terms.append(ce(logits, y) if m is None else ce(logits[m], y[m]))
-                        if has_iso:
-                            li = lt.logits(f.site, src[(iso_kind[f.var], f.site)], basis)
-                            terms.append(ce(li[mi], y_base[bt][mi]))
-                        loss = terms[0] if len(terms) == 1 else 0.5 * (terms[0] + terms[1])
-                        loss.backward()
+                    terms = []
+                    if has_cause:
+                        y = target_tok[f.key][bt]
+                        terms.append(lambda f=f, m=m, y=y: (
+                            ce(lt.logits(f.site, src[(self.cause_of[f.var], f.site)], f.basis()), y) if m is None
+                            else ce(lt.logits(f.site, src[(self.cause_of[f.var], f.site)], f.basis())[m], y[m])))
+                    if has_iso:
+                        terms.append(lambda f=f, mi=mi: ce(lt.logits(f.site, src[(iso_kind[f.var], f.site)], f.basis())[mi],
+                                                           y_base[bt][mi]))
+                    loss = _backward_mean(terms)
                     f.opt.step()
                     f.opt.zero_grad(set_to_none=True)
-                    losses[f.key].append(float(loss.detach()))
+                    losses[f.key].append(loss)
             val = self._evaluate(data["val"], fits, cause_only=not joint, use_best=False)
             for f in fits:
                 c = float(np.mean(val["cause"][f.key])) if len(val["cause"][f.key]) else 0.0
@@ -732,12 +744,11 @@ class DAS:
         for _ in range(2):
             f = Fit(fit.site, fit.var, fit.k, fit.W.shape[0], self.backend.device, 12345, self.cfg.lr)
             for _step in range(2):
-                with torch.enable_grad():
-                    loss = torch.nn.functional.cross_entropy(lt.logits(f.site, src, f.basis()), y)
-                    if joint and bool(mi.any()):
-                        iso = torch.nn.functional.cross_entropy(lt.logits(f.site, src_iso, f.basis())[mi], y_base[mi])
-                        loss = 0.5 * (loss + iso)
-                    loss.backward()
+                terms = [lambda f=f: torch.nn.functional.cross_entropy(lt.logits(f.site, src, f.basis()), y)]
+                if joint and bool(mi.any()):
+                    terms.append(lambda f=f: torch.nn.functional.cross_entropy(lt.logits(f.site, src_iso, f.basis())[mi],
+                                                                               y_base[mi]))
+                _backward_mean(terms)
                 f.opt.step()
                 f.opt.zero_grad(set_to_none=True)
             outs.append(f.W.detach().cpu().numpy())

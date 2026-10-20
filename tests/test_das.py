@@ -320,3 +320,27 @@ def test_two_passes_before_one_backward_give_the_averaged_gradient(backend, prom
     gj = grad(lambda: 0.5 * (ce(lt.logits(m, src_a, f.basis()), ya) + ce(lt.logits(m, src_b, f.basis()), yb)))
     assert float(ga.abs().sum()) > 0 and float(gb.abs().sum()) > 0 and not torch.allclose(ga, gb)
     torch.testing.assert_close(gj, 0.5 * (ga + gb), rtol=1e-5, atol=1e-7)
+
+
+def test_backward_mean_one_graph_at_a_time_matches_the_joint_graph(backend, prompts_and_sources):
+    """D56's training step backpropagates its Cause and Isolate terms one graph at a time (memory): the accumulated
+    gradient equals the joint graph's."""
+    from directions.das import _backward_mean
+
+    prompts, src_prompts = prompts_and_sources
+    m = backend.n_layers // 2
+    lt = LastToken(backend, prompts)
+    src_a = torch.as_tensor(backend.run(src_prompts, capture=True).residuals[m])
+    src_b = torch.as_tensor(backend.run(src_prompts[::-1], capture=True).residuals[m])
+    ya, yb = torch.arange(len(prompts)) + 3, torch.arange(len(prompts)) + 11
+    f = Fit(m, "Y", 4, backend.hidden_size, backend.device, 3, 0.05)
+    ce = torch.nn.functional.cross_entropy
+    f.W.grad = None
+    with torch.enable_grad():
+        joint = 0.5 * (ce(lt.logits(m, src_a, f.basis()), ya) + ce(lt.logits(m, src_b, f.basis()), yb))
+        joint.backward()
+    g_joint = f.W.grad.clone()
+    f.W.grad = None
+    value = _backward_mean([lambda: ce(lt.logits(m, src_a, f.basis()), ya), lambda: ce(lt.logits(m, src_b, f.basis()), yb)])
+    torch.testing.assert_close(f.W.grad, g_joint, rtol=1e-5, atol=1e-7)
+    assert abs(value - float(joint.detach())) < 1e-5

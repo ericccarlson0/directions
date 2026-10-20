@@ -3555,3 +3555,9 @@ Decision (the first map; exploratory):
 * **Runs.** Seed 20260916, one execution, DAS only, on RTX 4090s (EUR-NO-1).
   - The 4B and the 8B run as two jobs in lanes ci and ci-b, then the 1.7B when a lane frees.
   - Estimated training time is about twice D55's: about 2.1, 3.8 and 3.6 h. About 11 USD in all.
+* **Fixed after the first requests, before any result (2026-10-20).** The 8B's first request (run 39370564079)
+  ran out of memory in its first training batch: it held a Cause pass and an Isolate pass of a fit together for
+  one backward pass. Each term is now backpropagated as soon as it is computed, one graph at a time. The gradient
+  is the same sum, accumulated in two steps; a test checks it against the joint graph. The 4B's first request (run
+  39370537872) ran the old step; it was cancelled 20 minutes in so that all three models run the same code. Both
+  are re-requested. The Cause-only path is still byte-identical on the toy runs.
