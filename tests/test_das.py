@@ -294,3 +294,29 @@ def test_three_lane_two_token_shared_toy_run(tmp_path):
     d = ModelBackend(cfg.model, run_seed=cfg.seed).hidden_size
     assert np.load(root / "core" / "das_bases.npz")["4/U/2"].shape == (2, d)
     assert r["control_clean"] is not None and (root / "figures" / "das.png").exists()
+
+
+def test_two_passes_before_one_backward_give_the_averaged_gradient(backend, prompts_and_sources):
+    """D56 runs a Cause pass and an Isolate pass of the same fit before one backward pass: the gradient must equal
+    the average of the two passes' gradients taken separately (the cache restore keeps the two graphs apart)."""
+    prompts, src_prompts = prompts_and_sources
+    m = backend.n_layers // 2
+    lt = LastToken(backend, prompts)
+    src_a = torch.as_tensor(backend.run(src_prompts, capture=True).residuals[m])
+    src_b = torch.as_tensor(backend.run(src_prompts[::-1], capture=True).residuals[m])
+    ya = torch.arange(len(prompts)) + 3
+    yb = torch.arange(len(prompts)) + 11
+    f = Fit(m, "Y", 4, backend.hidden_size, backend.device, 3, 0.05)
+    ce = torch.nn.functional.cross_entropy
+
+    def grad(loss_fn):
+        f.W.grad = None
+        with torch.enable_grad():
+            loss_fn().backward()
+        return f.W.grad.clone()
+
+    ga = grad(lambda: ce(lt.logits(m, src_a, f.basis()), ya))
+    gb = grad(lambda: ce(lt.logits(m, src_b, f.basis()), yb))
+    gj = grad(lambda: 0.5 * (ce(lt.logits(m, src_a, f.basis()), ya) + ce(lt.logits(m, src_b, f.basis()), yb)))
+    assert float(ga.abs().sum()) > 0 and float(gb.abs().sum()) > 0 and not torch.allclose(ga, gb)
+    torch.testing.assert_close(gj, 0.5 * (ga + gb), rtol=1e-5, atol=1e-7)

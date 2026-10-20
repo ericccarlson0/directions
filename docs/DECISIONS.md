@@ -3507,3 +3507,51 @@ Decision (the first map; exploratory):
   - **Y.** Held from G\* on (0.92–0.98).
   - **Behaviour.** The 14B is the most accurate on max (0.868) and the only model without a first-sum bias (0.88
     against 0.86). Accuracy does not buy separate sums.
+
+### D56. DAS trained on Isolate as well as Cause: is there a subspace that carries a sum, or C, and nothing else? (Qwen3 1.7B, 4B, 8B Base, max)
+
+* **Why.**
+  - On max, the subspaces fitted to S1 and S2 pass Cause from the gather on (0.51–0.76) and fail Isolate (lower
+    bounds 0.05–0.45): they carry the answer. C is causal before the gather on the 8B (Cause 0.60 at the control)
+    and also fails Isolate (0.68).
+  - D48–D55 train each subspace on Cause alone. Nothing in the objective asks the subspace to leave the answer
+    alone when something other than its variable changes. Isolate failures may therefore mean either that no clean
+    subspace exists, or that training never looked for one.
+  - Larger subspaces would not settle this. Cause is nearly flat from k = 16 to 64 (within about 0.10 in every
+    cell), and C's Isolate does not move with k (8B control 0.67 → 0.69). A bigger subspace adds power to move
+    the answer, which the Cause-only objective rewards, and nothing that steers it toward the variable alone.
+  - So the objective changes and the size does not: each subspace is also trained to keep the base answer on its
+    variable's Isolate sources, in the spirit of RAVEL's multi-task DAS (Huang et al. 2024).
+* **The objective.**
+  - For each fit and batch, the loss is the mean of two cross-entropies, each a mean over its valid pairs:
+    - Cause, as before: the variable's Cause source swapped in, the target its Cause target;
+    - Isolate: one of the variable's Isolate kinds swapped in, the target the base answer Y. The kinds are taken in
+      turn by batch (S1: only S2 changes, same S1; S2: only S1 changes, same S2; C: same C; Y: same Y; a: only S2
+      changes, only b changes). One kind per batch keeps the cost at one extra pass per fit, and each kind gets
+      equal weight over an epoch.
+  - A pair is valid when the base was answered in both passes and the source was answered (D48's gate). A batch
+    with valid pairs of only one term trains on that term alone.
+  - The shuffled-target null keeps the Isolate term; only its Cause targets are shuffled.
+* **Data.** The training and validation splits now also draw each variable's Isolate sources. Sources are drawn
+  per base and kind from their own streams, and on max a base is kept when it has any Cause source. So the bases
+  and Cause sources are D55's, pair for pair, and the D56 fits can be compared with D55's cell by cell.
+* **Selection.** Each fit keeps its best epoch by validation score, the mean of validation Cause and validation
+  Isolate (the mean over its kinds). k\* is the smallest k within 0.05 of the best validation score.
+* **Everything else is D55's.**
+  - The task, the five variables, the sites and the control: 1.7B 17; 21, 22, 23. 4B 21; 24, 25, 26. 8B 21;
+    24, 25, 26.
+  - k ∈ {16, 32, 64}, the null at k = 64, 20 epochs, learning rate 0.05, batch 32, the splits and the seed.
+  - Test evaluation is unchanged: Cause and every Isolate kind on the held-out test expressions, with D48's
+    criterion and D54's control rule.
+  - The Cause-only path is unchanged: toy runs on max, three brackets and max with the two-token subspace give
+    bit-identical outputs before and after this change.
+* **Reading.** Per model and site, the variables held under the joint objective, the count of sums held at G, and
+  whether C is held, especially at the control. Then cell by cell against D55:
+  - **Held under D56, not under D55.** A clean subspace exists, and Cause-only training missed it.
+  - **Isolate rises and Cause falls below 0.5.** The variable cannot be separated from the answer in a linear
+    subspace of this size: what moves it also moves the answer.
+  - **Both stay below threshold.** No clean subspace is found by either objective.
+  - The decomposition of D55 (`scripts/d55_decompose.py`) is reported again, as exploratory.
+* **Runs.** Seed 20260916, one execution, DAS only, on RTX 4090s (EUR-NO-1).
+  - The 4B and the 8B run as two jobs in lanes ci and ci-b, then the 1.7B when a lane frees.
+  - Estimated training time is about twice D55's: about 2.1, 3.8 and 3.6 h. About 11 USD in all.

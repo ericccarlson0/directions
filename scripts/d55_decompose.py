@@ -6,7 +6,7 @@ says). Per model, read point and variable, at the fit's k*: how often the target
 (the target, Y', the base answer), overall and on the pairs whose target differs from Y'. The test split is rebuilt
 from the config (it is a function of the seed); the stored per-base Cause hits check the rebuild.
 
-    uv run python scripts/d55_decompose.py --runs <das_d55_* run dirs> --out docs/das/d55_decompose.json
+    uv run python scripts/d55_decompose.py --runs <das_d55_* or das_d56_* run dirs> --out docs/das/d55_decompose.json
 """
 
 from __future__ import annotations
@@ -66,13 +66,16 @@ def decompose(run: Path, config: Path) -> dict:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--runs", type=Path, nargs="+", required=True)
-    ap.add_argument("--configs", type=Path, default=Path("configs"))
+    ap.add_argument("--configs", type=Path, default=Path("configs"), help="where das_d55_qwen3_<size>.yaml is, for a run "
+                    "whose metadata names no config file")
     ap.add_argument("--out", type=Path)
     args = ap.parse_args(argv)
     summary = {}
     for run in args.runs:
         size = re.search(r"qwen3_(\d+(?:\.\d+)?b)", run.name).group(1)
-        res = decompose(run, args.configs / f"das_d55_qwen3_{size}.yaml")
+        meta = json.loads((run / "metadata.json").read_text())  # the run's own config (D55, D56, ...)
+        config = Path(meta["config_path"]) if meta.get("config_path") else args.configs / f"das_d55_qwen3_{size}.yaml"
+        res = decompose(run, config)
         summary[f"qwen3_{size}"] = res
         print(f"qwen3_{size} (control {res['control_site']}): target = source answer / out target, source answer, base"
               f" / where they differ (n): target, source answer")

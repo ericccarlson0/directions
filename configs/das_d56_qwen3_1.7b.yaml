@@ -1,0 +1,37 @@
+# DAS trained on Isolate as well as Cause (docs/DECISIONS.md D56) on the max task, Qwen3-1.7B Base: D55's design, sites
+# and splits (configs/das_d55_qwen3_1.7b.yaml), with each subspace also trained to keep the base answer on its
+# variable's Isolate sources, and kept by the mean of validation Cause and Isolate.
+name: das_d56
+seed: 20260916
+output_dir: results
+
+model:
+  backend: hf
+  name: Qwen/Qwen3-1.7B-Base
+  dtype: bfloat16
+  device: cuda             # fail fast rather than fall back to the CPU (docs/INFRA.md)
+  batch_size: 128          # the state captures; the fits run on batch_size below
+
+task: max                     # max(a+b, c+d) = (D55)
+sites: [17, 21, 22, 23]           # the control and G..max(G+2, F) (D51's rule)
+control_site: 17              # both bracket swaps move the answer in <= 0.10 here
+variables: [S1, S2, C, Y, a]  # C: the comparison bit S1 > S2 (D55)
+ks: [16, 32, 64]
+null_k: 64                    # the shuffled-target null at the largest k
+n_train: 1536                 # bases per split, disjoint expressions
+n_val: 256
+n_test: 512
+n_shots: 8
+n_demo_pool: 96
+batch_size: 32
+epochs: 20
+lr: 0.05
+lambdas: [0.1, 1.0, 10.0, 100.0]   # the projection-decodability check's ridge grid (D46's probe)
+n_boot: 1000
+alpha: 0.05
+k_tolerance: 0.05             # k* = the smallest k within this of the best validation Cause
+cause_lower: 0.5              # D48 reading: held when Cause lo >= 0.5 and Isolate lo >= 0.75 at k*
+isolate_lower: 0.75
+objective: cause_isolate      # Cause and Isolate (D56); D55 trained on Cause alone
+determinism_check: true
+figures: true

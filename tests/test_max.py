@@ -152,3 +152,34 @@ def test_das_two_token_shared_toy_run(tmp_path):
     assert set(r["n"]["test"]["kept_by_var"]) == {"S1", "S2", "C", "Y"}
     meta = json.loads((root / "metadata.json").read_text())
     assert meta["determinism_check"]["training"]["identical"] and meta["determinism_check"]["evaluation"]["identical"]
+
+
+def test_isolate_sources_leave_the_cause_pairs_unchanged():
+    """D56 draws Isolate sources into training and validation; on max the bases and Cause sources stay D55's."""
+    causes = tuple(das.TASK_CAUSE["max"].values())
+    isolates = tuple(dict.fromkeys(k for v in das.TASK_VARIABLES["max"] for k in das.TASK_ISOLATE["max"][v]))
+    sizes = {"train": 80, "val": 20}
+    a, _ = das.sample_splits(5, sizes, 2, 8, {n: causes for n in sizes}, task="max")
+    b, _ = das.sample_splits(5, sizes, 2, 8, {n: causes + isolates for n in sizes}, task="max")
+    for n in sizes:
+        assert a[n].bases == b[n].bases and a[n].demos == b[n].demos
+        assert all(a[n].sources[k] == b[n].sources[k] for k in causes)
+        assert set(b[n].sources) == set(causes + isolates)
+
+
+def test_das_cause_isolate_toy_run(tmp_path):
+    """D56: the joint objective trains, selects by the mean of validation Cause and Isolate, and is deterministic."""
+    cfg = load_das_config("configs/smoke_toy_das.yaml")
+    cfg.output_dir, cfg.task, cfg.variables, cfg.objective = str(tmp_path), "max", ["S1", "S2", "C", "Y", "a"], "cause_isolate"
+    cfg.sites, cfg.control_site, cfg.ks, cfg.null_k, cfg.epochs = [1, 4], 1, [2, 4], 2, 2
+    root = das.run_das(cfg, run_id="dmax_iso")
+    r = json.loads((root / "core" / "das.json").read_text())
+    assert r["objective"] == "cause_isolate"
+    for key, c in r["cells"].items():
+        for g in c["grid"].values():
+            assert abs(g["val_score"] - 0.5 * (g["val_cause"] + g["val_isolate"])) < 1e-9, key
+            assert len(g["val_history"]) == len(g["val_history_isolate"]) == cfg.epochs
+        best = max(g["val_score"] for g in c["grid"].values())
+        assert c["k_star"] == min(int(k) for k, g in c["grid"].items() if g["val_score"] >= best - cfg.k_tolerance)
+    meta = json.loads((root / "metadata.json").read_text())
+    assert meta["determinism_check"]["training"]["identical"] and meta["determinism_check"]["evaluation"]["identical"]

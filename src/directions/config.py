@@ -1203,8 +1203,11 @@ class DasConfig:
     ks               subspace dimensions; null_k the shuffled-target null's
     n_train/val/test bases per split (disjoint expressions); each with one Cause source, test bases with Isolate sources
     batch_size       bases per training/evaluation batch on the single-token path (the model's batch_size is for captures)
-    k_tolerance      k* = the smallest k whose validation Cause is within this of the best
+    k_tolerance      k* = the smallest k whose validation score is within this of the best
     cause_lower, isolate_lower   a variable is held when Cause's and Isolate's lower bounds reach these (D48)
+    objective        "cause": each subspace trained on Cause alone, selected by validation Cause (D48-D55);
+                     "cause_isolate": trained also to keep the base answer on its variable's Isolate sources, and
+                     selected by the mean of validation Cause and Isolate (D56)
     """
 
     name: str = "das"
@@ -1233,6 +1236,7 @@ class DasConfig:
     k_tolerance: float = 0.05
     cause_lower: float = 0.5
     isolate_lower: float = 0.75
+    objective: str = "cause"      # or "cause_isolate" (D56)
     gate: bool = True             # keep only answered bases and sources (off for the toy smoke)
     determinism_check: bool = True
     figures: bool = True
@@ -1248,6 +1252,8 @@ def load_das_config(path: str | Path) -> DasConfig:
         raise ValueError("positions must be answer, answer_eq or non_digit")
     if cfg.shared_basis and cfg.positions == "answer":
         raise ValueError("shared_basis needs a set of tokens (positions answer_eq or non_digit)")
+    if cfg.objective not in ("cause", "cause_isolate"):
+        raise ValueError("objective must be cause or cause_isolate")
     allowed = {"two_lane": ("S1", "S2", "Y", "a"), "three_lane": ("S1", "S2", "S3", "T", "U", "Y", "a"),
                "max": ("S1", "S2", "C", "Y", "a")}
     if cfg.task not in allowed:

@@ -85,6 +85,8 @@ def main(argv: list[str] | None = None) -> int:
         pred = dict(np.load(run / "core" / "das_predictions.npz"))
         size = size_of(run.name)
         variant = "shared" if r.get("shared_basis") else "joint" if r.get("positions", "answer") != "answer" else "answer"
+        if r.get("objective", "cause") != "cause":  # D56: trained on Isolate as well as Cause
+            variant += "+isolate"
         ctrl = r["control_site"]
         rng = np.random.default_rng(SEED)
         out = {"control_site": ctrl, "control_held": r["per_site"][str(ctrl)]["held"], "sites": {}}

@@ -375,8 +375,11 @@ class Fit:
         self.W = torch.nn.Parameter(torch.randn(d, k, generator=g, dtype=torch.float32).to(device))
         self.opt = torch.optim.Adam([self.W], lr=lr)
         self.best: torch.Tensor = self.W.detach().clone()
-        self.best_val = -1.0
+        self.best_val = -1.0  # the selection score: validation Cause, or under D56 the mean of Cause and Isolate
         self.history: list[float] = []
+        self.history_cause: list[float] = []  # under D56: validation Cause and Isolate per epoch, and at the best
+        self.history_isolate: list[float] = []
+        self.best_cause = self.best_isolate = float("nan")
 
     @property
     def key(self) -> str:
@@ -426,8 +429,11 @@ class DAS:
         self.isolate = TASK_ISOLATE[cfg.task]
         self.cause_of = {v: cause_kind(cfg.task, v) for v in cfg.variables}  # a variable's Cause source kind (D55)
         causes = tuple(dict.fromkeys(self.cause_of.values()))
-        kinds = {"train": causes, "val": causes, "test": tuple(k for k in TASK_SOURCE_KINDS[cfg.task]
-                                                                 if not k.startswith("cause") or k in causes)}
+        fitted = causes
+        if cfg.objective == "cause_isolate":  # D56: training and validation also need each variable's Isolate sources
+            fitted = tuple(dict.fromkeys(causes + tuple(k for v in cfg.variables for k in self.isolate[v])))
+        kinds = {"train": fitted, "val": fitted, "test": tuple(k for k in TASK_SOURCE_KINDS[cfg.task]
+                                                                if not k.startswith("cause") or k in causes)}
         splits, info = sample_splits(cfg.seed, {"train": cfg.n_train, "val": cfg.n_val, "test": cfg.n_test}, cfg.n_shots,
                                      cfg.n_demo_pool, kinds, self.rejections, cfg.task)
         self.metadata["sampling"] = info
@@ -607,35 +613,64 @@ class DAS:
             if f.shuffled:
                 t[kv[f.var]] = t[kv[f.var]][shuffled[f.var]]
             target_tok[f.key] = tid[torch.as_tensor(t, device=tid.device)]
+        joint = cfg.objective == "cause_isolate"  # D56: also keep the base answer on the variable's Isolate sources
+        y_base = tid[torch.as_tensor(tr["Y"], device=tid.device)]
+        iso_ok = ({k: torch.as_tensor(tr["base_ok"] & tr["src_ok"][k], device=self.backend.device)
+                   for v in cfg.variables for k in self.isolate[v]} if joint else {})
+        ce = torch.nn.functional.cross_entropy
         for epoch in range(cfg.epochs):
             order = idx[rng_for(cfg.seed, "das", "epoch", epoch).permutation(len(idx))]
             losses = {f.key: [] for f in fits}
-            for b in self._batches(order):
+            for bi, b in enumerate(self._batches(order)):
                 lt = self._tail([tr["prompts"][i] for i in b])
                 bt = torch.as_tensor(b, device=self.backend.device)
                 src = {(k, s): _take(tr["src_states"][k][s], b, self.backend.device)
                        for k in sorted(set(self.cause_of.values())) for s in cfg.sites}
+                # one Isolate kind per variable and batch, the kinds taken in turn (D56)
+                iso_kind = {v: self.isolate[v][bi % len(self.isolate[v])] for v in cfg.variables} if joint else {}
+                for k in sorted(set(iso_kind.values())):
+                    for s in cfg.sites:
+                        src[(k, s)] = _take(tr["src_states"][k][s], b, self.backend.device)
                 for f in fits:
                     m = None if shared else mask[f.var][bt]
-                    if m is not None and not bool(m.any()):
+                    has_cause = m is None or bool(m.any())
+                    mi = iso_ok[iso_kind[f.var]][bt] if joint else None
+                    has_iso = joint and bool(mi.any())
+                    if not (has_cause or has_iso):
                         continue
                     with torch.enable_grad():
-                        logits = lt.logits(f.site, src[(self.cause_of[f.var], f.site)], f.basis())
-                        y = target_tok[f.key][bt]
-                        loss = (torch.nn.functional.cross_entropy(logits, y) if m is None
-                                else torch.nn.functional.cross_entropy(logits[m], y[m]))
+                        basis = f.basis()
+                        terms = []
+                        if has_cause:
+                            logits = lt.logits(f.site, src[(self.cause_of[f.var], f.site)], basis)
+                            y = target_tok[f.key][bt]
+                            terms.append(ce(logits, y) if m is None else ce(logits[m], y[m]))
+                        if has_iso:
+                            li = lt.logits(f.site, src[(iso_kind[f.var], f.site)], basis)
+                            terms.append(ce(li[mi], y_base[bt][mi]))
+                        loss = terms[0] if len(terms) == 1 else 0.5 * (terms[0] + terms[1])
                         loss.backward()
                     f.opt.step()
                     f.opt.zero_grad(set_to_none=True)
                     losses[f.key].append(float(loss.detach()))
-            val = self._evaluate(data["val"], fits, cause_only=True, use_best=False)
+            val = self._evaluate(data["val"], fits, cause_only=not joint, use_best=False)
             for f in fits:
                 c = float(np.mean(val["cause"][f.key])) if len(val["cause"][f.key]) else 0.0
-                f.history.append(c)
-                if c > f.best_val:
-                    f.best_val, f.best = c, f.W.detach().clone()
-            log.info("epoch %d: mean train loss %.3f; validation Cause, best fit per site: %s", epoch,
-                     float(np.mean([np.mean(v) for v in losses.values()])),
+                score = c
+                if joint:  # the selection score: the mean of validation Cause and Isolate (D56)
+                    per_kind = [float(np.mean(x)) for x in val["isolate"][f.key].values() if len(x)]
+                    iso = float(np.mean(per_kind)) if per_kind else 0.0
+                    score = 0.5 * (c + iso)
+                    f.history_cause.append(c)
+                    f.history_isolate.append(iso)
+                f.history.append(score)
+                if score > f.best_val:
+                    f.best_val, f.best = score, f.W.detach().clone()
+                    if joint:
+                        f.best_cause, f.best_isolate = c, iso
+            log.info("epoch %d: mean train loss %.3f; validation %s, best fit per site: %s", epoch,
+                     float(np.mean([np.mean(v) for v in losses.values() if v])),
+                     "score (Cause + Isolate) / 2" if joint else "Cause",
                      {s: round(max(f.history[-1] for f in fits if f.site == s and not f.shuffled), 2) for s in cfg.sites})
 
     @torch.no_grad()
@@ -687,12 +722,21 @@ class DAS:
         src = _take(tr["src_states"][self.cause_of[fit.var]][fit.site], b, self.backend.device)
         tid = torch.as_tensor(self.tid, device=self.backend.device)
         y = tid[torch.as_tensor(tr["targets"][fit.var][b], device=tid.device)]
+        joint = self.cfg.objective == "cause_isolate"
+        if joint:  # D56: the Isolate term of the first Isolate kind, on the same bases
+            k_iso = self.isolate[fit.var][0]
+            mi = torch.as_tensor(tr["base_ok"][b] & tr["src_ok"][k_iso][b], device=self.backend.device)
+            src_iso = _take(tr["src_states"][k_iso][fit.site], b, self.backend.device)
+            y_base = tid[torch.as_tensor(tr["Y"][b], device=tid.device)]
         outs = []
         for _ in range(2):
             f = Fit(fit.site, fit.var, fit.k, fit.W.shape[0], self.backend.device, 12345, self.cfg.lr)
             for _step in range(2):
                 with torch.enable_grad():
                     loss = torch.nn.functional.cross_entropy(lt.logits(f.site, src, f.basis()), y)
+                    if joint and bool(mi.any()):
+                        iso = torch.nn.functional.cross_entropy(lt.logits(f.site, src_iso, f.basis())[mi], y_base[mi])
+                        loss = 0.5 * (loss + iso)
                     loss.backward()
                 f.opt.step()
                 f.opt.zero_grad(set_to_none=True)
@@ -717,6 +761,7 @@ class DAS:
         cells: dict[str, Any] = {}
         by_key = {f.key: f for f in fits}
         te = data["test"]
+        joint = cfg.objective == "cause_isolate"
         for s in cfg.sites:
             for v in cfg.variables:
                 grid = {}
@@ -727,8 +772,12 @@ class DAS:
                                "isolate": iso, "isolate_mean": float(np.nanmean([x["mean"] for x in iso.values()])),
                                "isolate_lo": float(np.nanmin([x["lo"] for x in iso.values()])),
                                "untrained_cause": float(np.mean(init["cause"][f.key])) if len(init["cause"][f.key]) else None}
-                best_val = max(grid[k]["val_cause"] for k in cfg.ks)
-                kstar = min(k for k in cfg.ks if grid[k]["val_cause"] >= best_val - cfg.k_tolerance)
+                    if joint:  # D56: the selection score, and validation Cause and Isolate at the kept epoch
+                        grid[k].update(val_score=f.best_val, val_cause=f.best_cause, val_isolate=f.best_isolate,
+                                       val_history_cause=f.history_cause, val_history_isolate=f.history_isolate)
+                sel = "val_score" if joint else "val_cause"
+                best_val = max(grid[k][sel] for k in cfg.ks)
+                kstar = min(k for k in cfg.ks if grid[k][sel] >= best_val - cfg.k_tolerance)
                 g = grid[kstar]
                 held = g["cause"]["lo"] >= cfg.cause_lower and g["isolate_lo"] >= cfg.isolate_lower
                 null = by_key[f"{s}/{v}/{cfg.null_k}/shuffled"]
@@ -744,7 +793,8 @@ class DAS:
                         "sums_held": sum(v in held for v in ("S1", "S2", "S3")), "digits_in_use": "a" in held}
         self.log.info("held per site: %s", {s: x["held"] for s, x in sites.items()})
         clean = None if cfg.control_site is None else not sites[cfg.control_site]["held"]
-        return {"task": cfg.task, "sites": cfg.sites, "control_site": cfg.control_site, "variables": list(cfg.variables), "ks": list(cfg.ks),
+        extra = {"objective": cfg.objective} if joint else {}  # D48-D55 results keep their keys
+        return {**extra, "task": cfg.task, "sites": cfg.sites, "control_site": cfg.control_site, "variables": list(cfg.variables), "ks": list(cfg.ks),
                 "positions": cfg.positions, "shared_basis": cfg.shared_basis, "swap": self.metadata.get("swap"),
                 "cells": cells, "per_site": sites, "control_clean": clean,
                 "n": {name: {"bases": len(dd["bases"]), "kept": int(dd["keep"].sum()),
@@ -839,7 +889,8 @@ def plot(result: dict[str, Any], path: Path, model_name: str) -> None:
         sw = result.get("swap") or {}
         where = f"{len(sw.get('tokens', []))} query tokens jointly ({result['positions'].replace('_', '-')} set"
         where += ", one subspace shared by the tokens)" if result.get("shared_basis") else ")"
-    fig.suptitle(f"DAS at {where} of {template} ({model_name}): which sub-results are held as separate "
+    trained = ", trained on Cause and Isolate (D56)" if result.get("objective") == "cause_isolate" else ""
+    fig.suptitle(f"DAS at {where} of {template} ({model_name}){trained}: which sub-results are held as separate "
                  f"variables", fontsize=8.5, x=0.01, y=1.06, ha="left")
     fig.savefig(path, dpi=170, bbox_inches="tight", facecolor="#fcfcfb")
     plt.close(fig)

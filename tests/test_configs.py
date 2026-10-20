@@ -635,3 +635,16 @@ def test_max_14b_job2_configs_follow_d55_amended():
     ref = asdict(load_das_config(CONFIGS / "das_d54_qwen3_14b_shared.yaml"))
     varying = dict(name=None, task=None, sites=None, control_site=None, variables=None)
     assert dict(d, **varying) == dict(ref, **varying)
+
+
+def test_d56_configs_are_d55_with_the_joint_objective():
+    """D56: D55's DAS files for the 1.7B, 4B and 8B, with Isolate added to the training objective and nothing else."""
+    from dataclasses import asdict
+
+    from directions.config import load_das_config
+
+    for size in ("1.7b", "4b", "8b"):
+        d56 = asdict(load_das_config(CONFIGS / f"das_d56_qwen3_{size}.yaml"))
+        d55 = asdict(load_das_config(CONFIGS / f"das_d55_qwen3_{size}.yaml"))
+        assert d56["objective"] == "cause_isolate" and d55["objective"] == "cause" and d56["name"] == "das_d56"
+        assert dict(d56, objective=None, name=None) == dict(d55, objective=None, name=None), size
