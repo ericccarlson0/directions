@@ -344,3 +344,36 @@ def test_backward_mean_one_graph_at_a_time_matches_the_joint_graph(backend, prom
     value = _backward_mean([lambda: ce(lt.logits(m, src_a, f.basis()), ya), lambda: ce(lt.logits(m, src_b, f.basis()), yb)])
     torch.testing.assert_close(f.W.grad, g_joint, rtol=1e-5, atol=1e-7)
     assert abs(value - float(joint.detach())) < 1e-5
+
+
+def test_the_preflight_stops_a_run_that_would_fail_after_the_training(tmp_path, monkeypatch):
+    """A failure in the read (or anything after the training) surfaces in the preflight, before the long training:
+    the only training the run did is the preflight's one batch."""
+    import directions.das as das_mod
+
+    calls = []
+    real_train = das_mod.DAS._train
+
+    def counting_train(self, data, fits, epochs=None, max_batches=None, quiet=False):
+        calls.append((epochs, max_batches))
+        return real_train(self, data, fits, epochs=epochs, max_batches=max_batches, quiet=quiet)
+
+    def failing_read(self, *args, **kwargs):
+        raise RuntimeError("a bug in the read")
+
+    monkeypatch.setattr(das_mod.DAS, "_train", counting_train)
+    monkeypatch.setattr(das_mod.DAS, "_read", failing_read)
+    cfg = load_das_config("configs/smoke_toy_das.yaml")
+    cfg.output_dir = str(tmp_path)
+    with pytest.raises(RuntimeError, match="a bug in the read"):
+        run_das(cfg, run_id="pre")
+    assert calls == [(1, 1)]  # the preflight's single batch; the training never started
+
+
+def test_runs_record_their_peak_gpu_memory(tmp_path):
+    """Every DAS run records its peak GPU memory per phase (None on the CPU)."""
+    cfg = load_das_config("configs/smoke_toy_das.yaml")
+    cfg.output_dir = str(tmp_path)
+    meta = json.loads((run_das(cfg, run_id="mem") / "metadata.json").read_text())
+    assert set(meta["gpu_peak_memory_gib"]) == {"prepare", "preflight", "train", "evaluate"}
+    assert "preflight" in meta["timings_seconds"]

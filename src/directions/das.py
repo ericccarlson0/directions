@@ -27,7 +27,7 @@ import torch
 from ._version import __version__
 from .config import DasConfig
 from .determinism import compare_arrays
-from .model import ModelBackend, environment_metadata, set_torch_determinism
+from .model import ModelBackend, environment_metadata, gpu_peak_memory, set_torch_determinism
 from .probes import fold_ids, ridge_cv_accuracy
 from .prompts import Prompt
 from .runinfo import RejectionLog, git_info, setup_logging, write_json
@@ -454,6 +454,7 @@ class DAS:
         self._geometry(splits)
         data = {name: self._prepare(name, sp) for name, sp in splits.items()}
         self.metadata.setdefault("timings_seconds", {})["prepare"] = round(time.time() - t0, 1)
+        memory = {"prepare": gpu_peak_memory()}  # per phase, in GiB: the headroom a change to the compute path can use
         for name, dd in data.items():
             log.info("%s: %d bases, %d kept for the Cause pairs (base answered in both passes, source answered)", name,
                      len(dd["bases"]), int(dd["keep"].sum()))
@@ -466,12 +467,20 @@ class DAS:
                 for s in cfg.sites for v in cfg.variables for k in cfg.ks]
         fits += [Fit(s, v, cfg.null_k, D, backend.device, derive_seed(cfg.seed, "das", "null", s, v), cfg.lr,
                      shuffled=True) for s in cfg.sites for v in cfg.variables]
+        if cfg.preflight:
+            t0 = time.time()
+            self._preflight(data, fits)
+            self.metadata["timings_seconds"]["preflight"] = round(time.time() - t0, 1)
+            memory["preflight"] = gpu_peak_memory()
+            log.info("preflight passed in %.0fs: every fit's training step, a validation and a test batch, the read and "
+                     "the outputs; peak GPU memory so far %s", time.time() - t0, memory)
         t0 = time.time()
         init_test = self._evaluate(data["test"], fits, cause_only=True, use_best=False)  # the untrained subspaces
         if cfg.determinism_check:
             self._determinism_check(data, fits[len(fits) // 2])
         self._train(data, fits)
         self.metadata["timings_seconds"]["train"] = round(time.time() - t0, 1)
+        memory["train"] = gpu_peak_memory()
         t0 = time.time()
         test = self._evaluate(data["test"], fits, cause_only=False, use_best=True)
         if cfg.determinism_check:
@@ -482,23 +491,51 @@ class DAS:
             if not cmp["identical"]:
                 raise RuntimeError("determinism check failed: a repeated evaluation differs")
         self.metadata["timings_seconds"]["evaluate"] = round(time.time() - t0, 1)
+        memory["evaluate"] = gpu_peak_memory()
+        self.metadata["gpu_peak_memory_gib"] = memory
+        log.info("peak GPU memory per phase (GiB): %s", memory)
         result = self._read(data, fits, test, init_test)
-        write_json(self.root / "core" / "das.json", _jsonable(result))
-        np.savez_compressed(self.root / "core" / "das_predictions.npz",
-                            **{f"{k}__{fk}": np.asarray(v) for fk, preds in test["pred"].items() for k, v in preds.items()})
-        # the kept (best-validation) basis of every fit, (k, d) with orthonormal rows
-        np.savez_compressed(self.root / "core" / "das_bases.npz",
-                            **{f.key: f.basis(f.best).detach().cpu().numpy().astype(np.float32) for f in fits})
-        if cfg.figures:
-            try:
-                plot(result, self.root / "figures" / "das.png",
-                     cfg.model.name.split("/")[-1] if cfg.model.backend == "hf" else f"toy {cfg.model.toy.family}")
-            except Exception as exc:  # a figure never fails a run
-                log.warning("figure failed: %s", exc)
+        self._write(result, test, fits, self.root / "core", self.root / "figures")
         self.metadata["finished_utc"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         write_json(self.root / "metadata.json", self.metadata)
         log.info("done -> %s", self.root)
         return self.root
+
+    def _write(self, result: dict[str, Any], test: dict[str, Any], fits: list[Fit], core: Path, figures: Path) -> None:
+        """The results, every test prediction, the kept basis of every fit, and the figure."""
+        cfg = self.cfg
+        write_json(core / "das.json", _jsonable(result))
+        np.savez_compressed(core / "das_predictions.npz",
+                            **{f"{k}__{fk}": np.asarray(v) for fk, preds in test["pred"].items() for k, v in preds.items()})
+        # the kept (best-validation) basis of every fit, (k, d) with orthonormal rows
+        np.savez_compressed(core / "das_bases.npz",
+                            **{f.key: f.basis(f.best).detach().cpu().numpy().astype(np.float32) for f in fits})
+        if cfg.figures:
+            try:
+                plot(result, figures / "das.png",
+                     cfg.model.name.split("/")[-1] if cfg.model.backend == "hf" else f"toy {cfg.model.toy.family}")
+            except Exception as exc:  # a figure never fails a run
+                self.log.warning("figure failed: %s", exc)
+
+    def _preflight(self, data: dict[str, Any], fits: list[Fit]) -> None:
+        """Every step of the run on one batch, before the hours of training: throwaway copies of the fits (their own
+        seeds) take one training step on the first training batch, then are scored on a validation batch and on a test
+        batch with every Isolate kind, read, and written to a temporary directory. The real fits, the data and every
+        random stream of the run are untouched, so the run's results do not change. It runs after the states are
+        prepared, so its memory peak is the run's: a training or evaluation step that does not fit fails here, and a
+        failure in the read or the outputs comes minutes in instead of after the training."""
+        import tempfile
+
+        probe = [Fit(f.site, f.var, f.k, f.W.shape[0], self.backend.device,
+                     derive_seed(self.cfg.seed, "das", "preflight", f.key), self.cfg.lr, shuffled=f.shuffled) for f in fits]
+        self._train(data, probe, epochs=1, max_batches=1, quiet=True)
+        test = self._evaluate(data["test"], probe, cause_only=False, use_best=True, max_batches=1)
+        result = self._read(data, probe, test, test, quiet=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write(result, test, probe, Path(tmp), Path(tmp))
+        del probe, test, result
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     def _single_token(self, text: str) -> int:
         enc = self.backend.tokenizer.encode(text, add_special_tokens=False)
@@ -612,7 +649,10 @@ class DAS:
         bs = self.cfg.batch_size
         return [idx[i : i + bs] for i in range(0, len(idx), bs)]
 
-    def _train(self, data: dict[str, Any], fits: list[Fit]) -> None:
+    def _train(self, data: dict[str, Any], fits: list[Fit], epochs: int | None = None, max_batches: int | None = None,
+               quiet: bool = False) -> None:
+        """Trains every fit for the configured epochs (or ``epochs``), keeping each fit's best validation epoch;
+        ``max_batches`` and ``quiet`` are the preflight's: the first batches of an epoch, and no epoch log."""
         cfg, log = self.cfg, self.log
         tr = data["train"]
         idx = np.flatnonzero(tr["keep"])
@@ -632,10 +672,12 @@ class DAS:
         iso_ok = ({k: torch.as_tensor(tr["base_ok"] & tr["src_ok"][k], device=self.backend.device)
                    for v in cfg.variables for k in self.isolate[v]} if joint else {})
         ce = torch.nn.functional.cross_entropy
-        for epoch in range(cfg.epochs):
+        for epoch in range(cfg.epochs if epochs is None else epochs):
             order = idx[rng_for(cfg.seed, "das", "epoch", epoch).permutation(len(idx))]
             losses = {f.key: [] for f in fits}
             for bi, b in enumerate(self._batches(order)):
+                if max_batches is not None and bi >= max_batches:
+                    break
                 lt = self._tail([tr["prompts"][i] for i in b])
                 bt = torch.as_tensor(b, device=self.backend.device)
                 src = {(k, s): _take(tr["src_states"][k][s], b, self.backend.device)
@@ -665,7 +707,7 @@ class DAS:
                     f.opt.step()
                     f.opt.zero_grad(set_to_none=True)
                     losses[f.key].append(loss)
-            val = self._evaluate(data["val"], fits, cause_only=not joint, use_best=False)
+            val = self._evaluate(data["val"], fits, cause_only=not joint, use_best=False, max_batches=max_batches)
             for f in fits:
                 c = float(np.mean(val["cause"][f.key])) if len(val["cause"][f.key]) else 0.0
                 score = c
@@ -680,13 +722,16 @@ class DAS:
                     f.best_val, f.best = score, f.W.detach().clone()
                     if joint:
                         f.best_cause, f.best_isolate = c, iso
+            if quiet:
+                continue
             log.info("epoch %d: mean train loss %.3f; validation %s, best fit per site: %s", epoch,
                      float(np.mean([np.mean(v) for v in losses.values() if v])),
                      "score (Cause + Isolate) / 2" if joint else "Cause",
                      {s: round(max(f.history[-1] for f in fits if f.site == s and not f.shuffled), 2) for s in cfg.sites})
 
     @torch.no_grad()
-    def _evaluate(self, dd: dict[str, Any], fits: list[Fit], cause_only: bool, use_best: bool) -> dict[str, Any]:
+    def _evaluate(self, dd: dict[str, Any], fits: list[Fit], cause_only: bool, use_best: bool,
+                  max_batches: int | None = None) -> dict[str, Any]:
         """Per fit: Cause (the answer is the hypothesis' answer) on the kept bases and, unless ``cause_only``, Isolate
         (the answer stays) on the bases whose Isolate source was answered too; predictions are kept per base."""
         tid = self.tid
@@ -696,7 +741,9 @@ class DAS:
                                "pred": {f.key: {} for f in fits}}
         bases_eval = np.flatnonzero(bases_ok) if not cause_only else idx
         preds: dict[str, dict[str, list]] = {f.key: {} for f in fits}
-        for b in self._batches(bases_eval):
+        for bi, b in enumerate(self._batches(bases_eval)):
+            if max_batches is not None and bi >= max_batches:  # the preflight's single batch
+                break
             lt = self._tail([dd["prompts"][i] for i in b])
             cache: dict[tuple[str, int], torch.Tensor] = {}
             for f in fits:
@@ -759,7 +806,8 @@ class DAS:
 
     # ------------------------------------------------------------------ #
 
-    def _read(self, data: dict[str, Any], fits: list[Fit], test: dict[str, Any], init: dict[str, Any]) -> dict[str, Any]:
+    def _read(self, data: dict[str, Any], fits: list[Fit], test: dict[str, Any], init: dict[str, Any],
+              quiet: bool = False) -> dict[str, Any]:
         cfg = self.cfg
         rng = np.random.default_rng(derive_seed(cfg.seed, "das", "bootstrap"))
 
@@ -802,7 +850,8 @@ class DAS:
             held = [v for v in cfg.variables if cells[f"{s}/{v}"]["held"]]
             sites[s] = {"held": held, "count": sum(v in held for v in ("S1", "S2", "S3", "T", "U", "Y")),
                         "sums_held": sum(v in held for v in ("S1", "S2", "S3")), "digits_in_use": "a" in held}
-        self.log.info("held per site: %s", {s: x["held"] for s, x in sites.items()})
+        if not quiet:
+            self.log.info("held per site: %s", {s: x["held"] for s, x in sites.items()})
         clean = None if cfg.control_site is None else not sites[cfg.control_site]["held"]
         extra = {"objective": cfg.objective} if joint else {}  # D48-D55 results keep their keys
         return {**extra, "task": cfg.task, "sites": cfg.sites, "control_site": cfg.control_site, "variables": list(cfg.variables), "ks": list(cfg.ks),

@@ -1208,6 +1208,8 @@ class DasConfig:
     objective        "cause": each subspace trained on Cause alone, selected by validation Cause (D48-D55);
                      "cause_isolate": trained also to keep the base answer on its variable's Isolate sources, and
                      selected by the mean of validation Cause and Isolate (D56)
+    preflight        before the training, every step on one batch with throwaway copies of the fits (results unchanged;
+                     docs/INFRA.md, item 8)
     """
 
     name: str = "das"
@@ -1239,6 +1241,7 @@ class DasConfig:
     objective: str = "cause"      # or "cause_isolate" (D56)
     gate: bool = True             # keep only answered bases and sources (off for the toy smoke)
     determinism_check: bool = True
+    preflight: bool = True        # every step on one batch with throwaway fits before the training (results unchanged)
     figures: bool = True
 
 

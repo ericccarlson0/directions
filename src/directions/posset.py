@@ -23,7 +23,7 @@ import torch
 from ._version import __version__
 from .config import PossetConfig
 from .determinism import compare_arrays
-from .model import ModelBackend, SitePatch, environment_metadata, set_torch_determinism
+from .model import ModelBackend, SitePatch, environment_metadata, gpu_peak_memory, set_torch_determinism
 from .prompts import Prompt
 from .runinfo import RejectionLog, git_info, setup_logging, write_json
 from .seeds import derive_seed
@@ -116,6 +116,7 @@ class PositionSets:
             summary["skipped" if "skipped" in res else "tasks"][task] = res.get("skipped", res.get("summary"))
             self.metadata.setdefault("timings_seconds", {})[task] = round(time.time() - t0, 1)
         write_json(self.root / "core" / "summary.json", summary)
+        self.metadata["gpu_peak_memory_gib"] = gpu_peak_memory()  # the run's peak: the headroom a change can use
         self.metadata["finished_utc"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         write_json(self.root / "metadata.json", self.metadata)
         self.log.info("done -> %s", self.root)

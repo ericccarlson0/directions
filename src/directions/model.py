@@ -1117,6 +1117,21 @@ def environment_metadata() -> dict[str, Any]:
     }
 
 
+def gpu_peak_memory(reset: bool = True) -> dict[str, float] | None:
+    """The peak GPU memory since the last reset, in GiB: allocated and reserved by PyTorch, and the card's total;
+    then the peak is reset (``reset``), so successive calls give phases. None without CUDA. Recorded with every run so
+    that a change to a run's compute path can be checked against the headroom the last run left."""
+    if not torch.cuda.is_available():
+        return None
+    gib = 1024**3
+    out = {"allocated": round(torch.cuda.max_memory_allocated() / gib, 2),
+           "reserved": round(torch.cuda.max_memory_reserved() / gib, 2),
+           "total": round(torch.cuda.get_device_properties(0).total_memory / gib, 2)}
+    if reset:
+        torch.cuda.reset_peak_memory_stats()
+    return out
+
+
 def set_torch_determinism(seed: int) -> None:
     torch.manual_seed(seed)
     if torch.cuda.is_available():

@@ -23,7 +23,7 @@ import numpy as np
 from ._version import __version__
 from .config import VarsplitConfig
 from .determinism import compare_arrays
-from .model import HeadPatch, ModelBackend, environment_metadata, set_torch_determinism
+from .model import HeadPatch, ModelBackend, environment_metadata, gpu_peak_memory, set_torch_determinism
 from .probes import conditional_probe
 from .runinfo import RejectionLog, git_info, setup_logging, write_json
 from .seeds import derive_seed
@@ -155,6 +155,7 @@ class VarSplit:
             }
             self.metadata.setdefault("timings_seconds", {})[task] = round(time.time() - t0, 1)
         write_json(self.root / "core" / "summary.json", summary)
+        self.metadata["gpu_peak_memory_gib"] = gpu_peak_memory()  # the run's peak: the headroom a change can use
         self.metadata["finished_utc"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         write_json(self.root / "metadata.json", self.metadata)
         self.log.info("done -> %s", self.root)
