@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
@@ -75,6 +76,10 @@ def main(argv: list[str] | None = None) -> int:
         size = re.search(r"qwen3_(\d+(?:\.\d+)?b)", run.name).group(1)
         meta = json.loads((run / "metadata.json").read_text())  # the run's own config (D55, D56, ...)
         config = Path(meta["config_path"]) if meta.get("config_path") else args.configs / f"das_d55_qwen3_{size}.yaml"
+        if meta.get("config") and asdict(load_das_config(str(config))) != meta["config"]:
+            known = {k: v for k, v in asdict(load_das_config(str(config))).items() if k in meta["config"]}
+            if known != meta["config"]:  # fields added since the run are filled with their defaults; nothing else may differ
+                raise ValueError(f"{config} no longer matches the config recorded with {run.name}")
         res = decompose(run, config)
         summary[f"qwen3_{size}"] = res
         print(f"qwen3_{size} (control {res['control_site']}): target = source answer / out target, source answer, base"

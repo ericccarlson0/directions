@@ -15,9 +15,9 @@
       "same_S1": 0.933
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -30,9 +30,9 @@
       "same_S1": 0.924
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "reading": "Isolate passes, Cause fails"
    },
@@ -48,9 +48,9 @@
       "same_S2": 0.971
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -63,9 +63,9 @@
       "same_S2": 0.962
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "reading": "Isolate passes, Cause fails"
    },
@@ -80,9 +80,9 @@
       "same_C": 0.655
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -94,9 +94,9 @@
       "same_C": 0.827
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "reading": "Isolate passes, Cause fails"
    },
@@ -111,9 +111,9 @@
       "same_Y": 0.714
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -125,9 +125,9 @@
       "same_Y": 0.857
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "reading": "Isolate passes, Cause fails"
    },
@@ -143,9 +143,9 @@
       "only_b": 0.853
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -158,9 +158,9 @@
       "only_b": 0.932
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "reading": "Isolate passes, Cause fails"
    },
@@ -182,9 +182,9 @@
       "lo": 0.416,
       "hi": 0.584
      },
-     "held": false,
      "cause_passes": true,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -203,9 +203,9 @@
       "lo": 0.325,
       "hi": 0.477
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "both fail"
    },
@@ -227,9 +227,9 @@
       "lo": 0.443,
       "hi": 0.617
      },
-     "held": false,
      "cause_passes": true,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -248,9 +248,9 @@
       "lo": 0.269,
       "hi": 0.443
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "both fail"
    },
@@ -271,9 +271,9 @@
       "lo": 0.024,
       "hi": 0.167
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -291,9 +291,9 @@
       "lo": 0.043,
       "hi": 0.177
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "both fail"
    },
@@ -314,9 +314,9 @@
       "lo": 0.626,
       "hi": 0.754
      },
-     "held": false,
      "cause_passes": true,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -334,9 +334,9 @@
       "lo": 0.64,
       "hi": 0.768
      },
-     "held": true,
      "cause_passes": true,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": true
     },
     "reading": "held under D56 only"
    },
@@ -358,9 +358,9 @@
       "lo": 0.076,
       "hi": 0.24
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -379,9 +379,9 @@
       "lo": 0.076,
       "hi": 0.24
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "both fail"
    },
@@ -403,9 +403,9 @@
       "lo": 0.437,
       "hi": 0.594
      },
-     "held": false,
      "cause_passes": true,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -424,9 +424,9 @@
       "lo": 0.294,
       "hi": 0.462
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "both fail"
    },
@@ -448,9 +448,9 @@
       "lo": 0.509,
       "hi": 0.683
      },
-     "held": false,
      "cause_passes": true,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -469,9 +469,9 @@
       "lo": 0.299,
       "hi": 0.461
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "both fail"
    },
@@ -492,9 +492,9 @@
       "lo": -0.024,
       "hi": 0.115
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -512,9 +512,9 @@
       "lo": -0.048,
       "hi": 0.077
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "both fail"
    },
@@ -535,9 +535,9 @@
       "lo": 0.65,
       "hi": 0.788
      },
-     "held": true,
      "cause_passes": true,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": true
     },
     "d56": {
      "k_star": 16,
@@ -555,9 +555,9 @@
       "lo": 0.655,
       "hi": 0.778
      },
-     "held": true,
      "cause_passes": true,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": true
     },
     "reading": "held in both"
    },
@@ -579,9 +579,9 @@
       "lo": -0.006,
       "hi": 0.158
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -600,9 +600,9 @@
       "lo": -0.047,
       "hi": 0.123
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "reading": "Isolate passes, Cause fails"
    },
@@ -624,9 +624,9 @@
       "lo": 0.426,
       "hi": 0.584
      },
-     "held": false,
      "cause_passes": true,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -645,9 +645,9 @@
       "lo": 0.294,
       "hi": 0.452
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "both fail"
    },
@@ -669,9 +669,9 @@
       "lo": 0.509,
       "hi": 0.683
      },
-     "held": false,
      "cause_passes": true,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -690,9 +690,9 @@
       "lo": 0.311,
       "hi": 0.479
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "both fail"
    },
@@ -713,9 +713,9 @@
       "lo": -0.033,
       "hi": 0.105
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -733,9 +733,9 @@
       "lo": -0.086,
       "hi": 0.043
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "both fail"
    },
@@ -756,9 +756,9 @@
       "lo": 0.67,
       "hi": 0.798
      },
-     "held": true,
      "cause_passes": true,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": true
     },
     "d56": {
      "k_star": 16,
@@ -776,9 +776,9 @@
       "lo": 0.67,
       "hi": 0.798
      },
-     "held": true,
      "cause_passes": true,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": true
     },
     "reading": "held in both"
    },
@@ -800,9 +800,9 @@
       "lo": -0.07,
       "hi": 0.111
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -821,12 +821,16 @@
       "lo": -0.094,
       "hi": 0.082
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "reading": "Isolate passes, Cause fails"
    }
+  },
+  "void": {
+   "d55": false,
+   "d56": false
   },
   "sums_held_at_G": {
    "d55": 0,
@@ -853,9 +857,9 @@
       "same_S1": 0.907
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -868,9 +872,9 @@
       "same_S1": 0.931
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "reading": "Isolate passes, Cause fails"
    },
@@ -886,9 +890,9 @@
       "same_S2": 0.933
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -901,9 +905,9 @@
       "same_S2": 0.942
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "reading": "Isolate passes, Cause fails"
    },
@@ -918,9 +922,9 @@
       "same_C": 0.788
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -932,9 +936,9 @@
       "same_C": 0.858
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "reading": "Isolate passes, Cause fails"
    },
@@ -949,9 +953,9 @@
       "same_Y": 0.596
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -963,9 +967,9 @@
       "same_Y": 0.843
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "reading": "Isolate passes, Cause fails"
    },
@@ -981,9 +985,9 @@
       "only_b": 0.845
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -996,9 +1000,9 @@
       "only_b": 0.907
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "reading": "Isolate passes, Cause fails"
    },
@@ -1020,9 +1024,9 @@
       "lo": 0.348,
       "hi": 0.482
      },
-     "held": false,
      "cause_passes": true,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -1041,9 +1045,9 @@
       "lo": 0.255,
       "hi": 0.376
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "both fail"
    },
@@ -1065,9 +1069,9 @@
       "lo": 0.5,
       "hi": 0.631
      },
-     "held": false,
      "cause_passes": true,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -1086,9 +1090,9 @@
       "lo": 0.473,
       "hi": 0.608
      },
-     "held": false,
      "cause_passes": true,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "Cause passes, Isolate fails"
    },
@@ -1109,9 +1113,9 @@
       "lo": 0.105,
       "hi": 0.226
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -1129,9 +1133,9 @@
       "lo": 0.036,
       "hi": 0.141
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "both fail"
    },
@@ -1152,9 +1156,9 @@
       "lo": 0.654,
       "hi": 0.761
      },
-     "held": true,
      "cause_passes": true,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": true
     },
     "d56": {
      "k_star": 16,
@@ -1172,9 +1176,9 @@
       "lo": 0.683,
       "hi": 0.786
      },
-     "held": true,
      "cause_passes": true,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": true
     },
     "reading": "held in both"
    },
@@ -1196,9 +1200,9 @@
       "lo": 0.162,
       "hi": 0.299
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -1217,9 +1221,9 @@
       "lo": 0.137,
       "hi": 0.266
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "both fail"
    },
@@ -1241,9 +1245,9 @@
       "lo": 0.418,
       "hi": 0.55
      },
-     "held": false,
      "cause_passes": true,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -1262,9 +1266,9 @@
       "lo": 0.294,
       "hi": 0.422
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "both fail"
    },
@@ -1286,9 +1290,9 @@
       "lo": 0.477,
       "hi": 0.608
      },
-     "held": false,
      "cause_passes": true,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -1307,9 +1311,9 @@
       "lo": 0.377,
       "hi": 0.508
      },
-     "held": false,
      "cause_passes": true,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "Cause passes, Isolate fails"
    },
@@ -1330,9 +1334,9 @@
       "lo": -0.023,
       "hi": 0.085
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -1350,9 +1354,9 @@
       "lo": -0.144,
       "hi": -0.039
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "both fail"
    },
@@ -1373,9 +1377,9 @@
       "lo": 0.738,
       "hi": 0.832
      },
-     "held": true,
      "cause_passes": true,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": true
     },
     "d56": {
      "k_star": 16,
@@ -1393,9 +1397,9 @@
       "lo": 0.748,
       "hi": 0.841
      },
-     "held": true,
      "cause_passes": true,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": true
     },
     "reading": "held in both"
    },
@@ -1417,9 +1421,9 @@
       "lo": 0.14,
       "hi": 0.277
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -1438,9 +1442,9 @@
       "lo": 0.081,
       "hi": 0.203
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "reading": "Isolate passes, Cause fails"
    },
@@ -1462,9 +1466,9 @@
       "lo": 0.404,
       "hi": 0.539
      },
-     "held": false,
      "cause_passes": true,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -1483,9 +1487,9 @@
       "lo": 0.33,
       "hi": 0.454
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "both fail"
    },
@@ -1507,9 +1511,9 @@
       "lo": 0.427,
       "hi": 0.565
      },
-     "held": false,
      "cause_passes": true,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -1528,9 +1532,9 @@
       "lo": 0.381,
       "hi": 0.512
      },
-     "held": false,
      "cause_passes": true,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "Cause passes, Isolate fails"
    },
@@ -1551,9 +1555,9 @@
       "lo": -0.02,
       "hi": 0.105
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -1571,9 +1575,9 @@
       "lo": -0.148,
       "hi": -0.052
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "both fail"
    },
@@ -1594,9 +1598,9 @@
       "lo": 0.761,
       "hi": 0.854
      },
-     "held": true,
      "cause_passes": true,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": true
     },
     "d56": {
      "k_star": 16,
@@ -1614,9 +1618,9 @@
       "lo": 0.786,
       "hi": 0.867
      },
-     "held": true,
      "cause_passes": true,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": true
     },
     "reading": "held in both"
    },
@@ -1638,9 +1642,9 @@
       "lo": 0.07,
       "hi": 0.196
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 32,
@@ -1659,12 +1663,16 @@
       "lo": 0.048,
       "hi": 0.17
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "reading": "Isolate passes, Cause fails"
    }
+  },
+  "void": {
+   "d55": false,
+   "d56": false
   },
   "sums_held_at_G": {
    "d55": 0,
@@ -1691,9 +1699,9 @@
       "same_S1": 0.884
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -1706,9 +1714,9 @@
       "same_S1": 0.943
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "reading": "Isolate passes, Cause fails"
    },
@@ -1724,9 +1732,9 @@
       "same_S2": 0.92
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -1739,9 +1747,9 @@
       "same_S2": 0.948
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "reading": "Isolate passes, Cause fails"
    },
@@ -1756,9 +1764,9 @@
       "same_C": 0.734
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": true,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -1770,9 +1778,9 @@
       "same_C": 0.814
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "reading": "Isolate passes, Cause fails"
    },
@@ -1787,9 +1795,9 @@
       "same_Y": 0.485
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -1801,9 +1809,9 @@
       "same_Y": 0.837
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "reading": "Isolate passes, Cause fails"
    },
@@ -1819,9 +1827,9 @@
       "only_b": 0.843
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -1834,9 +1842,9 @@
       "only_b": 0.922
      },
      "held_d48": false,
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "reading": "Isolate passes, Cause fails"
    },
@@ -1858,9 +1866,9 @@
       "lo": 0.45,
       "hi": 0.584
      },
-     "held": false,
      "cause_passes": true,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -1879,9 +1887,9 @@
       "lo": 0.412,
       "hi": 0.546
      },
-     "held": false,
      "cause_passes": true,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "Cause passes, Isolate fails"
    },
@@ -1903,9 +1911,9 @@
       "lo": 0.164,
       "hi": 0.327
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -1924,9 +1932,9 @@
       "lo": 0.192,
       "hi": 0.35
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": false
     },
     "reading": "Isolate passes, Cause fails"
    },
@@ -1947,9 +1955,9 @@
       "lo": -0.14,
       "hi": -0.022
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -1967,9 +1975,9 @@
       "lo": -0.173,
       "hi": -0.041
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "both fail"
    },
@@ -1990,9 +1998,9 @@
       "lo": 0.61,
       "hi": 0.718
      },
-     "held": false,
      "cause_passes": true,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -2010,9 +2018,9 @@
       "lo": 0.669,
       "hi": 0.769
      },
-     "held": true,
      "cause_passes": true,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": true
     },
     "reading": "held under D56 only"
    },
@@ -2034,9 +2042,9 @@
       "lo": 0.095,
       "hi": 0.235
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -2055,9 +2063,9 @@
       "lo": 0.151,
       "hi": 0.292
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "both fail"
    },
@@ -2079,9 +2087,9 @@
       "lo": 0.502,
       "hi": 0.639
      },
-     "held": false,
      "cause_passes": true,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 32,
@@ -2100,9 +2108,9 @@
       "lo": 0.423,
       "hi": 0.557
      },
-     "held": false,
      "cause_passes": true,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "Cause passes, Isolate fails"
    },
@@ -2124,9 +2132,9 @@
       "lo": 0.164,
       "hi": 0.341
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -2145,9 +2153,9 @@
       "lo": 0.103,
       "hi": 0.266
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "both fail"
    },
@@ -2168,9 +2176,9 @@
       "lo": -0.214,
       "hi": -0.066
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -2188,9 +2196,9 @@
       "lo": -0.269,
       "hi": -0.14
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "both fail"
    },
@@ -2211,9 +2219,9 @@
       "lo": 0.649,
       "hi": 0.757
      },
-     "held": true,
      "cause_passes": true,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": true
     },
     "d56": {
      "k_star": 16,
@@ -2231,9 +2239,9 @@
       "lo": 0.63,
       "hi": 0.74
      },
-     "held": true,
      "cause_passes": true,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": true
     },
     "reading": "held in both"
    },
@@ -2255,9 +2263,9 @@
       "lo": 0.083,
       "hi": 0.22
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -2276,9 +2284,9 @@
       "lo": 0.083,
       "hi": 0.212
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "both fail"
    },
@@ -2300,9 +2308,9 @@
       "lo": 0.512,
       "hi": 0.636
      },
-     "held": false,
      "cause_passes": true,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -2321,9 +2329,9 @@
       "lo": 0.399,
       "hi": 0.533
      },
-     "held": false,
      "cause_passes": true,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "Cause passes, Isolate fails"
    },
@@ -2345,9 +2353,9 @@
       "lo": 0.206,
       "hi": 0.369
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -2366,9 +2374,9 @@
       "lo": 0.126,
       "hi": 0.28
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "both fail"
    },
@@ -2389,9 +2397,9 @@
       "lo": -0.17,
       "hi": -0.022
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -2409,9 +2417,9 @@
       "lo": -0.288,
       "hi": -0.144
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "both fail"
    },
@@ -2432,9 +2440,9 @@
       "lo": 0.682,
       "hi": 0.779
      },
-     "held": true,
      "cause_passes": true,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": true
     },
     "d56": {
      "k_star": 16,
@@ -2452,9 +2460,9 @@
       "lo": 0.672,
       "hi": 0.773
      },
-     "held": true,
      "cause_passes": true,
-     "isolate_passes": true
+     "isolate_passes": true,
+     "held": true
     },
     "reading": "held in both"
    },
@@ -2476,9 +2484,9 @@
       "lo": 0.019,
       "hi": 0.152
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "d56": {
      "k_star": 16,
@@ -2497,12 +2505,16 @@
       "lo": 0.08,
       "hi": 0.208
      },
-     "held": false,
      "cause_passes": false,
-     "isolate_passes": false
+     "isolate_passes": false,
+     "held": false
     },
     "reading": "both fail"
    }
+  },
+  "void": {
+   "d55": false,
+   "d56": false
   },
   "sums_held_at_G": {
    "d55": 0,

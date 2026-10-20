@@ -41,16 +41,19 @@ def read_run(run: Path) -> dict:
             cell = {"k_star": c["k_star"], "cause": round(g["cause"]["mean"], 3), "cause_lo": round(g["cause"]["lo"], 3),
                     "cause_hi": round(g["cause"]["hi"], 3), "isolate_lo": round(g["isolate_lo"], 3),
                     "isolate": {k: round(x["mean"], 3) for k, x in g["isolate"].items()}, "held_d48": c["held"]}
-            over = None
             if s != ctrl:
                 cc = r["cells"][f"{ctrl}/{v}"]
-                over = paired_over_control(pred, f"{s}/{v}/{c['k_star']}", f"{ctrl}/{v}/{cc['k_star']}", rng)
-                cell["over_control"] = over
-            cell["held"] = bool(c["held"] and (s == ctrl or over["lo"] > 0))
+                cell["over_control"] = paired_over_control(pred, f"{s}/{v}/{c['k_star']}", f"{ctrl}/{v}/{cc['k_star']}", rng)
             cell["cause_passes"] = g["cause"]["lo"] >= th["cause_lower"]
             cell["isolate_passes"] = g["isolate_lo"] >= th["isolate_lower"]
             out[f"{s}/{v}"] = cell
-    return {"control_site": ctrl, "sites": r["sites"], "variables": r["variables"], "cells": out}
+    # D54's control rule, as d54_compare.py applies it: a variable held (D48) at the control voids the model's read;
+    # otherwise a variable is held at a site when D48's criterion holds and it beats its control, paired by base.
+    # A control cell is never "held": it is the reference.
+    void = any(out[f"{ctrl}/{v}"]["held_d48"] for v in r["variables"])
+    for key, cell in out.items():
+        cell["held"] = bool(not void and int(key.split("/")[0]) != ctrl and cell["held_d48"] and cell["over_control"]["lo"] > 0)
+    return {"control_site": ctrl, "void": void, "sites": r["sites"], "variables": r["variables"], "cells": out}
 
 
 def reading(old: dict, new: dict) -> str:
@@ -92,6 +95,9 @@ def main(argv: list[str] | None = None) -> int:
         a, b = read_run(d55[size]), read_run(d56[size])
         if a["sites"] != b["sites"] or a["variables"] != b["variables"]:
             raise ValueError(f"{size}: D55 and D56 differ in sites or variables")
+        for tag, x in (("D55", a), ("D56", b)):
+            if x["void"]:
+                print(f"qwen3_{size}: {tag} holds a variable at its control: its read is void (D54)")
         cells = {}
         print(f"qwen3_{size} (control {b['control_site']}): Cause [lo] / Isolate lo, D55 -> D56; reading")
         for key in a["cells"]:
@@ -102,6 +108,7 @@ def main(argv: list[str] | None = None) -> int:
         sums = [v for v in ("S1", "S2", "S3") if v in b["variables"]]
         G = [s for s in b["sites"] if s != b["control_site"]][0]
         summary[f"qwen3_{size}"] = {"control_site": b["control_site"], "gather": G, "cells": cells,
+                                    "void": {"d55": a["void"], "d56": b["void"]},
                                     "sums_held_at_G": {"d55": sum(a["cells"][f"{G}/{v}"]["held"] for v in sums),
                                                        "d56": sum(b["cells"][f"{G}/{v}"]["held"] for v in sums)},
                                     "C_held_anywhere": {"d55": any(a["cells"][f"{s}/C"]["held"] for s in a["sites"])
