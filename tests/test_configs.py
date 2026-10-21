@@ -648,3 +648,32 @@ def test_d56_configs_are_d55_with_the_joint_objective():
         d55 = asdict(load_das_config(CONFIGS / f"das_d55_qwen3_{size}.yaml"))
         assert d56["objective"] == "cause_isolate" and d55["objective"] == "cause" and d56["name"] == "das_d56"
         assert dict(d56, objective=None, name=None) == dict(d55, objective=None, name=None), size
+
+
+def test_maxmin_configs_are_max_with_both_operators():
+    """D57 job 1: the max map and probe files (D55) with the max/min task, and 96 bases for the map."""
+    from dataclasses import asdict
+
+    from directions.config import load_varmap_config, load_varprobe_config
+
+    for fam, load in (("varmap", load_varmap_config), ("varprobe", load_varprobe_config)):
+        files = sorted(CONFIGS.glob(f"{fam}_maxmin_qwen3_*.yaml"))
+        assert [p.name for p in files] == [f"{fam}_maxmin_qwen3_{s}.yaml" for s in ("1.7b", "4b", "8b")]
+        for p in files:
+            c = asdict(load(p))
+            ref = asdict(load(CONFIGS / p.name.replace("_maxmin_", "_max_")))
+            varying = dict(expressions=None, **({"n_bases": None} if fam == "varmap" else {}))
+            assert c["expressions"] == ["maxmin"] and dict(c, **varying) == dict(ref, **varying), p.name
+            assert c["n_shots"] % 2 == 0 and c["model"]["device"] == "cuda"
+            if fam == "varmap":
+                assert c["n_bases"] == 96 and ref["n_bases"] == 64
+
+
+def test_maxmin_needs_an_even_number_of_demonstrations(tmp_path):
+    from directions.config import load_varmap_config
+
+    text = (CONFIGS / "varmap_maxmin_qwen3_4b.yaml").read_text().replace("n_shots: 8 ", "n_shots: 7 ")
+    assert "n_shots: 7" in text
+    (tmp_path / "c.yaml").write_text(text)
+    with pytest.raises(ValueError, match="even n_shots"):
+        load_varmap_config(tmp_path / "c.yaml")

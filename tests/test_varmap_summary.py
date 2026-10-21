@@ -57,7 +57,8 @@ def _synthetic_map(tmp_path: Path) -> Path:
 
 
 def test_parse_expr_inverts_text():
-    for e in all_exprs("two_lane")[:50] + all_exprs("one_lane")[:50]:
+    maxmin = all_exprs("maxmin")
+    for e in all_exprs("two_lane")[:50] + all_exprs("one_lane")[:50] + all_exprs("three_lane")[:50] + maxmin[:50] + maxmin[-50:]:
         assert summary.parse_expr(e.text()) == e
 
 

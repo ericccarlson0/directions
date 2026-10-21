@@ -3578,3 +3578,75 @@ Decision (the first map; exploratory):
     test comes close. On the 4B and 8B the nearest cells miss by 0.01–0.08 on whichever test binds. The sums and the
     comparison are closer to separable on the larger models, but not separable by the criterion. The Cause-only
     objective was not what hid them.
+
+### D57. The operator as a control signal: where max/min travels and where it is taken up (Qwen3 1.7B, 4B, 8B Base)
+
+* **Why.**
+  - The project's question (`docs/PROJECT.md`) is how a low-dimensional control signal propagates and is turned
+    into computation, and whether control and computation are measurably different.
+  - The single-control line followed an injected task control. It is converted at a fixed depth, the hand-over: read
+    points 20, 24 and 26 on the 1.7B, 4B and 8B for the weight-decayed vector (D43, D44).
+  - The variable-map line found where the operands of a computation meet at the answer token, the gather: 21, 24 and
+    24 on two-bracket subtraction (D45, D49) and on max (D55).
+  - The two depths nearly coincide, and nothing has tested whether they are the same event. The close-out's open
+    question 3 (does a control skip a step the model takes?) needs readouts at other token positions, which the
+    map now provides.
+  - In `max(…)` against `min(…)` the operator is a 1-bit control. It enters at one known token and must be combined
+    with operands whose route is already mapped. A source that differs from its base only at that token is a
+    natural interchange, with no injected vector, as the close-out recommends.
+* **The task, `maxmin`.**
+  - `max(a+b, c+d) = Y` and `min(a+b, c+d) = Y`: digits 0–9, both sums single digits and unequal. That gives 5280
+    expressions, 2640 per operator.
+  - Each prompt has 8 demonstrations, 4 of each operator in a seeded random order, from a pool of 96 disjoint from the
+    bases, so the query's operator token is what sets the operation.
+  - On the Qwen3 tokenizer, `max` and `min` are single tokens (2810 and 1065), also after a newline. The two queries
+    are 13 tokens that differ only at the operator token (checked 2026-10-21). The maps label that token `op`.
+* **Swaps: D45's, plus one.**
+  - `op`: the same digits with the other operator, so only the operator token differs. The prediction is the other
+    operation's answer, which always differs from Y because the sums are unequal.
+  - S1, S2, S1_same, S2_same and both, as in D55, on the base's own operator (sources keep it). Each prediction is
+    the base's operation applied to the swapped sums, and a value-changing source must move the answer.
+  - Whole-state swaps at every read point × query token, with flip and change rates and 95% bootstrap intervals over
+    bases, as in D45.
+  - 96 bases (about 48 per operator), up from D45's 64, because the bases are split between two operators.
+* **Readouts.**
+  - The few-shot accuracy, overall and per operator.
+  - O is present at a site when the op swap's flip-rate lower bound is at least 0.5 (D45's presence threshold).
+  - R_O: the first read point at which O is present at the answer token.
+  - G: the gather, as in D45 (the first read point with both sums present at the answer token), on these bases.
+  - O_out: the last read point at which O is present at the operator token, i.e. swapping that token's state still
+    flips the operation.
+  - The route: every token, other than the operator token and the answer token, at which O is present at some read
+    point.
+* **Reading.**
+  - **Taken up where the operands meet:** |R_O − G| ≤ 1, with O_out ≥ R_O − 1 (the operator token holds the
+    operator until the answer token reads it, with no relay).
+  - **Carried ahead and held** (conserved or delayed, in PROJECT.md's terms): R_O ≤ G − 2. The operator reaches the
+    answer token before the operands and waits there.
+  - **Relayed** (cascaded): O present at another token (`(`, `,`, `)`, `=`) before R_O, or O_out < R_O − 1 with no
+    single relay token (spread over context).
+  - **Late:** R_O ≥ G + 2.
+  - Beside it: the single-control hand-over (20, 24, 26) and the max-only gathers of D55.
+* **The probe (D46) on maxmin.** Targets Y, O|Y (the operator given the answer), C|Y, S1|Y, S2|Y, a|S1 and c|S2; lens
+  candidates Y, S1, S2 and the four digits. O|Y readable after the gather would mean the operator is still
+  represented once the answer has formed: the decodable side of step 2.
+  - S1|Y, S2|Y and C|Y are conditioned on the answer and the operator together (the null permutes within each
+    (Y, O) class; a sum's allowed classes are those at most Y under max and at least Y under min). The operator is
+    an input like the digits. Given Y alone, a probe that read only the operator would know each sum's side of the
+    answer and would pass as reading the sum.
+  - The operator swap's source is the base's twin, drawn like every source from outside the demonstration pool; a
+    base whose twin is in the pool has no op source and is skipped and counted (D45's rule).
+  - `scripts/varmap_summary.py`'s fragile-row check uses the first query token that is neither a digit nor the
+    operator (the `(`), the same in a base and every one of its sources.
+* **Steps 2 and 3, sketched here and fixed after step 1.**
+  - Step 2: DAS at the answer token around G, with O, S1, S2, C and Y, trained on Cause and Isolate (D56). Is the
+    operator a separable variable before the gather and not after it? That would be control against computation,
+    measured.
+  - Step 3: the operator's natural direction (the min run's state minus the max run's, averaged over bases) added
+    at early read points of a max run, and the steered run read with the map. Does it build the sums and the
+    comparison as the natural min run does, and where does it hand over?
+* **Runs.**
+  - Seed 20260916, one execution, on RTX 4090s (EUR-NO-1): job 1 (map and probe) on the 1.7B and 4B (lane ci) and the
+    8B (lane ci-b).
+  - A model below 0.5 few-shot accuracy on the maxmin bases is skipped.
+  - D55's max task is unchanged: a toy run of its map is bit-identical before and after this change.

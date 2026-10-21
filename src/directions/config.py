@@ -1018,8 +1018,10 @@ def load_varmap_config(path: str | Path) -> VarmapConfig:
     with open(path) as f:
         data = yaml.safe_load(f) or {}
     cfg = _from_dict(VarmapConfig, data)
-    if not cfg.expressions or any(t not in ("two_lane", "one_lane", "three_lane", "max") for t in cfg.expressions):
-        raise ValueError("expressions must be a non-empty subset of two_lane, one_lane, three_lane, max")
+    if not cfg.expressions or any(t not in ("two_lane", "one_lane", "three_lane", "max", "maxmin") for t in cfg.expressions):
+        raise ValueError("expressions must be a non-empty subset of two_lane, one_lane, three_lane, max, maxmin")
+    if "maxmin" in cfg.expressions and cfg.n_shots % 2:
+        raise ValueError("maxmin needs an even n_shots: half of the demonstrations of each operator (D57)")
     if cfg.n_bases < 2 or cfg.n_shots < 0 or cfg.n_demo_pool < cfg.n_shots:
         raise ValueError("n_bases must be at least 2 and n_demo_pool at least n_shots")
     if not (0 < cfg.present_flip <= 1 and 0 <= cfg.value_change < 1 and 0 < cfg.alpha < 1):
@@ -1274,8 +1276,10 @@ def load_varprobe_config(path: str | Path) -> VarprobeConfig:
     with open(path) as f:
         data = yaml.safe_load(f) or {}
     cfg = _from_dict(VarprobeConfig, data)
-    if not cfg.expressions or any(t not in ("two_lane", "one_lane", "three_lane", "max") for t in cfg.expressions):
-        raise ValueError("expressions must be a non-empty subset of two_lane, one_lane, three_lane, max")
+    if not cfg.expressions or any(t not in ("two_lane", "one_lane", "three_lane", "max", "maxmin") for t in cfg.expressions):
+        raise ValueError("expressions must be a non-empty subset of two_lane, one_lane, three_lane, max, maxmin")
+    if "maxmin" in cfg.expressions and cfg.n_shots % 2:
+        raise ValueError("maxmin needs an even n_shots: half of the demonstrations of each operator (D57)")
     if cfg.n_examples < 2 * cfg.n_folds or cfg.n_folds < 2 or cfg.n_demo_pool < cfg.n_shots:
         raise ValueError("n_examples must be at least twice n_folds (>= 2), and n_demo_pool at least n_shots")
     if not cfg.lambdas or any(x <= 0 for x in cfg.lambdas) or list(cfg.lambdas) != sorted(cfg.lambdas):

@@ -21,7 +21,7 @@ from pathlib import Path
 
 import numpy as np
 
-from directions.varmap import Expr, bootstrap_rate, prediction, reading
+from directions.varmap import DIGITS, OPERATORS, Expr, bootstrap_rate, prediction, reading
 
 N_BOOT, ALPHA, SEED = 1000, 0.05, 20260916
 # the single-control hand-over (D43 vector, median read point) and the universal heads' median write depth, from the
@@ -36,8 +36,10 @@ def by_size(path: Path) -> tuple:
     return (float(m.group(1)) if m else float("inf"), path.name)
 
 def parse_expr(text: str) -> Expr:
-    """``(a+b) - (c+d)``, ``(a+b) - c``, ``(a+b) - (c+d) - (e+f)`` or ``max(a+b, c+d)`` as written by :meth:`Expr.text`."""
-    return Expr(*[int(x) for x in re.findall(r"\d", text)], op="max" if text.startswith("max") else "-")
+    """``(a+b) - (c+d)``, ``(a+b) - c``, ``(a+b) - (c+d) - (e+f)``, ``max(a+b, c+d)`` or ``min(a+b, c+d)`` as written
+    by :meth:`Expr.text`."""
+    op = next((o for o in OPERATORS if text.startswith(o)), "-")
+    return Expr(*[int(x) for x in re.findall(r"\d", text)], op=op)
 
 
 def digit_token_ids(result: dict, arrays: dict[str, np.ndarray]) -> dict[int, int]:
@@ -56,10 +58,12 @@ def digit_token_ids(result: dict, arrays: dict[str, np.ndarray]) -> dict[int, in
 
 
 def fragile_rows(result: dict, arrays: dict[str, np.ndarray], k: str, ids: dict[int, int]) -> np.ndarray:
-    """Rows of type ``k`` whose no-op swap (query token 0, every read point) does not give the base answer."""
+    """Rows of type ``k`` whose no-op swap (the first query token that is neither a digit nor the operator, the same
+    in base and source; every read point) does not give the base answer."""
     am, bases = arrays[f"{k}__argmax"], arrays[f"{k}__bases"]
+    noop = next(j for j, lab in enumerate(result["labels"]) if lab not in DIGITS and lab != "op")
     y = np.array([ids.get(result["examples"][int(b)]["Y"], -1) for b in bases])
-    return np.where((am[:, :, 0] != y[:, None]).any(axis=1))[0]
+    return np.where((am[:, :, noop] != y[:, None]).any(axis=1))[0]
 
 
 def rates_from_arrays(result: dict, arrays: dict[str, np.ndarray], ids: dict[int, int], drop: dict[str, np.ndarray]) -> dict:
@@ -82,7 +86,7 @@ def describe(result: dict, rates: dict, read: dict) -> dict:
     digits = [j for j, lab in enumerate(labels) if lab in ("a", "b", "c", "d", "e", "f")]
     others = [j for j in range(len(labels)) if j not in digits and j != ans]
     count = np.asarray(read["count"])
-    brackets = [k[len("present_"):] for k in read if k.startswith("present_")]
+    brackets = [k[len("present_"):] for k in read if k.startswith("present_") and k != "present_O"]  # O: D57
     all_at_ans = np.where(count[:, ans] == len(brackets))[0]  # the gather: every sub-result at the answer token
     gather = int(all_at_ans[0]) if len(all_at_ans) else None
     same = [k for k in rates if k.endswith("_same")]

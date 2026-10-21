@@ -5786,6 +5786,10 @@ uv run python scripts/stages.py 'uv run directions varsplit --config configs/var
 # D56, DAS trained on Cause and Isolate (runs 39394639942, 39371987637, 39372013186), one stage per model:
 uv run python scripts/stages.py 'uv run directions das --config configs/das_d56_qwen3_4b.yaml --run-id das_d56_qwen3_4b_seed20260916'
 uv run python scripts/d56_vs_d55.py --d55 results/remote/run-39180186358 results/remote/run-39180198181 --d56 results/remote/run-39394639942 results/remote/run-39371987637 results/remote/run-39372013186 --out docs/das/d56_vs_d55.json
+# D57 step 1, the operator map on max/min: the 8B first (lane ci-b), then the 1.7B and 4B (lane ci), then the reading:
+uv run python scripts/stages.py 'uv run directions varmap --config configs/varmap_maxmin_qwen3_8b.yaml --run-id varmap_maxmin_qwen3_8b_seed20260916' 'uv run directions varprobe --config configs/varprobe_maxmin_qwen3_8b.yaml --run-id varprobe_maxmin_qwen3_8b_seed20260916'
+uv run python scripts/stages.py 'uv run directions varmap --config configs/varmap_maxmin_qwen3_1.7b.yaml --run-id varmap_maxmin_qwen3_1.7b_seed20260916' 'uv run directions varmap --config configs/varmap_maxmin_qwen3_4b.yaml --run-id varmap_maxmin_qwen3_4b_seed20260916' 'uv run directions varprobe --config configs/varprobe_maxmin_qwen3_1.7b.yaml --run-id varprobe_maxmin_qwen3_1.7b_seed20260916' 'uv run directions varprobe --config configs/varprobe_maxmin_qwen3_4b.yaml --run-id varprobe_maxmin_qwen3_4b_seed20260916'
+uv run python scripts/d57_operator.py results/remote/run-<1.7B and 4B> results/remote/run-<8B> --out docs/varmap/d57_operator.json
 # iteration 10 (D33 amended: quarter strength, the neighbouring candidate layers, the patch test at every compared
 # layer on eighths of the depth for the learned and the head-mean vector, per-block writing), on a second seed,
 # as run (workflow runs in the iteration-10 entry): first the learned-vector protocol (D31) at seed 20260916 on

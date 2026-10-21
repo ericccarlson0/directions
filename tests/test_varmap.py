@@ -47,7 +47,12 @@ def test_sources_change_exactly_what_their_type_says(task):
                 assert (src.a, src.b, src.c, src.d) == (base.a, base.b, base.c, base.d) and src.S3 != base.S3 and pred == src.Y
             if kind.endswith("_same"):
                 assert pred == base.Y and src.Y == base.Y and src != base
-            if kind == "both" and task == "max":  # max's predictions coincide (D55): both sums and the answer move
+            if kind == "op":  # D57: the same digits under the other operator
+                assert (src.a, src.b, src.c, src.d) == (base.a, base.b, base.c, base.d) and src.op != base.op
+                assert pred == src.Y != base.Y
+            elif src.op != base.op:
+                raise AssertionError(f"a {kind} source changes the operator")
+            if kind == "both" and task in ("max", "maxmin"):  # selection's predictions coincide (D55): both sums and the answer move
                 assert src.S1 != base.S1 and src.S2 != base.S2 and src.Y != base.Y and pred == src.Y
             elif kind == "both":
                 p = vm.predictions(base, src)
