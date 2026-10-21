@@ -3673,3 +3673,65 @@ Outcome of step 1 (runs 39622530165, 39623460598; STATUS.md, "D57 step 1"):
 * **What step 1 settles for step 3.** The operator token holds the operator alone through read point 11, so the
   natural direction is to be taken there (the min run's state minus the max run's, at the operator token), not at
   the answer token.
+
+### D58. The operator's natural direction at the operator token, added to max runs and mapped (D57 step 3; Qwen3 4B, 8B Base)
+
+* **Why.**
+  - D57 step 1: the operator token alone switches max and min through read point 11. The operator then leaves the
+    token, is held at no single query token for 10–15 blocks, and reaches the answer token at 26 (4B) and 28 (8B),
+    near the sums' gather and two read points after the single-control hand-over.
+  - That is the natural route of a control signal that enters at a known token. Step 3 asks two questions. Is the
+    operator at its token a single direction, the same for every prompt? And does a direction added there travel
+    the natural route, or is it taken up elsewhere?
+  - This joins the single-control line (an added vector, D43, D44) to the natural interchange of step 1.
+* **The direction.**
+  - 256 max expressions from the maxmin task, each with its own seeded draw of 8 demonstrations (4 of each
+    operator, from D57's pool), and each one's min twin (same demonstrations and digits).
+  - v[m] = the mean, over the 256 pairs, of the twin's state minus the max run's state at the operator token at
+    read point m, for every m in 0..L.
+  - The operator token comes first in the query, so its state depends on the demonstrations and the operator only,
+    not on the digits.
+  - At read point 0, v[0] is exactly the difference of the two token embeddings. Adding it there turns the token
+    into `min` (up to rounding): a built-in positive control.
+  - Recorded per m: the norm of v[m]; its ratio to the mean norm of the max state there; the mean cosine of the
+    per-pair differences with v[m] (how far the difference is one shared direction).
+* **The switch curve.**
+  - On 256 bases (max expressions, disjoint from the direction set, drawn like D57's), kept where the model
+    answers both the max base and its min twin correctly.
+  - At every read point m: v[m] added at the operator token (scale 1); the twin's whole state swapped in at the
+    same site (D57's operator swap, on the same bases); and two random directions of v[m]'s norm (the null).
+  - Per arm: the switch rate (the answer becomes the min answer), the stay rate (the max answer) and the change
+    rate (any other answer), with 95% bootstrap intervals over bases.
+  - W_steer and W_swap: the last read point m such that the switch rate's lower bound is at least 0.5 at every read
+    point 0..m, for the direction and for the swap.
+* **The steered map, at one injection read point fixed now: m_inj = 6** (about half of step 1's O_out, 12 and 11,
+  inside the window where the operator token alone holds the operator on both models).
+  - Bases: 256 min expressions shown as max. The prompt says `max(a+b, c+d) = `, v[6] is added at the operator
+    token at read point 6, and the expected answer is min(S1, S2).
+  - D45's swap types S1, S2, S1_same, S2_same and both, with sources drawn as in D45 on the min expressions,
+    shown as max and steered the same way. Predictions are min's.
+  - The operator swap is the "unsteer" swap: the source is the same prompt without the direction, and the
+    prediction is the max answer. At read points before 6 it is a no-op: the two runs are identical there.
+  - Gate: as in D45. A base enters a type's map when the steered base gives the min answer, and that type's source
+    is answered (steered sources the min answer, the unsteered one the max answer).
+  - At most 64 bases per type, in draw order, to bound the cost.
+  - Identity check (a run's own steered state swapped back changes nothing) and one repeated swap batch (D23).
+* **Readouts and readings.**
+  - On the steered map, D57's readouts for the added operator: present_O where the unsteer swap's flip lower bound
+    is at least 0.5; R_O^inj, O_out^inj (from read point 6 on), the route; G^steer from the steered sums.
+  - Each is compared with step 1's natural value from run 39623460598 (4B) or 39622530165 (8B) (R_O 26 and 28,
+    O_out 12 and 11, G 25 and 30). A difference of at most 2 read points reads "as natural"; 3 or more "later" or
+    "earlier".
+  - The three comparisons are reported separately, not folded into one label: D57's overlapping alternatives are
+    not repeated. The same by the means (the first or last read point with a mean rate of at least 0.5) is
+    reported beside, and any disagreement between the two is stated.
+  - The direction: W_steer ≥ W_swap − 1 with the null's switch rate at most 0.05 everywhere reads "the operator at
+    its token is one direction for as long as the token holds it". W_steer < W_swap − 1 reads "a direction only
+    early".
+  - Secondary (exploratory): step 1's natural readouts recomputed on its min bases only. The unsteer swap goes from
+    min to max, while step 1's operator swap went both ways.
+* **Runs.**
+  - Seed 20260916, one execution, RTX 4090s (EUR-NO-1): the 8B first (lane ci-b), then the 4B (lane ci) once the
+    8B has logged its first swap type (docs/INFRA.md item 8). The 1.7B is out (below D57's gate).
+  - The direction and both arms use the backend's additive intervention, extended from the final query token to
+    any token per row; the existing path is unchanged (bit-identical on the toy).

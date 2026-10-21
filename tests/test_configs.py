@@ -677,3 +677,21 @@ def test_maxmin_needs_an_even_number_of_demonstrations(tmp_path):
     (tmp_path / "c.yaml").write_text(text)
     with pytest.raises(ValueError, match="even n_shots"):
         load_varmap_config(tmp_path / "c.yaml")
+
+
+def test_opsteer_configs_follow_d58():
+    """D58: the 4B and 8B files differ only in model (the 8B at batch 64, as in D57); the injection read point is 6."""
+    from dataclasses import asdict
+
+    from directions.config import load_opsteer_config
+
+    files = sorted(CONFIGS.glob("opsteer_qwen3_*.yaml"))
+    assert [p.name for p in files] == ["opsteer_qwen3_4b.yaml", "opsteer_qwen3_8b.yaml"]
+    c4, c8 = (asdict(load_opsteer_config(p)) for p in files)
+    assert dict(c4, model=None) == dict(c8, model=None)
+    assert c4["inject_read_point"] == 6 and c4["gate"] and c4["n_dir"] == c4["n_bases"] == 256 and c4["max_per_type"] == 64
+    for size, c in (("4B", c4), ("8B", c8)):
+        assert c["model"]["name"] == f"Qwen/Qwen3-{size}-Base" and c["model"]["device"] == "cuda"
+        ref = asdict(load_opsteer_config(CONFIGS / f"opsteer_qwen3_{size.lower()}.yaml"))["model"]
+        d57 = __import__("yaml").safe_load((CONFIGS / f"varmap_maxmin_qwen3_{size.lower()}.yaml").read_text())["model"]
+        assert ref["batch_size"] == d57["batch_size"] and ref["dtype"] == d57["dtype"] == "bfloat16"

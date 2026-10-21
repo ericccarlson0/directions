@@ -10,6 +10,7 @@
     uv run directions varsplit --config configs/varsplit_qwen3_4b.yaml --run-id varsplit_qwen3_4b_seed20260916
     uv run directions das      --config configs/das_qwen3_4b.yaml --run-id das_qwen3_4b_seed20260916
     uv run directions posset   --config configs/posset_qwen3_4b.yaml --run-id posset_qwen3_4b_seed20260916
+    uv run directions opsteer  --config configs/opsteer_qwen3_8b.yaml --run-id opsteer_qwen3_8b_seed20260916
 """
 
 from __future__ import annotations
@@ -245,6 +246,21 @@ def _cmd_varmap(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_opsteer(args: argparse.Namespace) -> int:
+    """The operator's natural direction at the operator token, added to max runs and mapped (docs/DECISIONS.md D58)."""
+    from .config import load_opsteer_config
+    from .opsteer import run_opsteer
+
+    cfg = load_opsteer_config(args.config)
+    if args.output_dir:
+        cfg.output_dir = args.output_dir
+    if args.seed is not None:
+        cfg.seed = int(args.seed)
+    root = run_opsteer(cfg, run_id=args.run_id, config_path=str(args.config))
+    print(root)
+    return 0
+
+
 def _cmd_posset(args: argparse.Namespace) -> int:
     """The position-set check (docs/DECISIONS.md D52): sets of query tokens swapped together."""
     from .config import load_posset_config
@@ -378,6 +394,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--output-dir", default=None, help="override output_dir from the config")
     p.add_argument("--run-id", default=None, help="explicit run directory name")
     p.add_argument("--seed", type=int, default=None, help="override the map's seed (its draws: expressions, sources, demonstrations, bootstraps)")
+    p = sub.add_parser("opsteer", help="the operator's natural direction (min minus max) at the operator token, added to "
+                                       "max runs at every read point and mapped at one (D58)")
+    p.add_argument("--config", required=True, help="YAML config (configs/opsteer_<model>.yaml)")
+    p.add_argument("--output-dir", default=None, help="override output_dir from the config")
+    p.add_argument("--run-id", default=None, help="explicit run directory name")
+    p.add_argument("--seed", type=int, default=None, help="override the seed (the draws, null directions, bootstraps)")
     p = sub.add_parser("posset", help="the position-set check (D52): D45's whole-state swaps at sets of query tokens "
                                       "together, read against the answer token alone")
     p.add_argument("--config", required=True, help="YAML config (configs/posset_<model>.yaml)")
@@ -424,6 +446,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_varmap(args)
     if args.command == "posset":
         return _cmd_posset(args)
+    if args.command == "opsteer":
+        return _cmd_opsteer(args)
     if args.command == "varprobe":
         return _cmd_varprobe(args)
     if args.command == "varsplit":

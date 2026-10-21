@@ -700,7 +700,7 @@ HYP_LABEL_MAXMIN = {"S1": "f(S1', S2)", "S2": "f(S1, S2')", "C": "C' on the base
                     "none": "base / none"}  # D57: f, the base's operation
 
 
-def plot_task(result: dict[str, Any], path: Path, model_name: str) -> None:
+def plot_task(result: dict[str, Any], path: Path, model_name: str, op_title: str | None = None) -> None:
     """Heatmaps over (read point x query token). Left block: the flip rates of the value-changing swaps (top row)
     and the change rates of the same-value swaps (bottom row), on one colour scale. Right column: the count of
     variables present, and which prediction a swap from a source changing every bracket produces."""
@@ -723,8 +723,8 @@ def plot_task(result: dict[str, Any], path: Path, model_name: str) -> None:
     top = [(b, "flip", f"swap {names[b]}\nanswer follows source {names[b]}") for b in brackets]
     top.append((combined, "flip", f"swap {combined}\nanswer = source answer"))
     bottom = [(f"{b}_same", "change", f"same {names[b]}, other digits\nanswer changes") for b in brackets]
-    bottom.append(("op", "flip", "swap the operator (max <-> min)\nanswer = the other operation's") if "op" in rates
-                  else None)
+    bottom.append(("op", "flip", op_title or "swap the operator (max <-> min)\nanswer = the other operation's")
+                  if "op" in rates else None)
     grid = [top, bottom]
     ncol = len(top)
     w = 0.17 * len(labels) + 0.5

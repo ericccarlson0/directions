@@ -1,0 +1,28 @@
+# The operator's natural direction at the operator token, added to max runs and mapped (docs/DECISIONS.md D58; D57
+# step 3), Qwen3-4B Base. The files of this family differ only in model (the 8B at batch 64, as in D57).
+name: opsteer
+seed: 20260916
+output_dir: results
+
+model:
+  backend: hf
+  name: Qwen/Qwen3-4B-Base
+  dtype: bfloat16          # model execution; the direction is added in float32 and the state cast back
+  device: cuda             # fail fast rather than fall back to the CPU (docs/INFRA.md)
+  batch_size: 128
+
+n_dir: 256                    # max expressions and their min twins: the direction (the mean state difference)
+n_bases: 256                  # min expressions shown as max, digits outside the direction set: curve and map
+n_shots: 8                    # 4 of each operator (D57), from D57's pool size
+n_demo_pool: 96
+inject_read_point: 6          # the steered map's read point, fixed before the run (D58)
+max_per_type: 64              # at most this many bases per swap type in the map, in draw order
+n_null: 2                     # random directions of the direction's norm per read point (the curve's null)
+read_points: null             # the map's swap read points: all, 0..L
+n_boot: 1000
+alpha: 0.05
+present_flip: 0.5             # D45: present = flip-rate lower bound >= 0.5
+value_change: 0.25
+identity_check: true
+determinism_check: true
+figures: true

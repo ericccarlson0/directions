@@ -1287,3 +1287,55 @@ def load_varprobe_config(path: str | Path) -> VarprobeConfig:
     if cfg.n_perm < 1 or not 0 < cfg.alpha < 1:
         raise ValueError("n_perm >= 1 and alpha in (0, 1)")
     return cfg
+
+
+@dataclass
+class OpsteerConfig:
+    """The operator's natural direction at the operator token, added to max runs and mapped (docs/DECISIONS.md D58).
+
+    n_dir            max expressions (each with its min twin) whose operator-token states give the direction
+    n_bases          bases of the switch curve and the steered map (min expressions shown as max), disjoint from them
+    n_shots          demonstrations per prompt, half of each operator (D57), from a pool of n_demo_pool
+    inject_read_point  the read point of the steered map's direction (D58: 6)
+    max_per_type     at most this many bases per swap type enter the steered map (in draw order)
+    n_null           random directions of the direction's norm per read point (the switch curve's null)
+    read_points      the steered map's swap read points (None: all, 0..L); the switch curve covers 0..L
+    present_flip, value_change, n_boot, alpha  as in the variable map (D45)
+    gate             keep only the bases the model answers (D58's rules); off only for the toy smoke run
+    identity_check   a steered run's own states swapped back at three sites change nothing (bit identity)
+    determinism_check  one swap batch repeated; bit identity required (D23)
+    """
+
+    name: str = "opsteer"
+    seed: int = 20260916
+    output_dir: str = "results"
+    model: ModelConfig = field(default_factory=ModelConfig)
+    n_dir: int = 256
+    n_bases: int = 256
+    n_shots: int = 8
+    n_demo_pool: int = 96
+    inject_read_point: int = 6
+    max_per_type: int = 64
+    n_null: int = 2
+    read_points: list[int] | None = None
+    n_boot: int = 1000
+    alpha: float = 0.05
+    present_flip: float = 0.5
+    value_change: float = 0.25
+    gate: bool = True
+    identity_check: bool = True
+    determinism_check: bool = True
+    figures: bool = True
+
+
+def load_opsteer_config(path: str | Path) -> OpsteerConfig:
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    cfg = _from_dict(OpsteerConfig, data)
+    if cfg.n_shots % 2 or cfg.n_shots < 2 or cfg.n_demo_pool < cfg.n_shots:
+        raise ValueError("n_shots must be even and positive (half of each operator, D57), n_demo_pool at least n_shots")
+    if cfg.n_dir < 2 or cfg.n_bases < 2 or cfg.max_per_type < 2 or cfg.n_null < 0 or cfg.inject_read_point < 0:
+        raise ValueError("n_dir, n_bases and max_per_type must be at least 2, n_null and inject_read_point non-negative")
+    if not (0 < cfg.present_flip <= 1 and 0 <= cfg.value_change < 1 and 0 < cfg.alpha < 1):
+        raise ValueError("present_flip in (0, 1], value_change in [0, 1), alpha in (0, 1)")
+    return cfg

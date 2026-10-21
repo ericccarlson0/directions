@@ -1,0 +1,22 @@
+# Smoke run of the operator direction (D58) on a random tiny model (CPU, no downloads): the model cannot do the task,
+# so the gate is off; checks the plumbing, the files and the figures.
+name: opsteer
+seed: 20260916
+output_dir: results
+
+model:
+  backend: toy
+  dtype: float32
+  device: cpu
+  batch_size: 64
+
+n_dir: 8
+n_bases: 6
+n_shots: 2
+n_demo_pool: 8
+inject_read_point: 1
+max_per_type: 4
+n_null: 1
+read_points: [0, 1, 2, 4]
+n_boot: 50
+gate: false

@@ -87,12 +87,21 @@ class Intervention:
 
     ``vectors`` is either a single direction of shape ``(d,)`` shared by all
     examples or one vector per example, shape ``(N, d)`` (indexed like the
-    prompt list passed to :meth:`ModelBackend.run`).
+    prompt list passed to :meth:`ModelBackend.run`). With ``positions`` (``(N,)``, absolute token indices, D58)
+    the vector is added at that token of each example instead of the query token.
     """
 
     layer: int
     vectors: np.ndarray
     scale: float = 1.0
+    positions: np.ndarray | None = None
+
+
+def _slice_interventions(interventions: Sequence[Intervention], start: int, bs: int) -> list[Intervention]:
+    """The interventions of the rows ``start:start + bs``: per-example vectors and positions are sliced."""
+    return [Intervention(iv.layer, iv.vectors if iv.vectors.ndim == 1 else iv.vectors[start : start + bs], iv.scale,
+                         None if iv.positions is None else np.asarray(iv.positions)[start : start + bs])
+            for iv in interventions]
 
 
 @dataclass
@@ -601,10 +610,7 @@ class ModelBackend:
             batch = prompts[start : start + bs]
             self.counters["forward_examples"] += len(batch)
             self.counters["forward_batches"] += 1
-            sliced = [
-                Intervention(iv.layer, iv.vectors if iv.vectors.ndim == 1 else iv.vectors[start : start + bs], iv.scale)
-                for iv in interventions
-            ]
+            sliced = _slice_interventions(interventions, start, bs)
             patches = [
                 HeadPatch(
                     hp.layer,
@@ -625,11 +631,11 @@ class ModelBackend:
 
     @torch.inference_mode()
     def capture_sites(self, prompts: Sequence[Prompt], positions: np.ndarray, batch_size: int | None = None,
-                      site_patch: SitePatch | None = None) -> torch.Tensor:
+                      site_patch: SitePatch | None = None, interventions: Sequence[Intervention] = ()) -> torch.Tensor:
         """The residual stream at every read point and at the given token positions of each prompt, in the model's
         dtype on its device: ``(N, L+1, P, d)`` for ``positions`` ``(N, P)`` (absolute token indices). These are the
         values a :class:`SitePatch` swaps in (D45); kept in the model's dtype so that a swap of a run's own state
-        changes nothing."""
+        changes nothing. ``interventions`` are applied as in :meth:`run` (a steered run's states, D58)."""
         pos = np.asarray(positions, dtype=np.int64)
         if pos.ndim != 2 or pos.shape[0] != len(prompts):
             raise ValueError("positions must be (n_prompts, P)")
@@ -644,7 +650,8 @@ class ModelBackend:
             sp = None if site_patch is None else SitePatch(np.asarray(site_patch.layers)[start : start + bs],
                                                            np.asarray(site_patch.positions)[start : start + bs],
                                                            site_patch.values[start : start + bs], site_patch.basis)
-            session = _HookSession(n_layers=self.n_layers, query_pos=batch["query_pos"], interventions=(), capture=False,
+            session = _HookSession(n_layers=self.n_layers, query_pos=batch["query_pos"],
+                                   interventions=_slice_interventions(interventions, start, bs), capture=False,
                                    device=self.device, site_patch=sp,
                                    capture_positions=torch.as_tensor(pos[start : start + bs], device=self.device))
             self._forward_scores(batch, session)
@@ -910,6 +917,8 @@ class _HookSession:
         for iv in interventions:
             if not (0 <= iv.layer <= n_layers):
                 raise ValueError(f"intervention layer {iv.layer} outside 0..{n_layers}")
+            if iv.positions is not None and np.shape(iv.positions) != (query_pos.shape[0],):
+                raise ValueError("intervention positions must have one entry per prompt of the batch")
             self.by_layer.setdefault(iv.layer, []).append(iv)
         self.device = device
         self.n_heads, self.head_dim = n_heads, head_dim
@@ -1015,13 +1024,22 @@ class _HookSession:
         if ivs:
             hidden = hidden.clone()
             cloned = True
-            current = hidden[self.batch_idx, self.query_pos].float()
-            for iv in ivs:
+            at_query = [iv for iv in ivs if iv.positions is None]
+            if at_query:
+                current = hidden[self.batch_idx, self.query_pos].float()
+                for iv in at_query:
+                    vec = torch.as_tensor(np.asarray(iv.vectors, dtype=np.float32), device=self.device)
+                    if vec.ndim == 1:
+                        vec = vec[None, :]
+                    current = current + iv.scale * vec
+                hidden[self.batch_idx, self.query_pos] = current.to(hidden.dtype)
+            for iv in ivs:  # D58: at a token of each row other than the query token
+                if iv.positions is None:
+                    continue
+                pos = torch.as_tensor(np.asarray(iv.positions, dtype=np.int64), device=self.device)
                 vec = torch.as_tensor(np.asarray(iv.vectors, dtype=np.float32), device=self.device)
-                if vec.ndim == 1:
-                    vec = vec[None, :]
-                current = current + iv.scale * vec
-            hidden[self.batch_idx, self.query_pos] = current.to(hidden.dtype)
+                current = hidden[self.batch_idx, pos].float() + iv.scale * (vec[None, :] if vec.ndim == 1 else vec)
+                hidden[self.batch_idx, pos] = current.to(hidden.dtype)
         if self.site_patch is not None:
             rows = (self.sp_layers == layer).nonzero().flatten()
             if rows.numel():

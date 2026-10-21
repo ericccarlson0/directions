@@ -5854,6 +5854,10 @@ uv run python scripts/d56_vs_d55.py --d55 results/remote/run-39180186358 results
 uv run python scripts/stages.py 'uv run directions varmap --config configs/varmap_maxmin_qwen3_8b.yaml --run-id varmap_maxmin_qwen3_8b_seed20260916' 'uv run directions varprobe --config configs/varprobe_maxmin_qwen3_8b.yaml --run-id varprobe_maxmin_qwen3_8b_seed20260916'
 uv run python scripts/stages.py 'uv run directions varmap --config configs/varmap_maxmin_qwen3_1.7b.yaml --run-id varmap_maxmin_qwen3_1.7b_seed20260916' 'uv run directions varmap --config configs/varmap_maxmin_qwen3_4b.yaml --run-id varmap_maxmin_qwen3_4b_seed20260916' 'uv run directions varprobe --config configs/varprobe_maxmin_qwen3_1.7b.yaml --run-id varprobe_maxmin_qwen3_1.7b_seed20260916' 'uv run directions varprobe --config configs/varprobe_maxmin_qwen3_4b.yaml --run-id varprobe_maxmin_qwen3_4b_seed20260916'
 uv run python scripts/d57_operator.py results/remote/run-39623460598 results/remote/run-39622530165 --out docs/varmap/d57_operator.json   # runs 39623460598 (1.7B, 4B), 39622530165 (8B)
+# D58 (D57 step 3), the operator direction at the operator token: the 8B first (lane ci-b), then the 4B (lane ci):
+uv run python scripts/stages.py 'uv run directions opsteer --config configs/opsteer_qwen3_8b.yaml --run-id opsteer_qwen3_8b_seed20260916'
+uv run python scripts/stages.py 'uv run directions opsteer --config configs/opsteer_qwen3_4b.yaml --run-id opsteer_qwen3_4b_seed20260916'
+uv run python scripts/d58_opsteer.py --opsteer results/remote/run-<4B> results/remote/run-<8B> --d57 results/remote/run-39623460598 results/remote/run-39622530165 --out docs/varmap/d58_opsteer.json
 # iteration 10 (D33 amended: quarter strength, the neighbouring candidate layers, the patch test at every compared
 # layer on eighths of the depth for the learned and the head-mean vector, per-block writing), on a second seed,
 # as run (workflow runs in the iteration-10 entry): first the learned-vector protocol (D31) at seed 20260916 on
