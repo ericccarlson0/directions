@@ -5638,6 +5638,67 @@ except the 8B's G at 31.)
 - **Memory:** the 8B probe peaked at 19.1 GiB allocated (20.4 reserved) of 23.5. One allocation of 2.5 GB failed
   once and succeeded on the allocator's retry, with outputs identical on the repeat checks (docs/INFRA.md).
 
+### D58 (D57 step 3): the operator's natural direction at the operator token, added to max runs (Qwen3 4B, 8B Base, seed 20260916)
+
+The direction v[m] is the mean min-minus-max state at the operator token over 256 prompt pairs.
+- The switch curve adds it at every read point m of max runs (85 bases on the 8B, 100 on the 4B), beside the min
+  twin's whole state swapped in and two random directions of the same norm.
+- The steered map adds v[6] to min expressions shown as max and maps them with D45's swaps, sources steered the
+  same way. The operator swap is the unsteer swap: the same prompt without the direction.
+
+```
+# workflow runs, RTX 4090 (ADA_24), EUR-NO-1; 1.52 USD for both (balance 52.31 -> 50.79)
+#   39648774824: request d58_opsteer_qwen3_8b_seed20260916, commit 1bbb92b, ci-b; 48 min (map 43)
+#   39651059358: request d58_opsteer_qwen3_4b_seed20260916, commit ed71774, ci; 34 min
+#     (requested once the 8B had passed its first swap type, docs/INFRA.md item 8)
+# identity swaps and a repeated swap batch identical in both; peak memory 18.1 GiB (8B), 11.7 GiB (4B)
+uv run python scripts/stages.py 'uv run directions opsteer --config configs/opsteer_qwen3_8b.yaml --run-id opsteer_qwen3_8b_seed20260916'
+# likewise the 4B (configs/opsteer_qwen3_4b.yaml); then, on the downloads, against step 1:
+uv run python scripts/d58_opsteer.py --opsteer results/remote/run-39651059358 results/remote/run-39648774824 \
+  --d57 results/remote/run-39623460598 results/remote/run-39622530165 --out docs/varmap/d58_opsteer.json
+```
+
+Figures: `docs/varmap/qwen3_<size>_opsteer_curve.png` (the switch curve), `qwen3_<size>_opsteer_map.png` (the steered
+map; the operator panel is the unsteer swap).
+
+| model | pair cosine with v, read points 4, 8, 12 | switch: direction / twin swap, read points 6, 12, 14, 16 | W_steer / W_swap | null switch (upper bound) | D58 reading of the direction |
+|---|---|---|---|---|---|
+| 4B | 0.95, 0.84, 0.85 | 0.92 / 0.98, 0.64 / 0.66, 0.50 / 0.60, 0.21 / 0.39 | 12 / 14 | 0.01 (0.03) | a direction only early |
+| 8B | 0.93, 0.87, 0.87 | 0.95 / 0.97, 0.84 / 0.79, 0.62 / 0.66, 0.22 / 0.34 | 14 / 14 | 0.02 (0.06) | one direction for as long as the token holds it |
+
+| model | steered: min answers (natural min) | bases per type | R_O / O_out / G by lower bounds: steered vs step 1 | by means: steered vs step 1 |
+|---|---|---|---|---|
+| 4B | 0.445 (0.465) | 56–64 | 22 vs 26 earlier; 14 vs 12 as natural; 29 vs 25 later | 22 vs 22; 15 vs 14; 25 vs 24: all as natural |
+| 8B | 0.418 (0.418) | 46–64 | 27 vs 28 as natural; 14 vs 11 later; 32 vs 30 as natural | 26 vs 27; 14 vs 14; 25 vs 24: all as natural |
+
+(No route on either model: as in step 1, no other single query token holds the added operator.)
+
+- **At its token, the operator is one direction, the same for every prompt.**
+  - The per-pair min-minus-max differences agree with their mean at cosine 0.84–0.95 through read point 12.
+  - Adding the mean switches max to min as often as swapping in the min twin's whole state: within 0.06 at every
+    read point up to 12 on both models.
+  - The direction's effect fades with the swap's, as the operator leaves the token: through read point 14 on the
+    8B and 12 on the 4B, against 14 for the swap. On the 4B the direction falls a little sooner (0.50 against
+    0.60 at 14, 0.21 against 0.39 at 16).
+  - Random directions of the same norm switch at most 0.02 of the bases.
+  - At read point 0 every pair gives the same difference (cosine 1.00), the two token embeddings, and adding it
+    equals the token swap: the built-in check passes.
+- **Added at read point 6, the direction is a full control.** It gives the min answer as often as the natural min
+  prompt does: 0.418 against 0.418 on the 8B, 0.445 against 0.465 on the 4B.
+- **The added operator travels the natural route.**
+  - By the means, which do not depend on how many bases enter, all three readouts match step 1 within one read
+    point on both models. It leaves the operator token at 14–15, no other single token holds it, it reaches the
+    answer token at 22 (4B) and 26 (8B), and the sums gather at 25.
+  - By the preregistered lower bounds, the 4B reads earlier at the answer token (22 against 26) and later at the
+    gather (29 against 25); the 8B reads later at the operator token (14 against 11).
+  - These differences follow from base counts. The unsteer swap has 64 bases against step 1's 31–37, so its lower
+    bounds sit nearer its means. The steered sums are weaker at the answer token than step 1's mixed-operator ones
+    (4B S2 at 25–28: 0.50–0.55 against 0.79).
+- **Exploratory:**
+  - The added direction lingers at its token a little longer: from 17 to 19 the unsteer swap there still reverts
+    0.30–0.34 of the bases, against 0.10–0.24 for step 1's operator swap.
+  - The added operator is slightly stronger at the answer token: 0.67 against 0.52 at 27 on the 8B.
+
 ## Not yet run / known limitations
 
 - The variable map (D45) has run once per model (Qwen3 0.6B, 1.7B, 4B Base; seed 20260916) on two expression tasks
@@ -5857,7 +5918,7 @@ uv run python scripts/d57_operator.py results/remote/run-39623460598 results/rem
 # D58 (D57 step 3), the operator direction at the operator token: the 8B first (lane ci-b), then the 4B (lane ci):
 uv run python scripts/stages.py 'uv run directions opsteer --config configs/opsteer_qwen3_8b.yaml --run-id opsteer_qwen3_8b_seed20260916'
 uv run python scripts/stages.py 'uv run directions opsteer --config configs/opsteer_qwen3_4b.yaml --run-id opsteer_qwen3_4b_seed20260916'
-uv run python scripts/d58_opsteer.py --opsteer results/remote/run-<4B> results/remote/run-<8B> --d57 results/remote/run-39623460598 results/remote/run-39622530165 --out docs/varmap/d58_opsteer.json
+uv run python scripts/d58_opsteer.py --opsteer results/remote/run-39651059358 results/remote/run-39648774824 --d57 results/remote/run-39623460598 results/remote/run-39622530165 --out docs/varmap/d58_opsteer.json   # runs 39651059358 (4B), 39648774824 (8B)
 # iteration 10 (D33 amended: quarter strength, the neighbouring candidate layers, the patch test at every compared
 # layer on eighths of the depth for the learned and the head-mean vector, per-block writing), on a second seed,
 # as run (workflow runs in the iteration-10 entry): first the learned-vector protocol (D31) at seed 20260916 on

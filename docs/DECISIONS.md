@@ -3735,3 +3735,23 @@ Outcome of step 1 (runs 39622530165, 39623460598; STATUS.md, "D57 step 1"):
     8B has logged its first swap type (docs/INFRA.md item 8). The 1.7B is out (below D57's gate).
   - The direction and both arms use the backend's additive intervention, extended from the final query token to
     any token per row; the existing path is unchanged (bit-identical on the toy).
+
+Outcome (runs 39648774824, 39651059358; STATUS.md, "D58"):
+
+* **The direction.**
+  - 8B: W_steer = W_swap = 14 and the null's switch rate is at most 0.02: "the operator at its token is one
+    direction for as long as the token holds it".
+  - 4B: W_steer 12 against W_swap 14: "a direction only early". The two arms agree within 0.06 through read point
+    12. The direction then falls off one or two read points sooner (0.50 against 0.60 at 14).
+  - The reading script first tested the null by its upper bound. It was aligned to this entry's wording, the
+    switch rate (the point estimate), before either run was read. The upper bounds are reported beside: 0.06 (8B),
+    0.03 (4B).
+* **The steered map against step 1.**
+  - By the preregistered lower bounds, three comparisons fall outside "as natural": the 4B's R_O earlier (22
+    against 26) and G later (29 against 25), and the 8B's O_out later (14 against 11). The other three are "as
+    natural".
+  - By the means, all six are as natural, within one read point.
+  - The lower-bound differences follow from base counts. The unsteer swap had 64 bases against step 1's 31–37, and
+    the steered sums sit lower at the answer token than step 1's, whose bases mix both operators.
+  - The readings stand as preregistered. The interpretation, that the added operator takes the natural route and
+    the lower-bound differences are power, is the means' and is recorded as such.

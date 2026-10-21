@@ -1,0 +1,378 @@
+{
+ "qwen3_4b": {
+  "inject_read_point": 6,
+  "direction": {
+   "0": {
+    "norm": 1.088,
+    "ratio": 0.9926,
+    "pair_cosine": 1.0
+   },
+   "6": {
+    "norm": 14.081,
+    "ratio": 0.4708,
+    "pair_cosine": 0.914
+   },
+   "11": {
+    "norm": 23.531,
+    "ratio": 0.5783,
+    "pair_cosine": 0.896
+   },
+   "16": {
+    "norm": 23.756,
+    "ratio": 0.4913,
+    "pair_cosine": 0.701
+   },
+   "20": {
+    "norm": 29.545,
+    "ratio": 0.4841,
+    "pair_cosine": 0.644
+   },
+   "24": {
+    "norm": 52.948,
+    "ratio": 0.5271,
+    "pair_cosine": 0.811
+   },
+   "28": {
+    "norm": 76.446,
+    "ratio": 0.4298,
+    "pair_cosine": 0.845
+   }
+  },
+  "curve": {
+   "n": 100,
+   "W_steer": 12,
+   "W_swap": 14,
+   "null_switch_max": 0.01,
+   "null_switch_max_hi": 0.03,
+   "reading": "a direction only early",
+   "switch_at_inject": {
+    "steer": 0.92,
+    "swap": 0.98
+   },
+   "swap_minus_steer_at_inject": [
+    0.06,
+    0.01,
+    0.11
+   ]
+  },
+  "map": {
+   "accuracy": 0.4453125,
+   "unsteered_max": 0.76953125,
+   "natural_min": 0.46484375,
+   "n_kept": {
+    "S1": 64,
+    "S1_same": 64,
+    "S2": 62,
+    "S2_same": 64,
+    "both": 56,
+    "op": 64
+   },
+   "readouts": {
+    "lower_bounds": {
+     "G": 29,
+     "O_out": 14,
+     "R_O": 22,
+     "reading": "carried ahead and held",
+     "route": {}
+    },
+    "means": {
+     "G": 25,
+     "O_out": 15,
+     "R_O": 22
+    }
+   }
+  },
+  "comparison": {
+   "lower_bounds": {
+    "R_O": {
+     "steered": 22,
+     "natural": 26,
+     "difference": -4,
+     "reading": "earlier"
+    },
+    "O_out": {
+     "steered": 14,
+     "natural": 12,
+     "difference": 2,
+     "reading": "as natural"
+    },
+    "G": {
+     "steered": 29,
+     "natural": 25,
+     "difference": 4,
+     "reading": "later"
+    }
+   },
+   "means": {
+    "R_O": {
+     "steered": 22,
+     "natural": 22,
+     "difference": 0,
+     "reading": "as natural"
+    },
+    "O_out": {
+     "steered": 15,
+     "natural": 14,
+     "difference": 1,
+     "reading": "as natural"
+    },
+    "G": {
+     "steered": 25,
+     "natural": 24,
+     "difference": 1,
+     "reading": "as natural"
+    }
+   },
+   "route": {
+    "steered": {},
+    "natural": {}
+   }
+  },
+  "natural_min_only": {
+   "n": {
+    "op": 20,
+    "S1": 12,
+    "S2": 18
+   },
+   "lower_bounds": {
+    "R_O": 23,
+    "G": 30,
+    "O_out": 12,
+    "route": {},
+    "reading": "carried ahead and held"
+   },
+   "means": {
+    "R_O": 22,
+    "O_out": 15,
+    "G": 25
+   },
+   "answer_token_op_mean": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.05,
+    0.05,
+    0.1,
+    0.1,
+    0.2,
+    0.3,
+    0.45,
+    0.65,
+    0.7,
+    0.7,
+    0.75,
+    0.8,
+    0.8,
+    0.85,
+    0.85,
+    0.85,
+    0.9,
+    0.9,
+    0.9,
+    0.95,
+    1.0,
+    1.0
+   ]
+  }
+ },
+ "qwen3_8b": {
+  "inject_read_point": 6,
+  "direction": {
+   "0": {
+    "norm": 2.106,
+    "ratio": 1.201,
+    "pair_cosine": 1.0
+   },
+   "6": {
+    "norm": 17.285,
+    "ratio": 0.4222,
+    "pair_cosine": 0.911
+   },
+   "11": {
+    "norm": 31.472,
+    "ratio": 0.5544,
+    "pair_cosine": 0.893
+   },
+   "16": {
+    "norm": 37.005,
+    "ratio": 0.4949,
+    "pair_cosine": 0.726
+   },
+   "20": {
+    "norm": 52.874,
+    "ratio": 0.4815,
+    "pair_cosine": 0.644
+   },
+   "24": {
+    "norm": 107.894,
+    "ratio": 0.517,
+    "pair_cosine": 0.808
+   },
+   "28": {
+    "norm": 148.299,
+    "ratio": 0.3997,
+    "pair_cosine": 0.819
+   }
+  },
+  "curve": {
+   "n": 85,
+   "W_steer": 14,
+   "W_swap": 14,
+   "null_switch_max": 0.023529411764705882,
+   "null_switch_max_hi": 0.058823529411764705,
+   "reading": "the operator at its token is one direction for as long as the token holds it",
+   "switch_at_inject": {
+    "steer": 0.953,
+    "swap": 0.965
+   },
+   "swap_minus_steer_at_inject": [
+    0.012,
+    -0.035,
+    0.059
+   ]
+  },
+  "map": {
+   "accuracy": 0.41796875,
+   "unsteered_max": 0.76953125,
+   "natural_min": 0.41796875,
+   "n_kept": {
+    "S1": 60,
+    "S1_same": 63,
+    "S2": 46,
+    "S2_same": 64,
+    "both": 47,
+    "op": 64
+   },
+   "readouts": {
+    "lower_bounds": {
+     "G": 32,
+     "O_out": 14,
+     "R_O": 27,
+     "reading": "carried ahead and held",
+     "route": {}
+    },
+    "means": {
+     "G": 25,
+     "O_out": 14,
+     "R_O": 26
+    }
+   }
+  },
+  "comparison": {
+   "lower_bounds": {
+    "R_O": {
+     "steered": 27,
+     "natural": 28,
+     "difference": -1,
+     "reading": "as natural"
+    },
+    "O_out": {
+     "steered": 14,
+     "natural": 11,
+     "difference": 3,
+     "reading": "later"
+    },
+    "G": {
+     "steered": 32,
+     "natural": 30,
+     "difference": 2,
+     "reading": "as natural"
+    }
+   },
+   "means": {
+    "R_O": {
+     "steered": 26,
+     "natural": 27,
+     "difference": -1,
+     "reading": "as natural"
+    },
+    "O_out": {
+     "steered": 14,
+     "natural": 14,
+     "difference": 0,
+     "reading": "as natural"
+    },
+    "G": {
+     "steered": 25,
+     "natural": 24,
+     "difference": 1,
+     "reading": "as natural"
+    }
+   },
+   "route": {
+    "steered": {},
+    "natural": {}
+   }
+  },
+  "natural_min_only": {
+   "n": {
+    "op": 17,
+    "S1": 13,
+    "S2": 13
+   },
+   "lower_bounds": {
+    "R_O": 29,
+    "G": 31,
+    "O_out": 11,
+    "route": {},
+    "reading": "carried ahead and held"
+   },
+   "means": {
+    "R_O": 27,
+    "O_out": 15,
+    "G": 25
+   },
+   "answer_token_op_mean": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.059,
+    0.118,
+    0.176,
+    0.235,
+    0.294,
+    0.353,
+    0.412,
+    0.529,
+    0.706,
+    0.765,
+    0.765,
+    0.765,
+    0.824,
+    0.824,
+    0.824,
+    0.882,
+    1.0
+   ]
+  }
+ }
+}
