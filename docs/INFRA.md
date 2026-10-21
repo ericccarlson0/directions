@@ -27,6 +27,11 @@ Facts about the RunPod path that are perhaps not obvious and perhaps had to be l
      or the outputs, minutes in instead of after hours of training.
    - After a change to a compute path, request the most memory-hungry model first, and the others once it has logged
      its first epoch.
+   - Figures on the 24 GB RTX 4090 (23.5 GiB usable), D57 (2026-10-21): the 8B map at batch 64 with 96 bases peaked
+     at 17.8 GiB allocated (18.6 reserved); the 8B probe at 2048 expressions at 19.1 (20.4). In the probe one 2.5 GB
+     allocation failed once (PyTorch's `CUDACachingAllocator ... memory allocation failed with OOM` warning) and
+     succeeded when the allocator retried; the run went on and its repeat checks were identical. The 8B probe has
+     about 3 GiB to spare: more expressions or a larger batch need a larger card or a smaller batch.
 
 ## Flash (runpod-flash)
 

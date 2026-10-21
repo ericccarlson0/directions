@@ -3650,3 +3650,26 @@ Decision (the first map; exploratory):
     8B (lane ci-b).
   - A model below 0.5 few-shot accuracy on the maxmin bases is skipped.
   - D55's max task is unchanged: a toy run of its map is bit-identical before and after this change.
+
+Outcome of step 1 (runs 39622530165, 39623460598; STATUS.md, "D57 step 1"):
+
+* **Gate.** The 1.7B is skipped (0.46 on the map bases). The 4B (0.500) and the 8B (0.53) are mapped, on 31–40
+  bases per swap type.
+* **The readings overlap, and D57 gave no order.** The rules were written as alternatives. "Relayed" (O_out <
+  R_O − 1 with no relay token) and "carried ahead" (R_O ≤ G − 2) can hold together, and the code applied them in
+  the order route, carried ahead, late, taken up, spread.
+  - Both models meet "relayed (spread over context)": O_out 12 and 11 against R_O 26 and 28, and no relay token.
+  - The 8B also meets "carried ahead": R_O 28 against G 30. That G rests on S2's lower bound sitting at 0.44–0.47
+    from 25 to 29 over 32 bases; by the means, both sums reach the answer token at 24 and the operator at 27.
+  - Recorded as: both models relayed, spread over context; the 8B's "carried ahead" is not robust to sampling.
+* **What step 1 settles for step 2.**
+  - Before the gather, the operator is not causally at the answer token at all: a whole-state swap there switches
+    the operation in at most 0.62 (4B) and 0.26 (8B) of the bases up to read point 23. DAS at the answer token cannot
+    beat the whole state it rotates, so step 2 as sketched, O at the answer token before G, has its answer
+    already.
+  - Step 2 is to be fixed instead around where the operator is: at the operator token (read points ≤ 11, where it
+    is held alone), and at the answer token from R_O on, where the operator swap and the answer coincide and
+    Isolate must tell O from Y.
+* **What step 1 settles for step 3.** The operator token holds the operator alone through read point 11, so the
+  natural direction is to be taken there (the min run's state minus the max run's, at the operator token), not at
+  the answer token.

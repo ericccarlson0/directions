@@ -5574,6 +5574,70 @@ Cells give test Cause at k* with its lower bound, then the Isolate lower bound, 
     or the comparison in a 16–64-dimensional subspace at the answer token also moves the answer. The binding test
     misses its threshold by 0.01–0.08.
 
+### D57 step 1: the operator map on max/min (Qwen3 1.7B, 4B, 8B Base, seed 20260916)
+
+`max(a+b, c+d) = ` and `min(a+b, c+d) = ` in one task, four demonstrations of each operator per prompt. D45's map
+with one more swap: the operator token from the base's twin (same digits, other operator). The question is where
+the operator, a 1-bit control entering at one token, is taken up, beside the operands' gather and the
+single-control hand-over.
+
+```
+# workflow runs, RTX 4090 (ADA_24), EUR-NO-1; about 1.0 USD for both (balance 53.37 -> 52.36)
+#   39622530165: request d57_map_maxmin_qwen3_8b_seed20260916, commit 26497cc, ci-b; 30 min (map 28, probe 3)
+#   39623460598: request d57_map_maxmin_qwen3_1.7b_4b_seed20260916, commit 4e76d67, ci; 21 min
+#     (requested once the 8B had passed its first swap, docs/INFRA.md item 8)
+# determinism (a repeated swap batch, capture batch and probe) and the identity swaps identical in every stage
+uv run python scripts/stages.py 'uv run directions varmap --config configs/varmap_maxmin_qwen3_8b.yaml --run-id varmap_maxmin_qwen3_8b_seed20260916' 'uv run directions varprobe --config configs/varprobe_maxmin_qwen3_8b.yaml --run-id varprobe_maxmin_qwen3_8b_seed20260916'
+# likewise the 1.7B and 4B (configs/var{map,probe}_maxmin_qwen3_<size>.yaml); then, on the downloads:
+uv run python scripts/d57_operator.py results/remote/run-39623460598 results/remote/run-39622530165 --out docs/varmap/d57_operator.json
+```
+
+Figures: `docs/varmap/qwen3_<size>_maxmin.png` (the bottom row's third panel is the operator swap).
+
+| model | accuracy: all (max, min); map / probe | bases (op swap) | O_out | R_O | G | route | D57 reading | hand-over; D55 max gather |
+|---|---|---|---|---|---|---|---|---|
+| 1.7B | 0.46 (0.55, 0.40) / 0.52 | skipped (below 0.5) | | | | | | 20; 21 |
+| 4B | 0.50 (0.68, 0.38) / 0.61 | 37 | 12 | 26 | 25 | none | relayed (spread over context) | 24; 24 |
+| 8B | 0.53 (0.68, 0.43) / 0.59 | 31 | 11 | 28 | 30 | none | carried ahead and held (the code's order); also meets "relayed (spread)" | 26; 24 |
+
+(Read points with flip-rate lower bounds, D45's presence threshold 0.5. The same with the fragile rows dropped,
+except the 8B's G at 31.)
+
+- **The operator stays at its own token for the first third of the stack, then leaves it.**
+  - Swapping the operator token's state switches the operation in every base through read point 11 on the 4B
+    (0.90–0.94 on the 8B).
+  - The effect then fades over a few blocks: 0.68 at 12, 0.49 at 15, 0.24 at 17 and about 0 from 20 on the 4B;
+    0.61, 0.39 and 0.10 on the 8B.
+- **In between, the operator is at no single query token.**
+  - From read point 15 to 21 (4B) or 15 to 26 (8B), no single token's state switches the operation in half the
+    bases.
+  - On the 8B at 17–20, the single-token rates summed over all 13 query tokens are at most 0.13. The operator is
+    in the query (the demonstrations precede it and cannot see it), so it is held redundantly at several tokens:
+    replacing any one leaves the others.
+  - No relay token exists: the operator is never present at `(`, the digits, `,`, `)` or `=`; the largest rate
+    there is 0.14 (`=`, 4B, read point 27).
+- **The answer token takes the operator up where the sums arrive and where the injected control was converted.**
+  - Means first at or above 0.5 at the answer token: the operator at 22 (4B) and 27 (8B); both sums at 24 on both
+    models, as on max alone (D55's gather 24, 24).
+  - By lower bounds: R_O 26 and 28, G 25 and 30.
+  - The single-control hand-over (D43, D44) is 24 and 26. R_O is the hand-over + 2 on both models.
+- **The 8B's G of 30 is a power effect, and its "carried ahead" reading rests on it.**
+  - Its sums are at the answer token from 24 by the mean (0.56, 0.56). S1's lower bound passes 0.5 at 25, and S2's
+    sits at 0.44–0.47 from 25 to 29 (mean 0.62–0.66, 32 bases).
+  - So R_O ≤ G − 2 holds by the lower bounds, while by the means the operator arrives three read points after the
+    sums.
+  - D57's readings were written as alternatives without an order. Both models meet the "relayed (spread over
+    context)" condition (O_out < R_O − 1, no relay token); the 8B also meets "carried ahead".
+- **The probe cannot time anything here.** At the answer token, from read point 4 on, the operator given the
+  answer is linearly decodable at 1.00 (null 0.80; the gated examples make the operator partly predictable from
+  Y), and C given Y and O at 0.94–0.96 (null 0.50), on both models. The answer probe reaches 0.73–0.78 at 24.
+  - The operator is readable at the answer token about 20 blocks before swapping that state switches the
+    operation: the token holds a copy that the computation does not use until the gather.
+- **Min is the harder operation:** 0.38–0.43 on the map bases against 0.68 for max. The operator swap enters only
+  bases whose max and min versions are both answered, so it reads the cases where the operator sets the answer.
+- **Memory:** the 8B probe peaked at 19.1 GiB allocated (20.4 reserved) of 23.5. One allocation of 2.5 GB failed
+  once and succeeded on the allocator's retry, with outputs identical on the repeat checks (docs/INFRA.md).
+
 ## Not yet run / known limitations
 
 - The variable map (D45) has run once per model (Qwen3 0.6B, 1.7B, 4B Base; seed 20260916) on two expression tasks
@@ -5789,7 +5853,7 @@ uv run python scripts/d56_vs_d55.py --d55 results/remote/run-39180186358 results
 # D57 step 1, the operator map on max/min: the 8B first (lane ci-b), then the 1.7B and 4B (lane ci), then the reading:
 uv run python scripts/stages.py 'uv run directions varmap --config configs/varmap_maxmin_qwen3_8b.yaml --run-id varmap_maxmin_qwen3_8b_seed20260916' 'uv run directions varprobe --config configs/varprobe_maxmin_qwen3_8b.yaml --run-id varprobe_maxmin_qwen3_8b_seed20260916'
 uv run python scripts/stages.py 'uv run directions varmap --config configs/varmap_maxmin_qwen3_1.7b.yaml --run-id varmap_maxmin_qwen3_1.7b_seed20260916' 'uv run directions varmap --config configs/varmap_maxmin_qwen3_4b.yaml --run-id varmap_maxmin_qwen3_4b_seed20260916' 'uv run directions varprobe --config configs/varprobe_maxmin_qwen3_1.7b.yaml --run-id varprobe_maxmin_qwen3_1.7b_seed20260916' 'uv run directions varprobe --config configs/varprobe_maxmin_qwen3_4b.yaml --run-id varprobe_maxmin_qwen3_4b_seed20260916'
-uv run python scripts/d57_operator.py results/remote/run-<1.7B and 4B> results/remote/run-<8B> --out docs/varmap/d57_operator.json
+uv run python scripts/d57_operator.py results/remote/run-39623460598 results/remote/run-39622530165 --out docs/varmap/d57_operator.json   # runs 39623460598 (1.7B, 4B), 39622530165 (8B)
 # iteration 10 (D33 amended: quarter strength, the neighbouring candidate layers, the patch test at every compared
 # layer on eighths of the depth for the learned and the head-mean vector, per-block writing), on a second seed,
 # as run (workflow runs in the iteration-10 entry): first the learned-vector protocol (D31) at seed 20260916 on
