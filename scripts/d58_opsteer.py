@@ -68,13 +68,17 @@ def read_model(run: Path, d57_task: Path | None) -> dict:
                              "pair_cosine": round(d["pair_cosine"][rp], 3)} for rp in SHOW if rp < len(d["norm"])}
     arms = c["arms"]
     W_s, W_w, null_hi = c["W_steer"], c["W_swap"], c["null_switch_max_hi"]
-    if W_s is not None and W_w is not None and W_s >= W_w - 1 and (null_hi is None or null_hi <= 0.05):
+    # D58: "the null's switch rate at most 0.05 everywhere": the rate's point estimate; its upper bound is reported beside
+    nulls = [a for a in arms if a.startswith("null")]
+    null_rate = max((float(np.max(arms[a]["switch"]["mean"])) for a in nulls), default=None)
+    if W_s is not None and W_w is not None and W_s >= W_w - 1 and (null_rate is None or null_rate <= 0.05):
         direction_reading = "the operator at its token is one direction for as long as the token holds it"
     elif W_s is not None and W_w is not None and W_s < W_w - 1:
         direction_reading = "a direction only early"
     else:
         direction_reading = "undecided (no window, or the null switches)"
-    out["curve"] = {"n": c["n"], "W_steer": W_s, "W_swap": W_w, "null_switch_max_hi": null_hi, "reading": direction_reading,
+    out["curve"] = {"n": c["n"], "W_steer": W_s, "W_swap": W_w, "null_switch_max": null_rate, "null_switch_max_hi": null_hi,
+                    "reading": direction_reading,
                     "switch_at_inject": {a: round(arms[a]["switch"]["mean"][m0], 3) for a in ("steer", "swap")},
                     "swap_minus_steer_at_inject": [round(c["swap_minus_steer"][q][m0], 3) for q in ("mean", "lo", "hi")]}
     out["map"] = {"accuracy": m["accuracy"], "unsteered_max": m["unsteered_max"], "natural_min": m["natural_min"],
@@ -123,7 +127,8 @@ def main(argv: list[str] | None = None) -> int:
         summary[f"qwen3_{size}"] = s
         c, m = s["curve"], s["map"]
         print(f"qwen3_{size}: direction at read point {s['inject_read_point']}: {s['direction'].get(s['inject_read_point'])}")
-        print(f"  curve ({c['n']} bases): W_steer {c['W_steer']}, W_swap {c['W_swap']}, null switch hi {c['null_switch_max_hi']}; "
+        print(f"  curve ({c['n']} bases): W_steer {c['W_steer']}, W_swap {c['W_swap']}, null switch at most {c['null_switch_max']} "
+              f"(upper bound {c['null_switch_max_hi']}); "
               f"switch at injection {c['switch_at_inject']} -> {c['reading']}")
         print(f"  map: steered accuracy {m['accuracy']:.3f} (unsteered max {m['unsteered_max']:.3f}, natural min "
               f"{m['natural_min']:.3f}); kept {m['n_kept']}")
