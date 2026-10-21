@@ -37,6 +37,12 @@ def test_all_configs_load():
             cfg = load_das_config(p)
             assert cfg.sites and (cfg.control_site in cfg.sites or (cfg.control_site is None and "_b.yaml" in p.name)), p
             continue
+        if "opsteer" in p.name:  # the operator direction at the operator token (D58)
+            from directions.config import load_opsteer_config
+
+            cfg = load_opsteer_config(p)
+            assert cfg.n_dir >= 2 and cfg.n_shots % 2 == 0, p
+            continue
         if p.name.startswith("posset_"):  # the position-set check (D52)
             from directions.config import load_posset_config
 
