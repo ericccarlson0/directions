@@ -17,6 +17,7 @@ Exit code mirrors the remote command's exit code (or 1 for transport/timeout fai
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import sys
@@ -30,6 +31,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from directions.remote import pack_source, unpack_results  # noqa: E402
 
 TERMINAL = {"COMPLETED", "FAILED", "CANCELLED", "TIMED_OUT"}
+MAX_POLL_FAILURES = 20  # consecutive failed status polls before the runner gives up (~10 min at the default 30 s)
+# what a status poll can raise when the network or the API misbehaves: a refused or reset connection, a dropped
+# response (http.client.RemoteDisconnected, IncompleteRead), a read timeout, an HTTP error status, a non-JSON body
+POLL_ERRORS = (OSError, ValueError, http.client.HTTPException)
 USER_AGENT = "directions-runpod-job/1.0"  # RunPod's edge rejects the default urllib agent with HTTP 403
 REST_URL = "https://api.runpod.io/v2"
 
@@ -63,7 +68,7 @@ def submit(endpoint_url: str, api_key: str, job_input: dict) -> str:
 def cancel(endpoint_url: str, api_key: str, job_id: str) -> None:
     try:
         _request(f"{endpoint_url}/cancel/{job_id}", api_key, {})
-    except (urllib.error.URLError, RuntimeError) as exc:  # best effort
+    except (*POLL_ERRORS, RuntimeError) as exc:  # best effort
         print(f"::warning::cancel {job_id} failed: {exc}", file=sys.stderr)
 
 
@@ -75,8 +80,12 @@ def wait(
     poll_s: float,
     progress: Callable[[], None] | None = None,
     queue_deadline_s: float | None = None,
+    max_poll_failures: int = MAX_POLL_FAILURES,
 ) -> dict:
     """Poll ``/status``; call ``progress`` after each poll; cancel on deadline.
+
+    A failed poll is retried at the next interval; after ``max_poll_failures`` failures in a row the runner gives up
+    with an error (the workflow then cancels the remote job, which may still be running).
 
     ``queue_deadline_s`` bounds the time the job may sit in ``IN_QUEUE`` before a worker takes it: when no
     worker exists for the endpoint's GPU tier and data center (or none with the required CUDA driver) the
@@ -84,11 +93,18 @@ def wait(
     """
     last = None
     start = time.time()
+    failures = 0
     while True:
         try:
             body = _request(f"{endpoint_url}/status/{job_id}", api_key)
-        except urllib.error.URLError as exc:
-            print(f"status poll failed ({exc}); retrying", file=sys.stderr)
+            failures = 0
+        except POLL_ERRORS as exc:
+            failures += 1
+            if failures >= max_poll_failures:
+                raise RuntimeError(f"{failures} status polls in a row failed (last: {type(exc).__name__}: {exc}); "
+                                   f"job {job_id} may still be running") from exc
+            print(f"status poll failed ({type(exc).__name__}: {exc}); retrying ({failures}/{max_poll_failures})",
+                  file=sys.stderr)
             body = {"status": last or "UNKNOWN"}
         status = body.get("status")
         if status != last:

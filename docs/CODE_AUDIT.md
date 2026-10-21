@@ -47,22 +47,26 @@ No recorded result was found to be wrong. Several places are where a quiet mista
      wrong. Results are unaffected: the seeds used are deterministic.
    - The D30, D39 and D41 runs are affected. **Change:** an erratum in `docs/SINGLE_CONTROL.md`, and key the
      table by `t.key`.
-3. **Broad `except Exception` in the closed pipeline.** **(verified)**
+3. **Broad `except Exception` in the closed pipeline.** **(verified; fixed 2026-10-21:** `directions pilot` and
+   `validate` now exit 1 and list the errors when any task raised; the outputs are unchanged.**)**
    - `pipeline.py:210,221,233` (and `:976,984,993`) turn any bug, an out-of-memory error included, into an
      "error" rejection. `directions pilot` still exits 0.
    - **Change:** count error rejections in `summary.json` and exit non-zero when there are any.
 4. **Run directories that can be reused silently.** **(verified)** `mixing.py:198` and `source.py:193` create the
    run directory with `exist_ok=True`, so a repeated `--run-id` writes into an old run. The other stages refuse.
-5. **Reproducibility checks treat git state as a difference.**
+5. **Reproducibility checks treat git state as a difference.** **(fixed 2026-10-21:** `compare` reports `git` as
+   a note and does not count it; tests in `tests/test_cli.py`.**)**
    - `directions compare` does not ignore the `git` field, and `test_integration.py` reruns the pipeline and
      compares.
    - A commit during the test run fails the test; this happened on 2026-10-19. A `compare` across two commits,
      which AGENTS.md prescribes, always reports a difference.
    - **Change:** treat `git` and `environment` as informational in `compare`.
-6. **The committed-request test pins `gpu_type == ""`.** **(verified)** `tests/test_runpod_request.py:33` fails
+6. **The committed-request test pins `gpu_type == ""`.** **(verified; fixed 2026-10-21:** it now checks only that
+   the value is parsed without quotes.**)** `tests/test_runpod_request.py:33` fails
    as soon as a request pins a card, which AGENTS.md recommends when comparability matters. The quoting regression
    it guards is covered elsewhere in the file (`:90–111`).
-7. **The runner's status poll survives only `URLError`.** **(verified)**
+7. **The runner's status poll survives only `URLError`.** **(verified; fixed 2026-10-21:** the poll retries every
+   transient failure and gives up after 20 in a row; the workflow cancels the remote job on failure too.**)**
    - At `scripts/runpod_job.py:93`, a dropped connection mid-response, a read timeout or a non-JSON body crashes
      the step.
    - The workflow cancels the remote job only `if: cancelled()`, so after such a crash the job runs on unwatched.

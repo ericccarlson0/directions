@@ -33,6 +33,9 @@ from .config import config_to_dict, load_config  # noqa: E402
 
 # top-level fields that legitimately differ between two otherwise identical runs
 _VOLATILE = {"run_id", "argv", "started_utc", "finished_utc", "timings_seconds", "profile", "config_path"}
+# fields reported when they differ but not counted as differences: the same numerical path run from two commits, or
+# from a clean and a dirty tree, must compare as identical (docs/CODE_AUDIT.md, risk 5)
+_INFORMATIONAL = {"git"}
 
 
 def _cmd_run(args: argparse.Namespace, command: str) -> int:
@@ -45,7 +48,23 @@ def _cmd_run(args: argparse.Namespace, command: str) -> int:
         cfg.seed = int(args.seed)
     root = run_pipeline(cfg, command, config_path=str(args.config), run_id=args.run_id, stop_after=args.stop_after)
     print(root)
+    # the pipeline records a task that raised as an "error" rejection and carries on with the other tasks; the run
+    # then exits non-zero, so a failed task is never mistaken for a finished run (docs/CODE_AUDIT.md, risk 3)
+    errors = _error_rejections(root)
+    if errors:
+        print(f"{len(errors)} error(s) during the run (rejections.jsonl, stage \"error\"):", file=sys.stderr)
+        for e in errors:
+            print(f"  {e['task']}: {e['reason']}", file=sys.stderr)
+        return 1
     return 0
+
+
+def _error_rejections(root: Path) -> list[dict[str, Any]]:
+    path = root / "rejections.jsonl"
+    if not path.exists():
+        return []
+    with open(path) as f:
+        return [e for e in (json.loads(line) for line in f if line.strip()) if e.get("stage") == "error"]
 
 
 def _cmd_check(args: argparse.Namespace) -> int:
@@ -54,14 +73,18 @@ def _cmd_check(args: argparse.Namespace) -> int:
     return 0
 
 
-def _load_tree(root: Path) -> dict[str, Any]:
+def _load_tree(root: Path, info: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Every JSON output of a run without its volatile fields; the informational ones go to ``info``."""
     out: dict[str, Any] = {}
     for p in sorted(root.rglob("*.json")):
         rel = str(p.relative_to(root))
         with open(p) as f:
             data = json.load(f)
         if isinstance(data, dict):
-            data = {k: v for k, v in data.items() if k not in _VOLATILE}
+            if info is not None:
+                for k in _INFORMATIONAL & set(data):
+                    info[f"{rel}/{k}"] = data[k]
+            data = {k: v for k, v in data.items() if k not in _VOLATILE | _INFORMATIONAL}
             if rel == "metadata.json" and isinstance(data.get("config"), dict):
                 data["config"] = {k: v for k, v in data["config"].items() if k != "output_dir"}
         out[rel] = data
@@ -92,7 +115,13 @@ def _diff(a: Any, b: Any, path: str, out: list[str], atol: float) -> None:
 
 def _cmd_compare(args: argparse.Namespace) -> int:
     """Compare two run directories; exit 0 when every JSON output matches."""
-    a, b = _load_tree(Path(args.run_a)), _load_tree(Path(args.run_b))
+    info_a: dict[str, Any] = {}
+    info_b: dict[str, Any] = {}
+    a, b = _load_tree(Path(args.run_a), info_a), _load_tree(Path(args.run_b), info_b)
+    notes: list[str] = []
+    _diff(info_a, info_b, "", notes, 0.0)
+    for n in notes:
+        print(f"note (not counted): {n}")
     diffs: list[str] = []
     _diff(a, b, "", diffs, args.atol)
     if diffs:

@@ -378,3 +378,43 @@ def test_terminate_worker_posts_the_mutation_and_reports_rejections(monkeypatch:
     assert sent[0]["variables"] == {"input": {"podId": "w1"}}
     assert runpod_job.terminate_worker(API_KEY, "w2") is False
     assert "rejected" in capsys.readouterr().err
+
+
+def _patch_flaky_requests(monkeypatch: pytest.MonkeyPatch, outcomes) -> list[str]:
+    """Each outcome is a status string, or an exception the request raises."""
+    calls: list[str] = []
+    outcomes = iter(outcomes)
+
+    def fake_request(url, api_key, payload=None):
+        calls.append(url)
+        o = next(outcomes)
+        if isinstance(o, BaseException):
+            raise o
+        return {"status": o, "output": {}}
+
+    monkeypatch.setattr(runpod_job, "_request", fake_request)
+    monkeypatch.setattr(runpod_job.time, "sleep", lambda s: None)
+    return calls
+
+
+def test_wait_survives_transient_poll_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A dropped connection, a truncated response, a timeout or a non-JSON body only costs one poll."""
+    import http.client
+    import urllib.error
+
+    flaky = [http.client.RemoteDisconnected("closed"), http.client.IncompleteRead(b""), TimeoutError("read timed out"),
+             json.JSONDecodeError("Expecting value", "<html>", 0), urllib.error.URLError("refused")]
+    calls = _patch_flaky_requests(monkeypatch, ["IN_PROGRESS", *flaky, "COMPLETED"])
+
+    final = runpod_job.wait(ENDPOINT, API_KEY, JOB_ID, deadline_s=60, poll_s=0)
+
+    assert final["status"] == "COMPLETED" and len(calls) == 7
+
+
+def test_wait_gives_up_after_consecutive_poll_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Failures in a row up to the cap raise (the workflow then cancels the job); a success resets the count."""
+    _patch_flaky_requests(monkeypatch, ["IN_PROGRESS", OSError("a"), OSError("b"), "IN_PROGRESS", OSError("c"),
+                                        OSError("d"), OSError("e")])
+
+    with pytest.raises(RuntimeError, match="3 status polls in a row failed"):
+        runpod_job.wait(ENDPOINT, API_KEY, JOB_ID, deadline_s=60, poll_s=0, max_poll_failures=3)

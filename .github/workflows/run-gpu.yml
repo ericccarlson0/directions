@@ -258,8 +258,10 @@ jobs:
             --job-id-file .runpod-job-id \
             --out results/remote
 
-      - name: cancel remote job if this workflow was cancelled
-        if: cancelled()
+      - name: cancel remote job if this workflow was cancelled or the runner failed
+        # a runner that crashed (e.g. its status poll gave up) leaves the remote job running unwatched; cancelling a
+        # job that has already finished is a no-op
+        if: failure() || cancelled()
         run: |
           if [ -f .runpod-job-id ]; then
             curl -sS -X POST -H "Authorization: Bearer ${RUNPOD_API_KEY}" \

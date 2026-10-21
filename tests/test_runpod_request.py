@@ -30,7 +30,9 @@ def test_committed_request_file_is_valid() -> None:
     params = runpod_request.load_request(REPO / ".github" / "gpu-run.yaml")
     assert params["command"]
     assert params["gpu_tier"] in runpod_request.GPU_TIERS
-    assert params["gpu_type"] == ""  # `gpu_type: ""  # comment` must not keep the quotes (run 34491675423)
+    # `gpu_type: ""  # comment` must not keep the quotes (run 34491675423); the value itself may be pinned to a card
+    # when comparability with an earlier run matters (AGENTS.md), so only its parsing is checked here
+    assert '"' not in params["gpu_type"] and "'" not in params["gpu_type"] and "#" not in params["gpu_type"]
     assert runpod_request._FLASH_ENV_RE.match(params["flash_env"]) and params["datacenter"] in runpod_request.DATACENTERS
 
 
