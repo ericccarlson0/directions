@@ -1,0 +1,27 @@
+# The variable map (docs/DECISIONS.md D45) on the max/min task (D57, D60), Qwen3-14B Base. The files of this family differ only in
+# model (the 14B on the H100 at batch 128), and from the max files (D55) only in expressions and, for the map, n_bases (tests/test_configs.py).
+name: varmap
+seed: 20260916
+output_dir: results
+
+model:
+  backend: hf
+  name: Qwen/Qwen3-14B-Base
+  dtype: bfloat16          # model execution; swapped states stay in the model's dtype (a swap of a run's own state is exact)
+  device: cuda             # fail fast rather than fall back to the CPU (docs/INFRA.md)
+  batch_size: 128           # the H100 (80 GB), as for the 14B's three-bracket files
+
+expressions: [maxmin]         # max(a+b, c+d) = Y or min(a+b, c+d) = Y, half of the demonstrations of each (D57)
+n_bases: 96                   # base expressions, about 48 per operator (D57); one source per base and source type
+n_shots: 8                    # demonstrations, shared by a base and its sources (token-aligned prompts)
+n_demo_pool: 96               # disjoint from the bases and sources
+read_points: null             # every read point 0..L
+n_boot: 1000
+alpha: 0.05
+present_flip: 0.5             # D45 judgement thresholds: present = flip-rate lower bound >= 0.5
+value_change: 0.25            # held as a value = present and the same-value swap's change-rate upper bound <= 0.25
+min_accuracy: 0.5             # few-shot accuracy on the bases below which a task is skipped
+gate: true                    # drop the bases whose base or any source the model answers wrongly
+identity_check: true
+determinism_check: true
+figures: true

@@ -24,10 +24,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from d54_compare import size_of  # noqa: E402
 from varmap_summary import HANDOVER, digit_token_ids, fragile_rows, rates_from_arrays  # noqa: E402
 
-from directions.varmap import operator_readouts, reading  # noqa: E402
+from directions.varmap import operator_readouts, operator_reading, reading  # noqa: E402
 
 GATHER_MAX = {"1.7b": 21, "4b": 24, "8b": 24, "14b": 30}  # D55: runs 39178177443, 39178188546, 39252850362
 PROBE_TARGETS = ("O|Y", "C|Y", "S1|Y", "S2|Y")
+
+
+def gather_star(result: dict) -> int | None:
+    """D55's G* (the 14B amendment, D60): the first read point where the both swap at the answer token gives the
+    source's answer in at least half of the bases, by the mean."""
+    ans = len(result["labels"]) - 1
+    both = np.asarray(result["rates"]["both"]["flip"]["mean"])[:, ans]
+    idx = np.flatnonzero(both >= 0.5)
+    return int(result["read_points"][idx[0]]) if len(idx) else None
 
 
 def read_map(task_dir: Path) -> dict:
@@ -38,9 +47,14 @@ def read_map(task_dir: Path) -> dict:
     drop = {k: fragile_rows(result, arrays, k, ids) for k in result["rates"]}
     rec = rates_from_arrays(result, arrays, ids, drop)
     dropped = operator_readouts(reading(rec, "maxmin", th["present_flip"], th["value_change"]), labels, rps)
+    op = result["operator"]
+    G_star = gather_star(result)
+    # D60: where G is undefined or the last read point, D57's reading with G* in its place
+    with_star = (operator_reading(op["R_O"], G_star, op["O_out"], op["route"])
+                 if op["G"] is None or op["G"] == rps[-1] else None)
     return {"accuracy": result["accuracy"], "accuracy_by_op": result["accuracy_by_op"], "n_kept": result["n_kept"],
-            "labels": labels, "as_run": result["operator"], "fragile_rows": {k: int(len(v)) for k, v in drop.items()},
-            "fragile_dropped": dropped}
+            "labels": labels, "as_run": op, "fragile_rows": {k: int(len(v)) for k, v in drop.items()},
+            "fragile_dropped": dropped, "G_star": G_star, "reading_with_G_star": with_star}
 
 
 def read_probe(task_dir: Path, G: int | None) -> dict:
@@ -87,6 +101,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  as run:          R_O {a['R_O']}, G {a['G']}, O_out {a['O_out']}, route {a['route']} -> {a['reading']}")
         print(f"  fragile dropped: R_O {f['R_O']}, G {f['G']}, O_out {f['O_out']}, route {f['route']} -> {f['reading']}"
               f"  ({sum(m['fragile_rows'].values())} rows)")
+        print(f"  G* (both swap at the answer token, mean >= 0.5) {m['G_star']}"
+              + (f"; with G* in place of G: {m['reading_with_G_star']}" if m["reading_with_G_star"] else ""))
         print(f"  beside: hand-over {hand[0] if hand else None}, max-only gather (D55) {GATHER_MAX.get(size)}")
         if p:
             print(f"  probe (accuracy {p['accuracy']:.2f}, kept {p['n_kept']}): carried at "

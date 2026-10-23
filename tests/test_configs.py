@@ -670,7 +670,7 @@ def test_maxmin_configs_are_max_with_both_operators():
 
     for fam, load in (("varmap", load_varmap_config), ("varprobe", load_varprobe_config)):
         files = sorted(CONFIGS.glob(f"{fam}_maxmin_qwen3_*.yaml"))
-        assert [p.name for p in files] == [f"{fam}_maxmin_qwen3_{s}.yaml" for s in ("1.7b", "4b", "8b")]
+        assert [p.name for p in files] == [f"{fam}_maxmin_qwen3_{s}.yaml" for s in ("1.7b", "14b", "4b", "8b")]  # 14B: D60
         for p in files:
             c = asdict(load(p))
             ref = asdict(load(CONFIGS / p.name.replace("_maxmin_", "_max_")))

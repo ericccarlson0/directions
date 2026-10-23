@@ -3833,3 +3833,53 @@ Outcome (runs 39888184099, 39888455166; STATUS.md, "D59"):
   - The added direction takes the same route.
   - D57's inference that the operator is held at several tokens of the query is revised: at two, the operator token
     and the answer position, with `=` joining the answer position at the take-up.
+
+### D60. The operator line on the 14B: D57's map and probe, D58's added direction, D59's token-set swaps (Qwen3 14B Base)
+
+* **Why.**
+  - D57–D59 ran on the 4B and 8B. Both have 36 layers and both gather at 24, so their agreement cannot tell two
+    accounts apart:
+    - the operator is taken up where the operands meet;
+    - or it is taken up at a fixed depth.
+  - The 14B has 40 layers and gathers later: 30 on two-bracket subtraction (D50), and G\* = 30 on max (D55's 14B
+    amendment).
+  - The 14B also answers max more often (0.83 against 0.59–0.75), so more bases should enter.
+  - D56 (DAS trained on Cause and Isolate) is not repeated here.
+* **Job 1: D57's map and probe, unchanged.**
+  - The 14B's max files with maxmin, 96 bases (`configs/var{map,probe}_maxmin_qwen3_14b.yaml`).
+  - D57's readouts and reading at single tokens: R_O, G, O_out, the route.
+  - Amendment for the 14B, fixed now from D55's 14B job 1. There the answer is shared between the answer token and
+    `=`, and the single-token G fell to the output.
+    - G\*, as D55 defined it, is computed beside G: the first read point where the both swap at the answer token gives
+      the source's answer in at least half the bases (by the mean). On the 4B and 8B maxmin maps it is 24 on both.
+    - Where G is undefined or the last read point, D57's reading is also given with G\* in its place.
+* **Job 2: D58 and D59, after job 1.**
+  - The injection read point, by D58's rationale: about half of O_out, inside the window where the operator token
+    alone holds the operator. m_inj = round(O_out / 2), from job 1's map by lower bounds; on the 4B and 8B this rule
+    gives 6, as run.
+    - If the operator token alone is not present at m_inj in job 1's map, m_inj is the deepest read point below it
+      where it is.
+  - D58 as run, with m_inj.
+  - D59 as run, at read points 8 to L − 4: 8–36 on the 14B (8–32 = L − 4 on the 36-layer models).
+  - n_dir and n_bases 256 each, D58's and D59's draws. Batch 128 on the H100, as the 14B's max files.
+* **Readings.**
+  - D57's, D58's and D59's own readings, as preregistered there. D59's class is known to be uninformative when
+    O+A is sufficient; it is reported anyway.
+  - **D59's pattern on the 4B and 8B, as predictions for the 14B** (natural arm):
+    - (a) the operands are not involved: F+S's upper bound is below 0.5 at every read point;
+    - (b) the two ends hold the operator in the gap: O+A sufficient at every gap read point;
+    - (c) `=` joins the answer token: E+A sufficient from some gap read point on.
+    Each is reported as holding or not.
+  - **Does the take-up follow the gather?** On the 4B and 8B, E+A is first sufficient at 20 = G\* − 4 on both
+    models. The answer token alone first reaches a mean of 0.5 at 22 and 27 (G\* − 2 and G\* + 3).
+    - **follows the gather:** E+A's first sufficient read point on the 14B lies in [G\* − 6, G\* − 2];
+    - **fixed depth:** it lies in [18, 22], the 4B and 8B's 20 ± 2;
+    - **neither:** outside both.
+    - If the two ranges overlap (G\* ≤ 28), the test is reported as not discriminating.
+    - Beside it, the answer token alone against [G\* − 3, G\* + 3] and [22, 27].
+  - No single-control hand-over exists for the 14B (D43 and D44 stop at the 8B), so of the three depths only the
+    gather and the take-up are compared.
+* **Runs.**
+  - Seed 20260916, one execution each, on an H100 (ADA_80_PRO, US-CA-2, lane ci-8b).
+  - Job 1 is the map and the probe. Job 2 is the opsteer and opset stages, once m_inj is fixed from job 1 and
+    recorded here.

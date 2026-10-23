@@ -374,20 +374,23 @@ def operator_readouts(read: dict[str, np.ndarray], labels: list[str], read_point
              for j in range(len(labels)) if j != ans and j not in op_cols and present[:, j].any()}
     out = {"R_O": first(present[:, ans]), "G": first(count[:, ans] == 2),
            "O_out": int(read_points[np.flatnonzero(at_op)[-1]]) if at_op.any() else None, "route": route}
-    R, G, O_out = out["R_O"], out["G"], out["O_out"]
-    if R is None or G is None:
-        out["reading"] = "undecided (no R_O or no G)"
-    elif route and min(min(v) for v in route.values()) < R:
-        out["reading"] = "relayed"
-    elif R <= G - 2:
-        out["reading"] = "carried ahead and held"
-    elif R >= G + 2:
-        out["reading"] = "late"
-    elif O_out is not None and O_out >= R - 1:
-        out["reading"] = "taken up where the operands meet"
-    else:
-        out["reading"] = "relayed (spread over context)"
+    out["reading"] = operator_reading(out["R_O"], out["G"], out["O_out"], route)
     return out
+
+
+def operator_reading(R: int | None, G: int | None, O_out: int | None, route: dict[str, list[int]]) -> str:
+    """D57's reading from R_O, G, O_out and the route, its alternatives checked in this order."""
+    if R is None or G is None:
+        return "undecided (no R_O or no G)"
+    if route and min(min(v) for v in route.values()) < R:
+        return "relayed"
+    if R <= G - 2:
+        return "carried ahead and held"
+    if R >= G + 2:
+        return "late"
+    if O_out is not None and O_out >= R - 1:
+        return "taken up where the operands meet"
+    return "relayed (spread over context)"
 
 
 def query_tokens(backend: ModelBackend, prompt: Prompt, query: Expr, op_label: str | None = None

@@ -5985,6 +5985,9 @@ uv run python scripts/d58_opsteer.py --opsteer results/remote/run-39651059358 re
 uv run python scripts/stages.py 'uv run directions opset --config configs/opset_qwen3_8b.yaml --run-id opset_qwen3_8b_seed20260916'
 uv run python scripts/stages.py 'uv run directions opset --config configs/opset_qwen3_4b.yaml --run-id opset_qwen3_4b_seed20260916'
 uv run python scripts/d59_opset.py results/remote/run-39888455166 results/remote/run-39888184099 --out docs/varmap/d59_opset.json   # runs 39888455166 (4B), 39888184099 (8B)
+# D60, the operator line on the 14B (H100: gpu_tier ADA_80_PRO, datacenter US-CA-2, flash_env ci-8b); job 1, then job 2
+# (configs/opsteer_qwen3_14b.yaml, configs/opset_qwen3_14b.yaml, written once job 1 fixes the injection read point):
+uv run python scripts/stages.py 'uv run directions varmap --config configs/varmap_maxmin_qwen3_14b.yaml --run-id varmap_maxmin_qwen3_14b_seed20260916' 'uv run directions varprobe --config configs/varprobe_maxmin_qwen3_14b.yaml --run-id varprobe_maxmin_qwen3_14b_seed20260916'
 # iteration 10 (D33 amended: quarter strength, the neighbouring candidate layers, the patch test at every compared
 # layer on eighths of the depth for the learned and the head-mean vector, per-block writing), on a second seed,
 # as run (workflow runs in the iteration-10 entry): first the learned-vector protocol (D31) at seed 20260916 on
