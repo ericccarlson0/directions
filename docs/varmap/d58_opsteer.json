@@ -374,5 +374,197 @@
     1.0
    ]
   }
+ },
+ "qwen3_14b": {
+  "inject_read_point": 8,
+  "direction": {
+   "0": {
+    "norm": 2.17,
+    "ratio": 1.2188,
+    "pair_cosine": 1.0
+   },
+   "6": {
+    "norm": 20.299,
+    "ratio": 0.4835,
+    "pair_cosine": 0.919
+   },
+   "11": {
+    "norm": 39.299,
+    "ratio": 0.4662,
+    "pair_cosine": 0.854
+   },
+   "16": {
+    "norm": 47.116,
+    "ratio": 0.4832,
+    "pair_cosine": 0.778
+   },
+   "20": {
+    "norm": 58.183,
+    "ratio": 0.4775,
+    "pair_cosine": 0.675
+   },
+   "24": {
+    "norm": 95.112,
+    "ratio": 0.5091,
+    "pair_cosine": 0.66
+   },
+   "28": {
+    "norm": 148.316,
+    "ratio": 0.4512,
+    "pair_cosine": 0.764
+   }
+  },
+  "curve": {
+   "n": 138,
+   "W_steer": 14,
+   "W_swap": 16,
+   "null_switch_max": 0.0,
+   "null_switch_max_hi": 0.0,
+   "reading": "a direction only early",
+   "switch_at_inject": {
+    "steer": 0.986,
+    "swap": 0.993
+   },
+   "swap_minus_steer_at_inject": [
+    0.007,
+    0.0,
+    0.022
+   ]
+  },
+  "map": {
+   "accuracy": 0.62890625,
+   "unsteered_max": 0.83203125,
+   "natural_min": 0.61328125,
+   "n_kept": {
+    "S1": 64,
+    "S1_same": 64,
+    "S2": 64,
+    "S2_same": 64,
+    "both": 64,
+    "op": 64
+   },
+   "readouts": {
+    "lower_bounds": {
+     "G": 40,
+     "O_out": 19,
+     "R_O": 39,
+     "reading": "relayed (spread over context)",
+     "route": {}
+    },
+    "means": {
+     "G": 40,
+     "O_out": 19,
+     "R_O": 37
+    }
+   }
+  },
+  "comparison": {
+   "lower_bounds": {
+    "R_O": {
+     "steered": 39,
+     "natural": 40,
+     "difference": -1,
+     "reading": "as natural"
+    },
+    "O_out": {
+     "steered": 19,
+     "natural": 15,
+     "difference": 4,
+     "reading": "later"
+    },
+    "G": {
+     "steered": 40,
+     "natural": 40,
+     "difference": 0,
+     "reading": "as natural"
+    }
+   },
+   "means": {
+    "R_O": {
+     "steered": 37,
+     "natural": 40,
+     "difference": -3,
+     "reading": "earlier"
+    },
+    "O_out": {
+     "steered": 19,
+     "natural": 19,
+     "difference": 0,
+     "reading": "as natural"
+    },
+    "G": {
+     "steered": 40,
+     "natural": 40,
+     "difference": 0,
+     "reading": "as natural"
+    }
+   },
+   "route": {
+    "steered": {},
+    "natural": {}
+   }
+  },
+  "natural_min_only": {
+   "n": {
+    "op": 32,
+    "S1": 22,
+    "S2": 23
+   },
+   "lower_bounds": {
+    "R_O": 40,
+    "G": 40,
+    "O_out": 15,
+    "route": {},
+    "reading": "relayed (spread over context)"
+   },
+   "means": {
+    "R_O": 37,
+    "O_out": 19,
+    "G": 40
+   },
+   "answer_token_op_mean": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.094,
+    0.125,
+    0.125,
+    0.156,
+    0.156,
+    0.312,
+    0.344,
+    0.344,
+    0.344,
+    0.438,
+    0.438,
+    0.469,
+    0.469,
+    0.469,
+    0.469,
+    0.469,
+    0.5,
+    0.562,
+    0.625,
+    1.0
+   ]
+  }
  }
 }

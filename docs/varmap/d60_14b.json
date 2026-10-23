@@ -1,0 +1,180 @@
+{
+ "map": {
+  "G_star": 40,
+  "G": 40,
+  "R_O": 40,
+  "O_out": 15,
+  "A_first_mean": 40
+ },
+ "arms": {
+  "added": {
+   "gap": [
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36
+   ],
+   "a_operands_not_involved": true,
+   "FS_max_hi": 0.021,
+   "b_two_ends_hold_it": false,
+   "OA_missing_in_gap": [
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36
+   ],
+   "c_eq_joins_the_answer": true,
+   "EA_first_in_gap": 24,
+   "EA_first": 24,
+   "take_up": {
+    "G_star": 40,
+    "EA_first": 24,
+    "A_first": null,
+    "gather_range": [
+     34,
+     38
+    ],
+    "fixed_range": [
+     18,
+     22
+    ],
+    "A_gather_range": [
+     37,
+     43
+    ],
+    "A_fixed_range": [
+     22,
+     27
+    ],
+    "reading": "neither",
+    "A_beside": "neither"
+   }
+  },
+  "natural": {
+   "gap": [
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36
+   ],
+   "a_operands_not_involved": true,
+   "FS_max_hi": 0.082,
+   "b_two_ends_hold_it": false,
+   "OA_missing_in_gap": [
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36
+   ],
+   "c_eq_joins_the_answer": true,
+   "EA_first_in_gap": 23,
+   "EA_first": 23,
+   "take_up": {
+    "G_star": 40,
+    "EA_first": 23,
+    "A_first": 40,
+    "gather_range": [
+     34,
+     38
+    ],
+    "fixed_range": [
+     18,
+     22
+    ],
+    "A_gather_range": [
+     37,
+     43
+    ],
+    "A_fixed_range": [
+     22,
+     27
+    ],
+    "reading": "neither",
+    "A_beside": "follows the gather"
+   }
+  }
+ },
+ "two_site": {
+  "per_model": {
+   "14b": {
+    "T2": 23,
+    "G2": 29,
+    "T1": null,
+    "G1": null,
+    "lag2": -6
+   },
+   "4b": {
+    "T2": 20,
+    "G2": 24,
+    "T1": 22,
+    "G1": 24,
+    "lag2": -4
+   },
+   "8b": {
+    "T2": 20,
+    "G2": 24,
+    "T1": 26,
+    "G1": 24,
+    "lag2": -4
+   }
+  },
+  "E+A": {
+   "dG": 5.0,
+   "dT": 3.0,
+   "reading": "follows the gather"
+  },
+  "answer token": {
+   "reading": "undecided (a model's arrival is missing)"
+  }
+ }
+}

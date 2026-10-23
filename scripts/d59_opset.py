@@ -48,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     runs = {}
     for root in args.roots:
-        for run in sorted(root.glob("opset_*")):
+        for run in sorted(root.glob("opset_qwen3_*")):  # D59's runs, not D60's opset_sums_* (one arm only)
             if (run / "core" / "opset.json").exists() and size_of(run.name):
                 runs[size_of(run.name)] = run
     if not runs:

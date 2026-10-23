@@ -3914,3 +3914,17 @@ Outcome (runs 39888184099, 39888455166; STATUS.md, "D59"):
       both swap and the operator swap).
   - Job 2 also gets the sums arm's other sets. Where the sums sit before they meet is D52's question on max/min
     (exploratory).
+* **Outcome (runs 40017790556, 40022343637, 40022347205, 40022353098; STATUS.md, "D60").**
+  - Step 1 on the 14B, D57's reading: "relayed (spread over context)" (R_O = G = G\* = 40, O_out 15).
+  - D58's reading of the direction: "a direction only early" (W_steer 14, W_swap 16). The steered map against step
+    1: R_O as natural, O_out later by the lower bounds; by the means, R_O earlier and O_out as natural.
+  - D59 on the 14B: "structure" (natural), "undecided" (added). Of D59's pattern as predictions:
+    - (a) the operands are not involved: holds;
+    - (b) the two ends hold the gap: fails (from 21 on, `=` and the answer position hold it, not the two ends);
+    - (c) `=` joins the answer token: holds.
+  - The take-up test as preregistered: premise failed (G\* = 40), reported and not used.
+  - The amended two-site test: "follows the gather" (ΔG = 5, ΔT = 3, |ΔT − ΔG| = 2, at the rule's limit). The
+    reading stands as preregistered.
+  - What it cannot exclude: an arrival at a fixed fraction of the stack, which predicts 22 against the observed 23.
+    That alternative was not among the amendment's readings. With models of 36 and 40 layers only, it would need a
+    model whose gather moves without its depth to separate.

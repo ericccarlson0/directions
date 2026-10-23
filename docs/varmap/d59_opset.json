@@ -542,5 +542,578 @@
     26
    ]
   }
+ },
+ "qwen3_14b": {
+  "added": {
+   "n": 141,
+   "accuracy": {
+    "steered_min": 0.62890625,
+    "unsteered_max": 0.83203125
+   },
+   "query_check": 1.0,
+   "gap": [
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36
+   ],
+   "classes": {
+    "20": "either side",
+    "21": "either side",
+    "22": "either side",
+    "23": "undecided",
+    "24": "undecided",
+    "25": "undecided",
+    "26": "structure",
+    "27": "undecided",
+    "28": "undecided",
+    "29": "undecided",
+    "30": "structure",
+    "31": "structure",
+    "32": "undecided",
+    "33": "undecided",
+    "34": "undecided",
+    "35": "undecided",
+    "36": "undecided"
+   },
+   "reading": "undecided",
+   "counts": {
+    "either side": 3,
+    "structure": 3,
+    "undecided": 11
+   },
+   "ends_sufficient": [
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20
+   ],
+   "necessary_in_gap": {
+    "A": [],
+    "E": [],
+    "F": [],
+    "O": [
+     20
+    ],
+    "P": [],
+    "S": []
+   },
+   "minimal_sufficient_in_gap": {
+    "20": [
+     "OA",
+     "OFSPE"
+    ],
+    "21": [
+     "OFSA",
+     "OPEA",
+     "OFSPE"
+    ],
+    "22": [
+     "OFSA",
+     "OPEA",
+     "FSPEA",
+     "OFSPE"
+    ],
+    "23": [
+     "OPEA",
+     "FSPEA",
+     "OFSEA",
+     "OFSPA",
+     "OFSPE"
+    ],
+    "24": [
+     "EA",
+     "OFSPA",
+     "OFSPE"
+    ],
+    "25": [
+     "EA",
+     "OFSPA",
+     "OFSPE"
+    ],
+    "26": [
+     "EA",
+     "FSPE",
+     "OFSPA"
+    ],
+    "27": [
+     "EA",
+     "FSPE",
+     "OFSPA"
+    ],
+    "28": [
+     "EA",
+     "FSPE",
+     "OFSPA"
+    ],
+    "29": [
+     "EA",
+     "PA",
+     "PE"
+    ],
+    "30": [
+     "EA",
+     "PA",
+     "PE"
+    ],
+    "31": [
+     "EA",
+     "PA",
+     "OFSPE"
+    ],
+    "32": [
+     "EA",
+     "PA",
+     "PE"
+    ],
+    "33": [
+     "EA",
+     "PA"
+    ],
+    "34": [
+     "EA",
+     "PA"
+    ],
+    "35": [
+     "EA",
+     "PA"
+    ],
+    "36": [
+     "EA",
+     "PA"
+    ]
+   }
+  },
+  "natural": {
+   "n": 146,
+   "accuracy": {
+    "base": 0.6796875,
+    "twin": 0.828125
+   },
+   "query_check": 1.0,
+   "gap": [
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36
+   ],
+   "classes": {
+    "20": "either side",
+    "21": "either side",
+    "22": "either side",
+    "23": "undecided",
+    "24": "undecided",
+    "25": "undecided",
+    "26": "structure",
+    "27": "structure",
+    "28": "structure",
+    "29": "structure",
+    "30": "structure",
+    "31": "structure",
+    "32": "structure",
+    "33": "structure",
+    "34": "structure",
+    "35": "structure",
+    "36": "structure"
+   },
+   "reading": "structure",
+   "counts": {
+    "either side": 3,
+    "structure": 11,
+    "undecided": 3
+   },
+   "ends_sufficient": [
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20
+   ],
+   "necessary_in_gap": {
+    "A": [],
+    "E": [],
+    "F": [],
+    "O": [
+     20
+    ],
+    "P": [],
+    "S": []
+   },
+   "minimal_sufficient_in_gap": {
+    "20": [
+     "OA",
+     "OFSPE"
+    ],
+    "21": [
+     "OFSA",
+     "OPEA",
+     "OFSPE"
+    ],
+    "22": [
+     "OFSA",
+     "OPEA",
+     "FSPEA",
+     "OFSPE"
+    ],
+    "23": [
+     "EA",
+     "OFSPA",
+     "OFSPE"
+    ],
+    "24": [
+     "EA",
+     "OFSPA",
+     "OFSPE"
+    ],
+    "25": [
+     "EA",
+     "OFSPA",
+     "OFSPE"
+    ],
+    "26": [
+     "EA",
+     "FSPE"
+    ],
+    "27": [
+     "EA",
+     "FSPE"
+    ],
+    "28": [
+     "EA",
+     "OFSPE"
+    ],
+    "29": [
+     "EA",
+     "FSPE"
+    ],
+    "30": [
+     "EA",
+     "PE"
+    ],
+    "31": [
+     "EA",
+     "PE"
+    ],
+    "32": [
+     "EA",
+     "PE"
+    ],
+    "33": [
+     "EA"
+    ],
+    "34": [
+     "EA",
+     "PE"
+    ],
+    "35": [
+     "EA",
+     "FSPE"
+    ],
+    "36": [
+     "EA",
+     "FSPE"
+    ]
+   }
+  },
+  "sums": {
+   "n": 137,
+   "accuracy": {
+    "base": 0.6796875,
+    "source": 0.74609375
+   },
+   "query_check": 1.0,
+   "gap": [
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36
+   ],
+   "classes": {
+    "10": "operands",
+    "11": "operands",
+    "12": "operands",
+    "13": "operands",
+    "14": "operands",
+    "15": "operands",
+    "16": "operands",
+    "17": "operands",
+    "18": "operands",
+    "19": "operands",
+    "20": "operands",
+    "21": "operands",
+    "22": "operands",
+    "23": "operands",
+    "24": "operands",
+    "25": "operands",
+    "26": "operands",
+    "27": "operands",
+    "28": "operands",
+    "29": "undecided",
+    "30": "structure",
+    "31": "structure",
+    "32": "structure",
+    "33": "structure",
+    "34": "structure",
+    "35": "structure",
+    "36": "structure",
+    "8": "operands",
+    "9": "operands"
+   },
+   "reading": "operands",
+   "counts": {
+    "operands": 21,
+    "structure": 7,
+    "undecided": 1
+   },
+   "ends_sufficient": [],
+   "necessary_in_gap": {
+    "A": [],
+    "E": [
+     30,
+     31,
+     32,
+     33,
+     34,
+     35,
+     36
+    ],
+    "F": [
+     8,
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16,
+     17,
+     18,
+     19,
+     20,
+     21
+    ],
+    "O": [],
+    "P": [],
+    "S": [
+     8,
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     16,
+     17,
+     18,
+     19,
+     20,
+     21,
+     22,
+     23,
+     24,
+     25
+    ]
+   },
+   "minimal_sufficient_in_gap": {
+    "10": [
+     "FS"
+    ],
+    "11": [
+     "FS"
+    ],
+    "12": [
+     "FS"
+    ],
+    "13": [
+     "FS"
+    ],
+    "14": [
+     "FS"
+    ],
+    "15": [
+     "FS"
+    ],
+    "16": [
+     "FS"
+    ],
+    "17": [
+     "FS"
+    ],
+    "18": [
+     "FS"
+    ],
+    "19": [
+     "FS"
+    ],
+    "20": [
+     "FS"
+    ],
+    "21": [
+     "FS"
+    ],
+    "22": [
+     "FS"
+    ],
+    "23": [
+     "FS"
+    ],
+    "24": [
+     "FS"
+    ],
+    "25": [
+     "FS"
+    ],
+    "26": [
+     "FS"
+    ],
+    "27": [
+     "FSPE",
+     "OFSA"
+    ],
+    "28": [
+     "FSPE",
+     "OFSA",
+     "OSPEA"
+    ],
+    "29": [
+     "EA",
+     "FSPE"
+    ],
+    "30": [
+     "EA",
+     "FSPE"
+    ],
+    "31": [
+     "EA"
+    ],
+    "32": [
+     "EA",
+     "FSPE"
+    ],
+    "33": [
+     "EA",
+     "FSPE"
+    ],
+    "34": [
+     "EA",
+     "FSPE"
+    ],
+    "35": [
+     "EA",
+     "FSPE"
+    ],
+    "36": [
+     "EA"
+    ],
+    "8": [
+     "FS"
+    ],
+    "9": [
+     "FS"
+    ]
+   }
+  },
+  "natural_vs_added": {
+   "read_points": [
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    34,
+    35,
+    36
+   ],
+   "agree": [
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    30,
+    31
+   ]
+  }
  }
 }

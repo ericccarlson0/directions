@@ -5761,6 +5761,98 @@ Flip rates at read points 16 / 20 / 24 (natural arm; the added arm within about 
   - The control stays a separate signal. It meets the computation (the sums, gathered at the answer token from
     the digit tokens) only at the answer position.
 
+### D60: the operator line on the 14B (D57's map and probe, D58's added direction, D59's token-set swaps), and the sums' two-token gather on all three
+
+```
+# workflow runs; 7.77 USD in all (balance 48.57 -> 40.80)
+#   40017790556: request d60_map_maxmin_qwen3_14b_seed20260916, commit 0621969, H100 80GB HBM3 (ADA_80_PRO), US-CA-2,
+#     ci-8b; map 20 min, probe 3 min (1.91 USD)
+#   40022343637: request d60_steer_set_qwen3_14b_seed20260916, commit 5380033, H100, US-CA-2, ci-8b; opsteer 30 min,
+#     opset 37 min (three arms)
+#   40022347205: request d60_sums_qwen3_8b_seed20260916, commit 286b9f8, RTX 4090, EUR-NO-1, ci-b; 15 min
+#   40022353098: request d60_sums_qwen3_4b_seed20260916, commit d773189, RTX 4090, EUR-NO-1, ci; 9 min
+# determinism, identity swaps and the whole-query check identical or 1.000 in every stage; peak memory on the H100
+# 33.4-33.6 GiB of 79.2
+uv run python scripts/stages.py 'uv run directions varmap --config configs/varmap_maxmin_qwen3_14b.yaml --run-id varmap_maxmin_qwen3_14b_seed20260916' 'uv run directions varprobe --config configs/varprobe_maxmin_qwen3_14b.yaml --run-id varprobe_maxmin_qwen3_14b_seed20260916'
+uv run python scripts/stages.py 'uv run directions opsteer --config configs/opsteer_qwen3_14b.yaml --run-id opsteer_qwen3_14b_seed20260916' 'uv run directions opset --config configs/opset_qwen3_14b.yaml --run-id opset_qwen3_14b_seed20260916'
+uv run python scripts/stages.py 'uv run directions opset --config configs/opset_sums_qwen3_8b.yaml --run-id opset_sums_qwen3_8b_seed20260916'
+uv run python scripts/stages.py 'uv run directions opset --config configs/opset_sums_qwen3_4b.yaml --run-id opset_sums_qwen3_4b_seed20260916'
+# then, on the downloads (the 4B and 8B runs of D57-D59 beside):
+uv run python scripts/d57_operator.py results/remote/run-39623460598 results/remote/run-39622530165 results/remote/run-40017790556 --out docs/varmap/d57_operator.json
+uv run python scripts/d58_opsteer.py --opsteer results/remote/run-39651059358 results/remote/run-39648774824 results/remote/run-40022343637 \
+  --d57 results/remote/run-39623460598 results/remote/run-39622530165 results/remote/run-40017790556 --out docs/varmap/d58_opsteer.json
+uv run python scripts/d59_opset.py results/remote/run-39888455166 results/remote/run-39888184099 results/remote/run-40022343637 --out docs/varmap/d59_opset.json
+uv run python scripts/d60_14b.py --d57 results/remote/run-40017790556 --opset results/remote/run-40022343637 \
+  --others results/remote/run-39888455166 results/remote/run-39888184099 results/remote/run-40022353098 results/remote/run-40022347205 \
+  --out docs/varmap/d60_14b.json
+```
+
+Figures: `docs/varmap/qwen3_14b_maxmin.png` (job 1's map), `qwen3_14b_opsteer_curve.png`, `qwen3_14b_opsteer_map.png`,
+`qwen3_14b_opset.png` (three arms).
+
+**Step 1 (D57) on the 14B.**
+- Few-shot accuracy 0.656 (max 0.74, min 0.60), against 0.50–0.53 on the 4B and 8B. 40–52 of 96 bases enter per
+  swap type (op 52).
+- The operator token holds the operator alone until read point 15 (O_out; 11–12 on the 4B and 8B).
+- At the answer token alone neither the operator nor both sums arrive before the output: R_O = G = 40, and so is
+  G\* (the both swap there reaches 0.45 at 38; on max alone, D55, it was 30).
+- D57's reading is "relayed (spread over context)", with G\* in place of G as well.
+- The answer is shared with `=` more strongly than on max. That broke D60's preregistered take-up test, and D60 was
+  amended before job 2 (DECISIONS D60).
+
+**D58 on the 14B (m_inj = 8 = round(15 / 2) by D60's rule).**
+- The direction:
+  - The pairs agree with it at cosine 0.94, 0.91 and 0.83 at read points 4, 8 and 12.
+  - It switches as often as the twin swap up to 12 (0.67 against 0.68), then falls off sooner: 0.52 against 0.59
+    at 16.
+  - W_steer 14 against W_swap 16: "a direction only early", as on the 4B. Random directions switch nothing.
+- Added at 8, it gives the min answer as often as the natural prompt: 0.629 against 0.613.
+- Against step 1:
+  - The added operator reaches the answer token alone at 39 against 40 (as natural; 37 against 40 by the means,
+    earlier).
+  - It leaves its token at 19 against 15 by the lower bounds (later; 19 against 19 by the means).
+  - G is 40 in both.
+
+**D59 on the 14B, and the sums arm.** Flip rates at read points 20 / 23 / 26 / 32 (natural arm; the added arm within
+about 0.1):
+
+| set | operator (natural) | sums |
+|---|---|---|
+| O | 0.50 / 0.08 / 0.02 / 0.00 | 0.00 throughout |
+| A | 0.01 / 0.05 / 0.20 / 0.33 | 0.00 / 0.00 / 0.01 / 0.28 |
+| E (`=`) | 0.07 / 0.30 / 0.48 / 0.51 | 0.01 / 0.02 / 0.02 / 0.50 |
+| O+A | 0.61 / 0.34 / 0.29 / 0.33 | 0.00 / 0.00 / 0.01 / 0.28 |
+| E+A | 0.10 / 0.61 / 0.88 / 0.98 | 0.01 / 0.04 / 0.07 / 0.97 |
+| P+E (structure, no answer) | 0.19 / 0.42 / 0.55 / 0.59 | 0.02 / 0.04 / 0.04 / 0.56 |
+| F+S (the operands) | 0.03 / 0.05 / 0.03 / 0.00 | 0.95 / 0.82 / 0.61 / 0.00 |
+
+- **The operands never carry the operator**, as on the 4B and 8B (F+S at most 0.08). They do carry the sums until
+  they meet: 0.99 at 16, 0.61 at 26, 0.09 at 29. The test sees a variable at the operands when one is there.
+- **The difference on the 14B: `=` takes the operator over.**
+  - The two ends (O+A) hold it only through read point 20. By 23 the operator token has let go (0.08).
+  - From 23 on it sits at `=` and the answer position: E+A 0.61 at 23 and 0.95–0.99 from 29. `=` alone carries
+    about half (0.48–0.51 from 26), more than the answer token alone (0.20–0.36).
+  - The structural tokens without the answer token (P+E) are sufficient at 30–34.
+  - D59's class is "structure" at 11 of 17 gap read points (natural; the added arm "undecided" at 11). The
+    preregistered predictions from the 4B and 8B:
+    - (a) the operands are not involved: holds;
+    - (b) the two ends hold the gap: fails, from 21 on;
+    - (c) `=` joins the answer token: holds, from 23 (natural) and 24 (added).
+- **Both reach the same two-token site, the operator first.** E+A first carries the sums (both swap, mean at
+  least 0.5) at 24 on the 4B and 8B and at 29 on the 14B (G2). E+A is first sufficient for the operator at 20, 20
+  and 23 (T2). The operator leads by 4, 4 and 6 read points.
+- **The amended take-up test reads "follows the gather", at its margin.**
+  - The 14B's two-token gather is 5 read points later than the 4B and 8B's (ΔG = 5). Its operator arrives 3
+    later (ΔT = 3), so |ΔT − ΔG| = 2, the rule's limit.
+  - "Fixed depth" (|ΔT| ≤ 2) misses by one read point.
+  - Not preregistered, and not excluded: the operator's arrival keeps nearly the same fraction of the stack. 20 of
+    36 read points is 0.56 and 23 of 40 is 0.58, a predicted 22 against the observed 23. The gather moved further:
+    0.67 to 0.73 of the stack.
+  - With two depths (36 and 40 layers), this test cannot separate "follows the gather" from "a fixed fraction of
+    the stack". It does exclude a fixed absolute depth, narrowly.
+- The preregistered take-up test at the answer token alone (G\* = 40) has a failed premise. It reads "neither" (E+A
+  at 23 against [34, 38] and [18, 22]) and is not used.
+
 ## Not yet run / known limitations
 
 - The variable map (D45) has run once per model (Qwen3 0.6B, 1.7B, 4B Base; seed 20260916) on two expression tasks
@@ -5986,7 +6078,8 @@ uv run python scripts/stages.py 'uv run directions opset --config configs/opset_
 uv run python scripts/stages.py 'uv run directions opset --config configs/opset_qwen3_4b.yaml --run-id opset_qwen3_4b_seed20260916'
 uv run python scripts/d59_opset.py results/remote/run-39888455166 results/remote/run-39888184099 --out docs/varmap/d59_opset.json   # runs 39888455166 (4B), 39888184099 (8B)
 # D60, the operator line on the 14B (H100: gpu_tier ADA_80_PRO, datacenter US-CA-2, flash_env ci-8b); job 1, then job 2
-# (configs/opsteer_qwen3_14b.yaml, configs/opset_qwen3_14b.yaml, written once job 1 fixes the injection read point):
+# (configs/opsteer_qwen3_14b.yaml, configs/opset_qwen3_14b.yaml, written once job 1 fixed the injection read point at 8),
+# and the sums arm on the 4B and 8B; runs and the reading commands in the D60 entry above
 uv run python scripts/stages.py 'uv run directions varmap --config configs/varmap_maxmin_qwen3_14b.yaml --run-id varmap_maxmin_qwen3_14b_seed20260916' 'uv run directions varprobe --config configs/varprobe_maxmin_qwen3_14b.yaml --run-id varprobe_maxmin_qwen3_14b_seed20260916'
 # iteration 10 (D33 amended: quarter strength, the neighbouring candidate layers, the patch test at every compared
 # layer on eighths of the depth for the learned and the head-mean vector, per-block writing), on a second seed,
