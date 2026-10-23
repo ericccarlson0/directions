@@ -5811,6 +5811,9 @@ Figures: `docs/varmap/qwen3_14b_maxmin.png` (job 1's map), `qwen3_14b_opsteer_cu
   - The added operator reaches the answer token alone at 39 against 40 (as natural; 37 against 40 by the means,
     earlier).
   - It leaves its token at 19 against 15 by the lower bounds (later; 19 against 19 by the means).
+    - The "later" is the step-1 map's base count (52 against 64), not a difference in the operator. In D59's run,
+      where both arms are measured on the same read points with 141–146 bases, the operator token alone is
+      sufficient through 19 in both arms: natural 0.63, added 0.68 at 19. Both fall to 0.50–0.54 at 20 and 0.08 at 23.
   - G is 40 in both.
 
 **D59 on the 14B, and the sums arm.** Flip rates at read points 20 / 23 / 26 / 32 (natural arm; the added arm within
