@@ -1339,3 +1339,57 @@ def load_opsteer_config(path: str | Path) -> OpsteerConfig:
     if not (0 < cfg.present_flip <= 1 and 0 <= cfg.value_change < 1 and 0 < cfg.alpha < 1):
         raise ValueError("present_flip in (0, 1], value_change in [0, 1), alpha in (0, 1)")
     return cfg
+
+
+@dataclass
+class OpsetConfig:
+    """Where the operator sits between its token and the answer token: token-set swaps (docs/DECISIONS.md D59).
+
+    arms             "natural" (D57's operator swap: a base and its twin) and/or "added" (D58's steered runs, the
+                     source the same prompt without the direction)
+    n_bases          bases per arm (natural: drawn as D57's; added: D58's draws), kept where both runs are answered
+    n_dir, n_shots, n_demo_pool, inject_read_point  as in D57 and D58 (the added arm recomputes D58's direction)
+    read_points      the read points of the sweep (D59: 8-32)
+    n_boot, alpha    bootstrap intervals of the flip rates
+    sufficient       a set is sufficient where its flip rate's lower bound reaches this, not where the upper bound
+                     stays below it (D59: 0.5)
+    gate             keep only the bases the model answers (off only for the toy smoke run)
+    identity_check   a run's own states swapped back at every query token change nothing (bit identity)
+    determinism_check  one swap batch repeated; bit identity required (D23)
+    """
+
+    name: str = "opset"
+    seed: int = 20260916
+    output_dir: str = "results"
+    model: ModelConfig = field(default_factory=ModelConfig)
+    arms: list[str] = field(default_factory=lambda: ["natural", "added"])
+    n_bases: int = 256
+    n_dir: int = 256
+    n_shots: int = 8
+    n_demo_pool: int = 96
+    inject_read_point: int = 6
+    read_points: list[int] = field(default_factory=lambda: list(range(8, 33)))
+    n_boot: int = 1000
+    alpha: float = 0.05
+    sufficient: float = 0.5
+    gate: bool = True
+    identity_check: bool = True
+    determinism_check: bool = True
+    figures: bool = True
+
+
+def load_opset_config(path: str | Path) -> OpsetConfig:
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    cfg = _from_dict(OpsetConfig, data)
+    if not cfg.arms or any(a not in ("natural", "added") for a in cfg.arms) or len(set(cfg.arms)) != len(cfg.arms):
+        raise ValueError("arms must be a non-empty subset of natural, added")
+    if cfg.n_shots % 2 or cfg.n_shots < 2 or cfg.n_demo_pool < cfg.n_shots:
+        raise ValueError("n_shots must be even and positive (half of each operator, D57), n_demo_pool at least n_shots")
+    if cfg.n_bases < 2 or cfg.n_dir < 2 or not cfg.read_points or min(cfg.read_points) < 0:
+        raise ValueError("n_bases and n_dir must be at least 2, read_points non-empty and non-negative")
+    if "added" in cfg.arms and min(cfg.read_points) <= cfg.inject_read_point:
+        raise ValueError("the added arm's swaps must come after the injection read point")
+    if not (0 < cfg.sufficient <= 1 and 0 < cfg.alpha < 1):
+        raise ValueError("sufficient in (0, 1], alpha in (0, 1)")
+    return cfg

@@ -111,6 +111,51 @@ def mean_readouts(rates: dict[str, Any], labels: list[str], read_points: list[in
     return out
 
 
+def op_position(backend: ModelBackend, prompt: Prompt, query: Expr) -> tuple[int, list[int], list[int], list[str]]:
+    """The operator token (the last token of the operator word) and the query's positions, ids and labels."""
+    pos, ids, labels = query_tokens(backend, prompt, query, "op")
+    j = max(i for i, lab in enumerate(labels) if lab == "op")
+    return pos[j], pos, ids, labels
+
+
+def steer_at(v: torch.Tensor, m: int, op_pos: np.ndarray) -> Intervention:
+    """v[m] added at read point m at each row's operator token."""
+    return Intervention(m, v[m].cpu().numpy().astype(np.float32), 1.0, np.asarray(op_pos, dtype=np.int64))
+
+
+def natural_direction(backend: ModelBackend, dir_set: list[Expr], dir_demos: list[list[Expr]],
+                      rejections: RejectionLog | None = None, log: Any = None) -> dict[str, Any]:
+    """v[m]: the mean over the direction set of the min twin's state minus the max run's at the operator token (D58),
+    with its norm, its ratio to the max state's norm and the pairs' mean cosine with it."""
+    maxp = [render(d, e) for d, e in zip(dir_demos, dir_set)]
+    minp = [render(d, twin(e)) for d, e in zip(dir_demos, dir_set)]
+    pos, keep = [], []
+    for i, e in enumerate(dir_set):
+        p_max, *_ = op_position(backend, maxp[i], e)
+        p_min, *_ = op_position(backend, minp[i], twin(e))
+        keep.append(p_max == p_min)
+        pos.append(p_max)
+        if p_max != p_min and rejections is not None:
+            rejections.add("align", "direction", "the twin's operator token is elsewhere", {"expr": e.text()})
+    idx = np.flatnonzero(keep)
+    pos = np.asarray(pos, dtype=np.int64)[idx][:, None]
+    h_max = backend.capture_sites([maxp[i] for i in idx], pos)[:, :, 0].float()  # (n, L+1, d)
+    h_min = backend.capture_sites([minp[i] for i in idx], pos)[:, :, 0].float()
+    diff = h_min - h_max
+    v = diff.mean(dim=0)  # (L+1, d) float32
+    norm = v.norm(dim=-1)
+    state = h_max.norm(dim=-1).mean(dim=0)
+    cos = torch.nn.functional.cosine_similarity(diff, v[None].expand_as(diff), dim=-1).mean(dim=0)
+    if log is not None:
+        step = max(1, len(norm) // 8)
+        log.info("direction from %d pairs, every %d read points: norm %s; mean cosine of the pairs' differences with it %s",
+                 len(idx), step, [round(float(x), 2) for x in norm[::step]], [round(float(x), 3) for x in cos[::step]])
+    del h_max, h_min, diff
+    return {"v": v, "n_pairs": len(idx), "norm": norm.cpu().numpy().tolist(),
+            "state_norm": state.cpu().numpy().tolist(), "ratio": (norm / state).cpu().numpy().tolist(),
+            "pair_cosine": cos.cpu().numpy().tolist()}
+
+
 class OpSteer:
     def __init__(self, cfg: OpsteerConfig, run_id: str | None = None, config_path: str | None = None) -> None:
         self.cfg = cfg
@@ -180,45 +225,15 @@ class OpSteer:
         return np.array(ids, dtype=np.int64)
 
     def _op_position(self, prompt: Prompt, query: Expr) -> tuple[int, list[int], list[int], list[str]]:
-        """The operator token (the last token of the operator word) and the query's positions, ids and labels."""
-        pos, ids, labels = query_tokens(self.backend, prompt, query, "op")
-        j = max(i for i, lab in enumerate(labels) if lab == "op")
-        return pos[j], pos, ids, labels
+        return op_position(self.backend, prompt, query)
 
     def _steer(self, v: torch.Tensor, m: int, op_pos: np.ndarray) -> Intervention:
-        return Intervention(m, v[m].cpu().numpy().astype(np.float32), 1.0, np.asarray(op_pos, dtype=np.int64))
+        return steer_at(v, m, op_pos)
 
     # ------------------------------------------------------------------ #
 
     def _direction(self, dir_set: list[Expr], dir_demos: list[list[Expr]]) -> dict[str, Any]:
-        """v[m]: the mean over the direction set of the min twin's state minus the max run's at the operator token."""
-        backend, log = self.backend, self.log
-        maxp = [render(d, e) for d, e in zip(dir_demos, dir_set)]
-        minp = [render(d, twin(e)) for d, e in zip(dir_demos, dir_set)]
-        pos, keep = [], []
-        for i, e in enumerate(dir_set):
-            p_max, *_ = self._op_position(maxp[i], e)
-            p_min, *_ = self._op_position(minp[i], twin(e))
-            keep.append(p_max == p_min)
-            pos.append(p_max)
-            if p_max != p_min:
-                self.rejections.add("align", "direction", "the twin's operator token is elsewhere", {"expr": e.text()})
-        idx = np.flatnonzero(keep)
-        pos = np.asarray(pos, dtype=np.int64)[idx][:, None]
-        h_max = backend.capture_sites([maxp[i] for i in idx], pos)[:, :, 0].float()  # (n, L+1, d)
-        h_min = backend.capture_sites([minp[i] for i in idx], pos)[:, :, 0].float()
-        diff = h_min - h_max
-        v = diff.mean(dim=0)  # (L+1, d) float32
-        norm = v.norm(dim=-1)
-        state = h_max.norm(dim=-1).mean(dim=0)
-        cos = torch.nn.functional.cosine_similarity(diff, v[None].expand_as(diff), dim=-1).mean(dim=0)
-        step = max(1, len(norm) // 8)
-        log.info("direction from %d pairs, every %d read points: norm %s; mean cosine of the pairs' differences with it %s",
-                 len(idx), step, [round(float(x), 2) for x in norm[::step]], [round(float(x), 3) for x in cos[::step]])
-        del h_max, h_min, diff
-        return {"v": v, "n_pairs": len(idx), "norm": norm.cpu().numpy().tolist(),
-                "state_norm": state.cpu().numpy().tolist(), "ratio": (norm / state).cpu().numpy().tolist(),
-                "pair_cosine": cos.cpu().numpy().tolist()}
+        return natural_direction(self.backend, dir_set, dir_demos, self.rejections, self.log)
 
     def _setup(self, draw: dict[str, Any]) -> dict[str, Any]:
         """Prompts, positions and the unsteered runs: each base shown as max, its natural min twin, each drawn source

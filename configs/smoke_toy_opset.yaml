@@ -1,0 +1,21 @@
+# Smoke run of the operator's token-set swaps (D59) on a random tiny model (CPU, no downloads): the model cannot do
+# the task, so the gate is off; checks the plumbing, the files and the figure.
+name: opset
+seed: 20260916
+output_dir: results
+
+model:
+  backend: toy
+  dtype: float32
+  device: cpu
+  batch_size: 64
+
+arms: [natural, added]
+n_bases: 5
+n_dir: 8
+n_shots: 2
+n_demo_pool: 8
+inject_read_point: 1
+read_points: [2, 3, 4]
+n_boot: 50
+gate: false

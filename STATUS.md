@@ -5919,6 +5919,10 @@ uv run python scripts/d57_operator.py results/remote/run-39623460598 results/rem
 uv run python scripts/stages.py 'uv run directions opsteer --config configs/opsteer_qwen3_8b.yaml --run-id opsteer_qwen3_8b_seed20260916'
 uv run python scripts/stages.py 'uv run directions opsteer --config configs/opsteer_qwen3_4b.yaml --run-id opsteer_qwen3_4b_seed20260916'
 uv run python scripts/d58_opsteer.py --opsteer results/remote/run-39651059358 results/remote/run-39648774824 --d57 results/remote/run-39623460598 results/remote/run-39622530165 --out docs/varmap/d58_opsteer.json   # runs 39651059358 (4B), 39648774824 (8B)
+# D59, the operator's token-set swaps (natural and added): the 8B first (lane ci-b), then the 4B (lane ci):
+uv run python scripts/stages.py 'uv run directions opset --config configs/opset_qwen3_8b.yaml --run-id opset_qwen3_8b_seed20260916'
+uv run python scripts/stages.py 'uv run directions opset --config configs/opset_qwen3_4b.yaml --run-id opset_qwen3_4b_seed20260916'
+uv run python scripts/d59_opset.py results/remote/run-<4B> results/remote/run-<8B> --out docs/varmap/d59_opset.json
 # iteration 10 (D33 amended: quarter strength, the neighbouring candidate layers, the patch test at every compared
 # layer on eighths of the depth for the learned and the head-mean vector, per-block writing), on a second seed,
 # as run (workflow runs in the iteration-10 entry): first the learned-vector protocol (D31) at seed 20260916 on

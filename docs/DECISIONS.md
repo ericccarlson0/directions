@@ -3755,3 +3755,64 @@ Outcome (runs 39648774824, 39651059358; STATUS.md, "D58"):
     the steered sums sit lower at the answer token than step 1's, whose bases mix both operators.
   - The readings stand as preregistered. The interpretation, that the added operator takes the natural route and
     the lower-bound differences are power, is the means' and is recorded as such.
+
+### D59. Where the operator sits between its token and the answer token: token-set swaps (Qwen3 4B, 8B Base)
+
+* **Why.**
+  - D57: the operator leaves its token at read point 11–14, and for 6–12 read points no single query token holds
+    it, before the answer token takes it up at 22–27. On the 8B at 17–20 the single-token rates summed over all 13
+    query tokens are at most 0.13.
+  - The operator must be somewhere in the query there. The demonstrations come first and cannot see it, and a swap
+    of every query token at one read point reproduces the source run (D52's check).
+  - Where it is answers the project's question for this control:
+    - mixed into the operand tokens before the sums meet (the control already turned into computation);
+    - held apart at the structural tokens and read later (a control signal kept and passed on);
+    - or only in both together.
+  - D58: the added direction travels the natural route by the means, and lingers at its token a little longer. Do
+    the two occupy the same tokens in the gap?
+* **The token groups** (a partition of the query, from D57's labels):
+  - O, the operator token;
+  - F, the first operand `a + b`;
+  - S, the second operand `c + d`;
+  - P, the other structural tokens `(`, `,`, the space, `)`;
+  - E, ` =`;
+  - A, the answer position.
+* **The sets**, 23, each swapped as a whole at one read point (D52's set swap):
+  - each group alone (6);
+  - each group with A (5);
+  - every group but one (6);
+  - the operands F+S, the structure P+E, everything but the ends F+S+P+E, and the two halves with the ends:
+    K_operands = O+F+S+A and K_structure = O+P+E+A;
+  - the whole query (a check: it gives the source's run, so its flip rate is 1 on gated bases).
+* **Two arms, read points 8–32 on both models.**
+  - **Natural:** D57's operator swap. A max or min base, its twin as the source, and the prediction is the twin's
+    answer. 256 bases drawn as D57's (its first 96 are D57's), kept where the model answers both the base and the
+    twin.
+  - **Added:** D58's steered runs. Min expressions shown as max, with v[6] added at the operator token. The source
+    is the same prompt without the direction, and the prediction is the max answer. D58's draws and direction are
+    recomputed with D58's seed: 256 bases, kept where the steered run gives the min answer and the unsteered one
+    the max answer.
+  - No cap per arm. Flip rates come with 95% bootstrap intervals over bases.
+* **Readings, per arm.**
+  - A set is sufficient at a read point when its flip rate's lower bound is at least 0.5. It is not sufficient when
+    the upper bound is below 0.5.
+  - The gap is the read points of the sweep at which neither O alone nor A alone is sufficient.
+  - At each gap read point, the class:
+    - **operands:** K_operands sufficient, K_structure not;
+    - **structure:** K_structure sufficient, K_operands not;
+    - **either side:** both sufficient;
+    - **only together:** neither sufficient;
+    - **undecided:** anything else.
+    The classes are exclusive.
+  - The gap's reading is the class at the majority of its read points. Every read point's class is reported, and so
+    is a tie.
+  - Beside it:
+    - whether O+A is sufficient (the operator still held at the two ends);
+    - each group's necessity, i.e. the read points at which every group but that one is not sufficient (holding the
+      group at the base keeps the base's operation);
+    - the minimal sufficient sets in the family.
+  - Natural against added: the class at each gap read point of both (exploratory).
+* **Runs.**
+  - Seed 20260916, one execution, RTX 4090s (EUR-NO-1): the 8B first (lane ci-b), then the 4B (lane ci) once the
+    8B's first set has finished (docs/INFRA.md item 8).
+  - The 14B later, with the rest of the 14B work.

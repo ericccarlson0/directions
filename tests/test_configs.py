@@ -37,6 +37,12 @@ def test_all_configs_load():
             cfg = load_das_config(p)
             assert cfg.sites and (cfg.control_site in cfg.sites or (cfg.control_site is None and "_b.yaml" in p.name)), p
             continue
+        if "opset" in p.name:  # the operator's token-set swaps (D59)
+            from directions.config import load_opset_config
+
+            cfg = load_opset_config(p)
+            assert cfg.arms and cfg.read_points, p
+            continue
         if "opsteer" in p.name:  # the operator direction at the operator token (D58)
             from directions.config import load_opsteer_config
 
@@ -701,3 +707,20 @@ def test_opsteer_configs_follow_d58():
         ref = asdict(load_opsteer_config(CONFIGS / f"opsteer_qwen3_{size.lower()}.yaml"))["model"]
         d57 = __import__("yaml").safe_load((CONFIGS / f"varmap_maxmin_qwen3_{size.lower()}.yaml").read_text())["model"]
         assert ref["batch_size"] == d57["batch_size"] and ref["dtype"] == d57["dtype"] == "bfloat16"
+
+
+def test_opset_configs_follow_d59():
+    """D59: the 4B and 8B files differ only in model (batch sizes as in D57 and D58); both arms, read points 8-32."""
+    from dataclasses import asdict
+
+    from directions.config import load_opset_config, load_opsteer_config
+
+    files = sorted(CONFIGS.glob("opset_qwen3_*.yaml"))
+    assert [p.name for p in files] == ["opset_qwen3_4b.yaml", "opset_qwen3_8b.yaml"]
+    c4, c8 = (asdict(load_opset_config(p)) for p in files)
+    assert dict(c4, model=None) == dict(c8, model=None)
+    assert c4["arms"] == ["natural", "added"] and c4["read_points"] == list(range(8, 33)) and c4["sufficient"] == 0.5
+    for size, c in (("4b", c4), ("8b", c8)):
+        d58 = asdict(load_opsteer_config(CONFIGS / f"opsteer_qwen3_{size}.yaml"))
+        assert c["model"] == d58["model"] and c["seed"] == d58["seed"]
+        assert all(c[k] == d58[k] for k in ("n_dir", "n_bases", "n_shots", "n_demo_pool", "inject_read_point"))

@@ -1,0 +1,27 @@
+# Where the operator sits between its token and the answer token: token-set swaps (docs/DECISIONS.md D59), Qwen3-4B
+# Base. The files of this family differ only in model (the 8B at batch 64, as in D57 and D58).
+name: opset
+seed: 20260916
+output_dir: results
+
+model:
+  backend: hf
+  name: Qwen/Qwen3-4B-Base
+  dtype: bfloat16          # model execution; swapped states stay in the model's dtype
+  device: cuda             # fail fast rather than fall back to the CPU (docs/INFRA.md)
+  batch_size: 128
+
+arms: [natural, added]        # D57's operator swap; D58's added direction (the source: the same prompt without it)
+n_bases: 256                  # per arm: natural drawn as D57's (its first 96 are D57's), added as D58's
+n_dir: 256                    # D58's direction, recomputed with D58's seed and draws
+n_shots: 8                    # 4 of each operator (D57)
+n_demo_pool: 96
+inject_read_point: 6          # D58
+read_points: [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+n_boot: 1000
+alpha: 0.05
+sufficient: 0.5               # sufficient: flip lower bound >= 0.5; not sufficient: upper bound < 0.5 (D59)
+gate: true
+identity_check: true
+determinism_check: true
+figures: true
