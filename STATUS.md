@@ -5856,6 +5856,48 @@ about 0.1):
 - The preregistered take-up test at the answer token alone (G\* = 40) has a failed premise. It reads "neither" (E+A
   at 23 against [34, 38] and [18, 22]) and is not used.
 
+### Overview figures of the two variable-map lines (D45–D54 and D55–D60; descriptive, two designs each)
+
+No new runs. Each line gets two candidate overview figures, to choose from: a route map (the result first) and
+evidence panels (the curves first). They show Qwen3 4B, 8B and 14B Base, the models mapped on every task. The 1.7B
+misses the three-bracket and max/min gates and the 0.6B the two-bracket one, so neither is drawn. Depth is relative
+(read point / L, with L = 36, 36, 40). The landmarks line up across the three models by fraction of the stack, not
+by block, and each landmark is labelled `read point/L`. The data is collected once from the runs' artifacts and the
+committed summaries into `docs/overview/data.json`, so the figures redraw from git alone.
+
+```
+# the 21 map, probe, posset, opsteer and opset artifacts the data script reads (each checked against
+# archive_manifest.jsonl's SHA-256), downloaded to results/remote/run-<id>: 38502381471 38587101804 38738001665
+# 38913588733 38934415363 38934932951 38934471957 38980786015 38980798799 39178177443 39178188546 39252850362
+# 39622530165 39623460598 40017790556 39648774824 39651059358 40022343637 39888184099 39888455166 40022353098
+# 40022347205; the DAS cells and the D47 block split come from docs/das/*.json and docs/varsplit/*.json
+uv run python scripts/overview_data.py results/remote --out docs/overview/data.json
+uv run python scripts/overview_figures.py docs/overview/data.json --out docs/overview
+```
+
+Two consecutive runs of both commands give bit-identical files. `tests/test_overview.py` checks the data against the
+summaries and the STATUS tables: the gathers, the operator landmarks, the D59/D60 set-swap rates, the held-sum counts
+(1/2/0 on two brackets, 0/0/0 on three) and that only the three models are in it. It also renders every figure.
+
+- `docs/overview/arith_route.png` (A1): a track per model and task. Each bracket's digits run as a strand along
+  depth, joining the answer token at G. A strand continues as its own line where DAS holds that sum as a separate
+  variable. A gray line marks the answer token's joint code; an ink line marks Y held as its own variable. Beside
+  the tracks: accuracy, the whole-state ceiling at G (with `=`, D52), the count, and D47 in a few words.
+- `docs/overview/arith_panels.png` (A2): per model on a shared depth axis, the map (answer token against digit
+  tokens), the probe (S1 given Y, Y) and the DAS Cause per site. Below: every DAS cell in the Cause–Isolate plane,
+  the count by model and design, D47's attention share, and D52's token sets at G3.
+- `docs/overview/maxmin_route.png` (B1): per model, lanes for the query's token groups, one panel for the operator
+  and one for the two sums. A ribbon is what a group alone carries; a band between lanes is what a pair carries
+  beyond either alone. The landmarks (O_out, T2, G2, the answer position alone) and D55's DAS Cause at the answer
+  token on max alone are marked.
+- `docs/overview/maxmin_panels.png` (B2): per model, the operator's and the sums' token-set swaps (D59/D60; the
+  added arm dashed), D58's switch curve, and D55 → D56 in the Cause–Isolate plane. A last column holds the arrivals
+  at `=` + answer (the operator at 0.56, 0.56, 0.58 of the stack, the sums at 0.67, 0.67, 0.73), the D55 probe at
+  G − 1, D58's pair cosine, and a key to the DAS planes.
+- One descriptive cut was added for A1: Y counts as its own variable where it is held and decodes from its
+  subspace at 0.7 or more (D48's amendment; held Y cells read as the joint code reach at most 0.60, those read as
+  Y at least 0.71).
+
 ## Not yet run / known limitations
 
 - The variable map (D45) has run once per model (Qwen3 0.6B, 1.7B, 4B Base; seed 20260916) on two expression tasks
