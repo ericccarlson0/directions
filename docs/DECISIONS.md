@@ -3816,3 +3816,20 @@ Outcome (runs 39648774824, 39651059358; STATUS.md, "D58"):
   - Seed 20260916, one execution, RTX 4090s (EUR-NO-1): the 8B first (lane ci-b), then the 4B (lane ci) once the
     8B's first set has finished (docs/INFRA.md item 8).
   - The 14B later, with the rest of the 14B work.
+
+Outcome (runs 39888184099, 39888455166; STATUS.md, "D59"):
+
+* **The preregistered reading is "either side" at every gap read point, on both models and in both arms, and it is
+  uninformative.**
+  - Both halves it compares contain O+A. O+A alone is sufficient at every read point of the sweep, except two on
+    the 8B's natural arm (20–21, lower bounds 0.48 and 0.52).
+  - The classification assumed the two ends would not carry the operator by themselves. That assumption was wrong.
+  - The reading stands as recorded. What the experiment shows comes from the readouts preregistered beside it: O+A,
+    the necessity of each group, the minimal sufficient sets, and the rates of F+S, P+E and the middle groups.
+* **Those readouts:**
+  - The operands never carry the operator: F+S at most 0.03.
+  - In the gap it is held at the two ends together, the operator token fading and the answer token rising.
+  - From read point 20, `=` and the answer token form a minimal sufficient set.
+  - The added direction takes the same route.
+  - D57's inference that the operator is held at several tokens of the query is revised: at two, the operator token
+    and the answer position, with `=` joining the answer position at the take-up.

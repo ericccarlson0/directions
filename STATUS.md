@@ -5699,6 +5699,68 @@ map; the operator panel is the unsteer swap).
     0.30–0.34 of the bases, against 0.10–0.24 for step 1's operator swap.
   - The added operator is slightly stronger at the answer token: 0.67 against 0.52 at 27 on the 8B.
 
+### D59: where the operator sits between its token and the answer token: token-set swaps (Qwen3 4B, 8B Base, seed 20260916)
+
+The query is split into six groups: O the operator token, F `a + b`, S `c + d`, P `(`, `,`, the space, `)`, E ` =`,
+and A the answer position. 23 sets of them are swapped as a whole at read points 8–32, in two arms:
+- **natural:** D57's operator swap, the twin as the source;
+- **added:** D58's direction at read point 6, the source the same prompt without it.
+
+```
+# workflow runs, RTX 4090 (ADA_24), EUR-NO-1; 0.88 USD for both (balance 49.94 -> 49.06)
+#   39888184099: request d59_opset_qwen3_8b_seed20260916, commit 4856c65, ci-b; 29 min
+#   39888455166: request d59_opset_qwen3_4b_seed20260916, commit 7fb141f, ci; 20 min
+#     (requested once the 8B had logged its first set, docs/INFRA.md item 8)
+# identity swaps and a repeated set-swap batch identical; the whole query swapped gives the source's answer on
+# 0.978 / 0.995 (4B natural / added) and 0.990 / 1.000 (8B) of the swaps (bf16 padding: D45's fragile rows);
+# peak memory 17.8 GiB (8B), 11.5 GiB (4B)
+uv run python scripts/stages.py 'uv run directions opset --config configs/opset_qwen3_8b.yaml --run-id opset_qwen3_8b_seed20260916'
+# likewise the 4B (configs/opset_qwen3_4b.yaml); then, on the downloads:
+uv run python scripts/d59_opset.py results/remote/run-39888455166 results/remote/run-39888184099 --out docs/varmap/d59_opset.json
+```
+
+Figures: `docs/varmap/qwen3_<size>_opset.png` (each set's flip rate over read points, per arm; below, the main sets).
+
+Flip rates at read points 16 / 20 / 24 (natural arm; the added arm within about 0.1 of these):
+
+| model (bases) | O | A | O+A | E+A | F+S | P+E | everything but O and A | O+P+E+A | O+F+S+A |
+|---|---|---|---|---|---|---|---|---|---|
+| 4B (98) | 0.48 / 0.09 / 0.05 | 0.02 / 0.33 / 0.56 | 0.82 / 0.77 / 0.83 | 0.06 / 0.64 / 0.88 | 0.03 / 0.02 / 0.00 | 0.05 / 0.07 / 0.08 | 0.07 / 0.10 / 0.07 | 0.98 / 0.92 / 0.94 | 0.89 / 0.82 / 0.83 |
+| 8B (92) | 0.42 / 0.07 / 0.04 | 0.04 / 0.20 / 0.38 | 0.68 / 0.58 / 0.66 | 0.08 / 0.62 / 0.78 | 0.00 / 0.00 / 0.00 | 0.04 / 0.15 / 0.20 | 0.11 / 0.20 / 0.20 | 0.96 / 0.92 / 0.99 | 0.79 / 0.67 / 0.66 |
+
+- **The preregistered reading is "either side" at every gap read point**, on both models and in both arms. The gaps
+  are 15–25 (4B) and 15–26 (8B); the 4B's added arm's is 15–21.
+  - The reading is uninformative. Both halves it compares, O+F+S+A and O+P+E+A, contain O+A, and O+A alone is
+    sufficient at every read point from 8 to 32. The exception is the 8B's natural arm at 20–21, where its lower
+    bound is 0.48 and 0.52.
+  - The design assumed the two ends would not carry the operator by themselves. They do.
+- **The operator never passes through the operands.** The operand tokens swapped together switch the operation in
+  at most 0.03 of the bases, at every read point, on both models and in both arms. Adding them to O+A adds little:
+  O+F+S+A against O+A, 0.82–0.89 against 0.77–0.86 on the 4B.
+- **In the gap it is held at the two ends together.**
+  - The operator token's share falls: on the 4B, 0.48 at 16 and 0.09 at 20. The answer token's rises: 0.02 at 16,
+    0.33 at 20, 0.56 at 24.
+  - Neither alone switches the operation in half the bases, but O+A does, at 0.58–0.86.
+  - This is what D57's single-token map could not see. A swap of one end leaves the other end's base copy, and the
+    later blocks read both.
+  - The O+A pair is the necessary core at the start of the gap: O is necessary at 15–16. On the 4B's natural arm
+    A is necessary from 20 on, and on the 8B's from 24 on.
+- **`=` joins the answer token at the take-up.**
+  - From read point 20, E+A is a minimal sufficient set: 0.62–0.68 at 20 and 0.78–0.99 by 24–28, against the answer
+    token alone at 0.20–0.56.
+  - With the structural tokens added to the two ends (O+P+E+A), the swap switches 0.88–1.00 of the bases
+    throughout.
+  - The structural tokens alone carry little (P+E 0.03–0.28), and so do all four middle groups together
+    (0.05–0.28).
+  - This matches D52: the answer itself is carried jointly by the answer token and `=` on the 8B and 14B.
+- **The added direction takes the same route.** Same gap classes (7 of 7 and 12 of 12 shared read points), the
+  same O+A and E+A profiles. Its middle tokens carry slightly more: on the 8B, P+E 0.19–0.28 from 20 on against
+  0.15–0.22.
+- **The answer to D57's open question:** the operator is not held redundantly at several query tokens. It is held
+  at its own token and, increasingly, at the answer position with `=`. The operands are never involved.
+  - The control stays a separate signal. It meets the computation (the sums, gathered at the answer token from
+    the digit tokens) only at the answer position.
+
 ## Not yet run / known limitations
 
 - The variable map (D45) has run once per model (Qwen3 0.6B, 1.7B, 4B Base; seed 20260916) on two expression tasks
@@ -5922,7 +5984,7 @@ uv run python scripts/d58_opsteer.py --opsteer results/remote/run-39651059358 re
 # D59, the operator's token-set swaps (natural and added): the 8B first (lane ci-b), then the 4B (lane ci):
 uv run python scripts/stages.py 'uv run directions opset --config configs/opset_qwen3_8b.yaml --run-id opset_qwen3_8b_seed20260916'
 uv run python scripts/stages.py 'uv run directions opset --config configs/opset_qwen3_4b.yaml --run-id opset_qwen3_4b_seed20260916'
-uv run python scripts/d59_opset.py results/remote/run-<4B> results/remote/run-<8B> --out docs/varmap/d59_opset.json
+uv run python scripts/d59_opset.py results/remote/run-39888455166 results/remote/run-39888184099 --out docs/varmap/d59_opset.json   # runs 39888455166 (4B), 39888184099 (8B)
 # iteration 10 (D33 amended: quarter strength, the neighbouring candidate layers, the patch test at every compared
 # layer on eighths of the depth for the learned and the head-mean vector, per-block writing), on a second seed,
 # as run (workflow runs in the iteration-10 entry): first the learned-vector protocol (D31) at seed 20260916 on

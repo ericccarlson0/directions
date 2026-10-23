@@ -1,0 +1,546 @@
+{
+ "qwen3_4b": {
+  "added": {
+   "n": 96,
+   "accuracy": {
+    "steered_min": 0.4453125,
+    "unsteered_max": 0.76953125
+   },
+   "query_check": 0.9954166666666666,
+   "gap": [
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21
+   ],
+   "classes": {
+    "15": "either side",
+    "16": "either side",
+    "17": "either side",
+    "18": "either side",
+    "19": "either side",
+    "20": "either side",
+    "21": "either side"
+   },
+   "reading": "either side",
+   "counts": {
+    "either side": 7
+   },
+   "ends_sufficient": [
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32
+   ],
+   "necessary_in_gap": {
+    "A": [],
+    "E": [],
+    "F": [],
+    "O": [
+     15,
+     16
+    ],
+    "P": [],
+    "S": []
+   },
+   "minimal_sufficient_in_gap": {
+    "15": [
+     "OA",
+     "OFSPE"
+    ],
+    "16": [
+     "OA",
+     "OFSPE"
+    ],
+    "17": [
+     "OA",
+     "OFSPE"
+    ],
+    "18": [
+     "OA",
+     "OFSPE"
+    ],
+    "19": [
+     "OA",
+     "FSPEA"
+    ],
+    "20": [
+     "EA",
+     "OA"
+    ],
+    "21": [
+     "EA",
+     "OA",
+     "SA"
+    ]
+   }
+  },
+  "natural": {
+   "n": 98,
+   "accuracy": {
+    "base": 0.53515625,
+    "twin": 0.6640625
+   },
+   "query_check": 0.9779591836734693,
+   "gap": [
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25
+   ],
+   "classes": {
+    "15": "either side",
+    "16": "either side",
+    "17": "either side",
+    "18": "either side",
+    "19": "either side",
+    "20": "either side",
+    "21": "either side",
+    "22": "either side",
+    "23": "either side",
+    "24": "either side",
+    "25": "either side"
+   },
+   "reading": "either side",
+   "counts": {
+    "either side": 11
+   },
+   "ends_sufficient": [
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32
+   ],
+   "necessary_in_gap": {
+    "A": [
+     20,
+     21,
+     22,
+     23,
+     24,
+     25
+    ],
+    "E": [],
+    "F": [],
+    "O": [
+     15,
+     16
+    ],
+    "P": [],
+    "S": []
+   },
+   "minimal_sufficient_in_gap": {
+    "15": [
+     "OA",
+     "OFSPE"
+    ],
+    "16": [
+     "OA",
+     "OFSPE"
+    ],
+    "17": [
+     "OA",
+     "OFSPE"
+    ],
+    "18": [
+     "OA",
+     "OFSPE"
+    ],
+    "19": [
+     "OA"
+    ],
+    "20": [
+     "EA",
+     "OA"
+    ],
+    "21": [
+     "EA",
+     "OA"
+    ],
+    "22": [
+     "EA",
+     "OA"
+    ],
+    "23": [
+     "EA",
+     "OA"
+    ],
+    "24": [
+     "EA",
+     "OA",
+     "PA",
+     "SA"
+    ],
+    "25": [
+     "EA",
+     "OA",
+     "PA"
+    ]
+   }
+  },
+  "natural_vs_added": {
+   "read_points": [
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21
+   ],
+   "agree": [
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21
+   ]
+  }
+ },
+ "qwen3_8b": {
+  "added": {
+   "n": 85,
+   "accuracy": {
+    "steered_min": 0.41796875,
+    "unsteered_max": 0.76953125
+   },
+   "query_check": 1.0,
+   "gap": [
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26
+   ],
+   "classes": {
+    "15": "either side",
+    "16": "either side",
+    "17": "either side",
+    "18": "either side",
+    "19": "either side",
+    "20": "either side",
+    "21": "either side",
+    "22": "either side",
+    "23": "either side",
+    "24": "either side",
+    "25": "either side",
+    "26": "either side"
+   },
+   "reading": "either side",
+   "counts": {
+    "either side": 12
+   },
+   "ends_sufficient": [
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32
+   ],
+   "necessary_in_gap": {
+    "A": [],
+    "E": [],
+    "F": [],
+    "O": [
+     15,
+     16
+    ],
+    "P": [],
+    "S": []
+   },
+   "minimal_sufficient_in_gap": {
+    "15": [
+     "OA",
+     "OFSPE"
+    ],
+    "16": [
+     "OA",
+     "OFSPE"
+    ],
+    "17": [
+     "OA",
+     "OFSPE"
+    ],
+    "18": [
+     "OA",
+     "OFSPE"
+    ],
+    "19": [
+     "OA",
+     "FSPEA",
+     "OFSPE"
+    ],
+    "20": [
+     "EA",
+     "OA"
+    ],
+    "21": [
+     "EA",
+     "OA"
+    ],
+    "22": [
+     "EA",
+     "OA"
+    ],
+    "23": [
+     "EA",
+     "OA"
+    ],
+    "24": [
+     "EA",
+     "OA"
+    ],
+    "25": [
+     "EA",
+     "OA"
+    ],
+    "26": [
+     "EA",
+     "OA",
+     "PA"
+    ]
+   }
+  },
+  "natural": {
+   "n": 92,
+   "accuracy": {
+    "base": 0.546875,
+    "twin": 0.640625
+   },
+   "query_check": 0.9895652173913043,
+   "gap": [
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26
+   ],
+   "classes": {
+    "15": "either side",
+    "16": "either side",
+    "17": "either side",
+    "18": "either side",
+    "19": "either side",
+    "20": "either side",
+    "21": "either side",
+    "22": "either side",
+    "23": "either side",
+    "24": "either side",
+    "25": "either side",
+    "26": "either side"
+   },
+   "reading": "either side",
+   "counts": {
+    "either side": 12
+   },
+   "ends_sufficient": [
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30,
+    31,
+    32
+   ],
+   "necessary_in_gap": {
+    "A": [
+     24,
+     25,
+     26
+    ],
+    "E": [],
+    "F": [],
+    "O": [
+     15,
+     16
+    ],
+    "P": [],
+    "S": []
+   },
+   "minimal_sufficient_in_gap": {
+    "15": [
+     "OA",
+     "OFSPE"
+    ],
+    "16": [
+     "OA",
+     "OFSPE"
+    ],
+    "17": [
+     "OA",
+     "OFSPE"
+    ],
+    "18": [
+     "OA",
+     "OFSPE"
+    ],
+    "19": [
+     "OA",
+     "OFSPE"
+    ],
+    "20": [
+     "EA",
+     "OFSA"
+    ],
+    "21": [
+     "EA",
+     "OFSA"
+    ],
+    "22": [
+     "EA",
+     "OA"
+    ],
+    "23": [
+     "EA",
+     "OA"
+    ],
+    "24": [
+     "EA",
+     "OA"
+    ],
+    "25": [
+     "EA",
+     "OA"
+    ],
+    "26": [
+     "EA",
+     "OA"
+    ]
+   }
+  },
+  "natural_vs_added": {
+   "read_points": [
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26
+   ],
+   "agree": [
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26
+   ]
+  }
+ }
+}
