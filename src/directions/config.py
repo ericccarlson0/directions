@@ -1345,8 +1345,8 @@ def load_opsteer_config(path: str | Path) -> OpsteerConfig:
 class OpsetConfig:
     """Where the operator sits between its token and the answer token: token-set swaps (docs/DECISIONS.md D59).
 
-    arms             "natural" (D57's operator swap: a base and its twin) and/or "added" (D58's steered runs, the
-                     source the same prompt without the direction)
+    arms             "natural" (D57's operator swap: a base and its twin), "added" (D58's steered runs, the source the
+                     same prompt without the direction) and/or "sums" (D60: the natural bases with D45's both source)
     n_bases          bases per arm (natural: drawn as D57's; added: D58's draws), kept where both runs are answered
     n_dir, n_shots, n_demo_pool, inject_read_point  as in D57 and D58 (the added arm recomputes D58's direction)
     read_points      the read points of the sweep (D59: 8-32)
@@ -1382,14 +1382,15 @@ def load_opset_config(path: str | Path) -> OpsetConfig:
     with open(path) as f:
         data = yaml.safe_load(f) or {}
     cfg = _from_dict(OpsetConfig, data)
-    if not cfg.arms or any(a not in ("natural", "added") for a in cfg.arms) or len(set(cfg.arms)) != len(cfg.arms):
-        raise ValueError("arms must be a non-empty subset of natural, added")
+    if not cfg.arms or any(a not in ("natural", "added", "sums") for a in cfg.arms) or len(set(cfg.arms)) != len(cfg.arms):
+        raise ValueError("arms must be a non-empty subset of natural, added, sums")
     if cfg.n_shots % 2 or cfg.n_shots < 2 or cfg.n_demo_pool < cfg.n_shots:
         raise ValueError("n_shots must be even and positive (half of each operator, D57), n_demo_pool at least n_shots")
     if cfg.n_bases < 2 or cfg.n_dir < 2 or not cfg.read_points or min(cfg.read_points) < 0:
         raise ValueError("n_bases and n_dir must be at least 2, read_points non-empty and non-negative")
-    if "added" in cfg.arms and min(cfg.read_points) <= cfg.inject_read_point:
-        raise ValueError("the added arm's swaps must come after the injection read point")
+    if "added" in cfg.arms and min(cfg.read_points) < cfg.inject_read_point:
+        # at the injection read point itself the swap follows the added vector, so it removes it (bit-exact, tested)
+        raise ValueError("the added arm's swaps must not come before the injection read point")
     if not (0 < cfg.sufficient <= 1 and 0 < cfg.alpha < 1):
         raise ValueError("sufficient in (0, 1], alpha in (0, 1)")
     return cfg

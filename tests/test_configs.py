@@ -698,8 +698,11 @@ def test_opsteer_configs_follow_d58():
     from directions.config import load_opsteer_config
 
     files = sorted(CONFIGS.glob("opsteer_qwen3_*.yaml"))
-    assert [p.name for p in files] == ["opsteer_qwen3_4b.yaml", "opsteer_qwen3_8b.yaml"]
-    c4, c8 = (asdict(load_opsteer_config(p)) for p in files)
+    assert [p.name for p in files] == ["opsteer_qwen3_14b.yaml", "opsteer_qwen3_4b.yaml", "opsteer_qwen3_8b.yaml"]
+    c14, c4, c8 = (asdict(load_opsteer_config(p)) for p in files)
+    # D60: the 14B differs in model and in the injection read point, round(O_out / 2) = 8 from its job-1 map
+    assert dict(c14, model=None, inject_read_point=None) == dict(c8, model=None, inject_read_point=None)
+    assert c14["inject_read_point"] == 8 and c14["model"]["name"] == "Qwen/Qwen3-14B-Base" and c14["model"]["batch_size"] == 128
     assert dict(c4, model=None) == dict(c8, model=None)
     assert c4["inject_read_point"] == 6 and c4["gate"] and c4["n_dir"] == c4["n_bases"] == 256 and c4["max_per_type"] == 64
     for size, c in (("4B", c4), ("8B", c8)):
@@ -716,8 +719,18 @@ def test_opset_configs_follow_d59():
     from directions.config import load_opset_config, load_opsteer_config
 
     files = sorted(CONFIGS.glob("opset_qwen3_*.yaml"))
-    assert [p.name for p in files] == ["opset_qwen3_4b.yaml", "opset_qwen3_8b.yaml"]
-    c4, c8 = (asdict(load_opset_config(p)) for p in files)
+    assert [p.name for p in files] == ["opset_qwen3_14b.yaml", "opset_qwen3_4b.yaml", "opset_qwen3_8b.yaml"]
+    c14, c4, c8 = (asdict(load_opset_config(p)) for p in files)
+    # D60: the 14B differs in model, the injection read point (its D58 file's) and the read points, 8 to L - 4 = 36
+    varying = dict(model=None, inject_read_point=None, read_points=None, arms=None)
+    assert dict(c14, **varying) == dict(c8, **varying) and c14["read_points"] == list(range(8, 37))
+    assert c14["arms"] == ["natural", "added", "sums"]  # D60's sums arm
+    # D60: the sums arm alone on the 4B and 8B, D59's files otherwise
+    for size, c in (("4b", c4), ("8b", c8)):
+        s = asdict(load_opset_config(CONFIGS / f"opset_sums_qwen3_{size}.yaml"))
+        assert s["arms"] == ["sums"] and dict(s, arms=None, name=None) == dict(c, arms=None, name=None)
+    d58 = asdict(load_opsteer_config(CONFIGS / "opsteer_qwen3_14b.yaml"))
+    assert c14["model"] == d58["model"] and c14["inject_read_point"] == d58["inject_read_point"] == 8
     assert dict(c4, model=None) == dict(c8, model=None)
     assert c4["arms"] == ["natural", "added"] and c4["read_points"] == list(range(8, 33)) and c4["sufficient"] == 0.5
     for size, c in (("4b", c4), ("8b", c8)):

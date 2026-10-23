@@ -75,13 +75,14 @@ def test_toy_run(tmp_path):
     root = run_opset(cfg, run_id="smoke")
     r = json.loads((root / "core" / "opset.json").read_text())
     meta = json.loads((root / "metadata.json").read_text())
-    assert set(r["arms"]) == {"natural", "added"} and r["family"] == FAMILY
+    assert set(r["arms"]) == {"natural", "added", "sums"} and r["family"] == FAMILY
     for a in r["arms"].values():
         assert set(a["rates"]) == set(FAMILY) and a["labels"] == TOY and a["n"] == cfg.n_bases
         assert a["query_check"] == 1.0  # the whole query swapped is the source's run
         assert set(a["classes"]) == {str(m) for m in a["gap"]} and set(a["necessity"]) == set(GROUPS)  # JSON keys
     assert "direction" in r["arms"]["added"] and all(meta["identity_check"].values())
-    assert meta["determinism_check"]["swap"]["identical"] and meta["query_check"] == {"natural": 1.0, "added": 1.0}
+    assert meta["determinism_check"]["swap"]["identical"] and meta["query_check"] == {"natural": 1.0, "added": 1.0, "sums": 1.0}
+    assert set(r["arms"]["sums"]["first_mean_half"]) == set(FAMILY)  # D60: the sums' arrival at each set
     arrays = np.load(root / "core" / "opset_arrays.npz")
     assert arrays[f"natural__{QUERY}"].shape == (cfg.n_bases, len(cfg.read_points))
     assert (root / "figures" / "opset.png").exists()
@@ -104,5 +105,5 @@ def test_d59_reading_script(tmp_path, monkeypatch, capsys):
     run_opset(cfg, run_id="opset_qwen3_8b_toy")
     assert d59.main([str(tmp_path), "--out", str(tmp_path / "o.json")]) == 0
     s = json.loads((tmp_path / "o.json").read_text())["qwen3_8b"]
-    assert set(s) == {"natural", "added", "natural_vs_added"} and s["natural"]["query_check"] == 1.0
+    assert set(s) == {"natural", "added", "sums", "natural_vs_added"} and s["natural"]["query_check"] == 1.0
     assert "qwen3_8b natural" in capsys.readouterr().out

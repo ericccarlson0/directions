@@ -66,3 +66,14 @@ def test_toy_run(d60, tmp_path):
     assert d60.main(["--d57", str(tmp_path / "d57"), "--opset", str(tmp_path / "set"), "--out", str(tmp_path / "o.json")]) == 0
     s = json.loads((tmp_path / "o.json").read_text())
     assert set(s["arms"]) == {"natural", "added"} and "take_up" in s["arms"]["natural"]
+    assert set(s["two_site"]["per_model"]) == {"14b"} and s["two_site"]["E+A"]["reading"].startswith("undecided")
+
+
+def test_two_site(d60):
+    base = {"4b": {"T2": 20, "G2": 22, "T1": 22, "G1": 24}, "8b": {"T2": 20, "G2": 22, "T1": 27, "G1": 24}}
+    r = d60.two_site({**base, "14b": {"T2": 27, "G2": 29, "T1": 30, "G1": 32}})
+    assert r["E+A"]["reading"] == "follows the gather" and r["E+A"]["dG"] == 7 and r["E+A"]["dT"] == 7
+    assert d60.two_site({**base, "14b": {"T2": 21, "G2": 29, "T1": 25, "G1": 32}})["E+A"]["reading"] == "fixed depth"
+    assert d60.two_site({**base, "14b": {"T2": 24, "G2": 23, "T1": 25, "G1": 25}})["E+A"]["reading"].startswith("not discriminating")
+    assert d60.two_site({**base, "14b": {"T2": 25, "G2": 30, "T1": 25, "G1": 32}})["E+A"]["reading"] == "neither"
+    assert d60.two_site({**base, "14b": {"T2": None, "G2": 30, "T1": 25, "G1": 32}})["E+A"]["reading"].startswith("undecided")

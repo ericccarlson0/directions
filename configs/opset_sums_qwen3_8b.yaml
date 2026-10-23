@@ -1,0 +1,27 @@
+# D60's sums arm on the Qwen3-8B Base: D59's token-set swaps with the both source (both sums changed, the operator
+# kept), for the sums' arrival at the answer token and = together. D59's file but for the arms (tests/test_configs.py).
+name: opset_sums
+seed: 20260916
+output_dir: results
+
+model:
+  backend: hf
+  name: Qwen/Qwen3-8B-Base
+  dtype: bfloat16          # model execution; swapped states stay in the model's dtype
+  device: cuda             # fail fast rather than fall back to the CPU (docs/INFRA.md)
+  batch_size: 64
+
+arms: [sums]                  # D60: only the both swap (the sums), the arm D59 did not run
+n_bases: 256                  # per arm: natural drawn as D57's (its first 96 are D57's), added as D58's
+n_dir: 256                    # D58's direction, recomputed with D58's seed and draws
+n_shots: 8                    # 4 of each operator (D57)
+n_demo_pool: 96
+inject_read_point: 6          # D58
+read_points: [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+n_boot: 1000
+alpha: 0.05
+sufficient: 0.5               # sufficient: flip lower bound >= 0.5; not sufficient: upper bound < 0.5 (D59)
+gate: true
+identity_check: true
+determinism_check: true
+figures: true

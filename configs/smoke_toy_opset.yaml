@@ -10,7 +10,7 @@ model:
   device: cpu
   batch_size: 64
 
-arms: [natural, added]
+arms: [natural, added, sums]
 n_bases: 5
 n_dir: 8
 n_shots: 2

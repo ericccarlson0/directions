@@ -3883,3 +3883,34 @@ Outcome (runs 39888184099, 39888455166; STATUS.md, "D59"):
   - Seed 20260916, one execution each, on an H100 (ADA_80_PRO, US-CA-2, lane ci-8b).
   - Job 1 is the map and the probe. Job 2 is the opsteer and opset stages, once m_inj is fixed from job 1 and
     recorded here.
+* **Amended after job 1 and before job 2 (2026-10-23; run 40017790556).**
+  - **What job 1 showed.**
+    - The 14B never gathers both sums at the answer token alone on max/min. The both swap there gives the source's
+      answer in 0.32 of the bases at 30 and 0.45 at 38, so G\* is the output (40), and so is the single-token G. On
+      max alone (D55) G\* was 30.
+    - The operator never reaches the answer token alone either: at most 0.42, by 38. It sits partly at `=` (0.25–0.44
+      from 24 to 38).
+    - The answer is shared between the answer token and `=` more strongly on max/min than on max.
+    - O_out is 15. The operator token alone holds the operator at read point 8 (1.00, lower bound 1.00), so
+      m_inj = round(15 / 2) = 8 by the rule.
+  - **The premise of the take-up test fails.** A G\* at the answer token alone below the output is not there on
+    max/min. The test is still computed as preregistered (G\* = 40: its ranges [34, 38] and [18, 22]) and reported
+    with its premise marked failed.
+  - **The test used instead: both arrivals at the same two-token site, `=` and the answer token, on all three
+    models.**
+    - A third arm of D59's token-set swaps, **sums**. The natural arm's bases with D45's both source (both sums
+      changed, the operator kept), the prediction the source's answer, the same 23 sets and read points. It runs
+      on the 14B in job 2, and on the 4B and 8B alone (`configs/opset_sums_qwen3_{4b,8b}.yaml`, read points 8–32 as
+      D59).
+    - G2: the first read point where the both swap at E+A gives the source's answer in at least half the bases (by
+      the mean, as D55's G\*). T2: the first read point where E+A is sufficient for the operator (lower bound at
+      least 0.5, D59's natural arm). Per model, the lag T2 − G2.
+    - ΔG = the 14B's G2 minus the mean of the 4B's and 8B's; ΔT the same for T2.
+      - **not discriminating:** ΔG < 3 (the two-token gathers barely differ);
+      - **follows the gather:** |ΔT − ΔG| ≤ 2;
+      - **fixed depth:** |ΔT| ≤ 2;
+      - **not discriminating** if both hold, **neither** if neither does.
+    - Beside it, the same at the answer token alone (the first read points with a mean of at least 0.5 for the
+      both swap and the operator swap).
+  - Job 2 also gets the sums arm's other sets. Where the sums sit before they meet is D52's question on max/min
+    (exploratory).

@@ -29,7 +29,7 @@ from .opsteer import natural_direction, op_position, sample_opsteer, shown, stee
 from .prompts import Prompt
 from .runinfo import RejectionLog, git_info, setup_logging, write_json
 from .seeds import derive_seed
-from .varmap import bootstrap_rate, render, sample_bases
+from .varmap import DIGITS, bootstrap_rate, prediction, render, sample_bases
 
 GROUPS = ("O", "F", "S", "P", "E", "A")
 GROUP_LABELS = {"O": "operator", "F": "a + b", "S": "c + d", "P": "( , space )", "E": "=", "A": "answer"}
@@ -141,7 +141,7 @@ class OperatorSets:
         arrays: dict[str, np.ndarray] = {}
         for arm in cfg.arms:
             t0 = time.time()
-            setup = self._natural() if arm == "natural" else self._added()
+            setup = {"natural": self._natural, "added": self._added, "sums": self._sums}[arm]()
             res, arr = self._sweep(arm, setup)
             result["arms"][arm] = res
             arrays.update({f"{arm}__{k}": v for k, v in arr.items()})
@@ -192,6 +192,28 @@ class OperatorSets:
                              "twin": float((src_am == tid[[t.Y for t in twins]])[keep].mean())},
                 "examples": [b.text() for b in bases]}
 
+    def _sums(self) -> dict[str, Any]:
+        """D60's sums arm: the natural arm's bases with D45's both source (both sums changed, the operator kept); the
+        prediction is the source's answer. Where the sums reach each set, the two-token gather among them."""
+        cfg, backend, tid = self.cfg, self.backend, self.tid
+        bases, sources, demos, info = sample_bases(cfg.seed, "maxmin", cfg.n_bases, cfg.n_shots, cfg.n_demo_pool, self.rejections)
+        self.metadata.setdefault("sampling", {})["sums"] = info
+        srcs = [s["both"] for s in sources]
+        base_prompts = [render(demos[i], b) for i, b in enumerate(bases)]
+        src_prompts = [render(demos[i], t) for i, t in enumerate(srcs)]
+        positions, keep, labels = self._align(base_prompts, bases, src_prompts, srcs, differ="digits")
+        base_am = backend.run(base_prompts, token_ids=tid).query_argmax
+        src_am = backend.run(src_prompts, token_ids=tid).query_argmax
+        ok = keep & (base_am == tid[[b.Y for b in bases]]) & (src_am == tid[[t.Y for t in srcs]])
+        rows = np.flatnonzero(ok if cfg.gate else keep)
+        self.log.info("sums: %d bases, %d aligned, %d with base and source answered", len(bases), int(keep.sum()), int(ok.sum()))
+        return {"rows": rows, "base_prompts": base_prompts, "src_prompts": src_prompts, "positions": positions,
+                "labels": labels, "pred": np.array([prediction("both", b, t) for b, t in zip(bases, srcs)]),
+                "base_am": base_am, "steer": None,
+                "accuracy": {"base": float((base_am == tid[[b.Y for b in bases]])[keep].mean()),
+                             "source": float((src_am == tid[[t.Y for t in srcs]])[keep].mean())},
+                "examples": [b.text() for b in bases]}
+
     def _added(self) -> dict[str, Any]:
         """D58's steered runs: min expressions shown as max, v[m_inj] added at the operator token; the source is the
         same prompt without the direction (D58's draws and direction, recomputed)."""
@@ -224,7 +246,8 @@ class OperatorSets:
     def _align(self, base_prompts: list[Prompt], bases: list, src_prompts: list[Prompt], srcs: list, differ: str | None
                ) -> tuple[np.ndarray, np.ndarray, list[str]]:
         """Query positions per base; a base is kept when its source has the same positions and the same tokens but
-        at the operator (``differ`` "op") or everywhere (``differ`` None: the same prompt)."""
+        at the operator (``differ`` "op"), at the digits (``differ`` "digits") or everywhere (``differ`` None: the same
+        prompt)."""
         _, pos0, _, labels = op_position(self.backend, base_prompts[0], bases[0])
         P = len(pos0)
         positions = np.zeros((len(bases), P), dtype=np.int64)
@@ -233,7 +256,8 @@ class OperatorSets:
             _, pos, ids, lab = op_position(self.backend, base_prompts[i], bases[i])
             _, spos, sids, _ = op_position(self.backend, src_prompts[i], srcs[i])
             same = len(pos) == P and lab == labels and spos == pos and all(
-                x == y for x, y, la in zip(ids, sids, labels) if not (differ == "op" and la == "op"))
+                x == y for x, y, la in zip(ids, sids, labels)
+                if not ((differ == "op" and la == "op") or (differ == "digits" and la in DIGITS)))
             if same:
                 positions[i], keep[i] = pos, True
             else:
@@ -319,6 +343,10 @@ class OperatorSets:
         self.metadata.setdefault("query_check", {})[arm] = query_check
         log.info("%s: the whole query swapped gives the source's answer on %.4f of the swaps", arm, query_check)
         read = readings(rates, read_points, cfg.sufficient)
+        # D60: where each set first reaches the prediction in half the bases (by the mean); for the sums arm, the
+        # gather at the answer token (A) and at the answer token and = together (EA)
+        read["first_mean_half"] = {k: next((int(m) for m, x in zip(read_points, r["flip"]["mean"]) if x >= 0.5), None)
+                                   for k, r in rates.items()}
         log.info("%s: gap %s; classes %s; reading %s; O+A sufficient at %s", arm, read["gap"], read["classes"], read["reading"],
                  read["ends_sufficient"])
         return {**out, "rates": rates, **read, "query_check": query_check, "examples": [s["examples"][i] for i in rows]}, arrays
