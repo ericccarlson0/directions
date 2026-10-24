@@ -6,8 +6,9 @@ overview figures draw and the landmarks and DAS cells the entries already record
 `scripts/overview_figures.py` runs from git alone:
 
 - the arithmetic line (D45-D54): `(a+b) - (c+d)` (two-lane) and `(a+b) - (c+d) - (e+f)` (three-lane): the D45/D51
-  map at the answer token and at the digit tokens, the D46/D51 probe and lens at the answer token, the D47 block
-  split, the DAS cells of D48-D51 and D54 (D53 as its comparison), and D52's token sets;
+  map at every query token (the change rates of the bracket swaps and their same-sum twins) and its answer-token and
+  digit-token curves, the D46/D51 probe and lens at the answer token, the D47 block split, the DAS cells of D48-D51
+  and D54 (D53 as its comparison), and D52's token sets;
 - the max/min line (D55-D60): the D55 max map and probe, the DAS cells of D55 and D56, the D57 operator map, the D58
   switch curve, and the D59/D60 token-set swaps (natural, added and sums arms).
 
@@ -68,7 +69,6 @@ OPERATOR = {"qwen3_4b": {"map": "run-39623460598/varmap_maxmin_qwen3_4b_seed2026
                           "opsteer": "run-40022343637/opsteer_qwen3_14b_seed20260916",
                           "opset": "run-40022343637/opset_qwen3_14b_seed20260916",
                           "sums": "run-40022343637/opset_qwen3_14b_seed20260916"}}
-OPSET_SETS = ("O", "F", "S", "P", "E", "A", "OA", "EA", "FS", "PE", "FSPE", "OPEA", "OFSA", "PA", "SA", "FA")
 BRACKETS = {"two_lane": ("S1", "S2"), "three_lane": ("S1", "S2", "S3"), "max": ("S1", "S2"), "maxmin": ("S1", "S2")}
 DIGIT_LABELS = {"S1": ("a", "b"), "S2": ("c", "d"), "S3": ("e", "f")}
 
@@ -107,6 +107,10 @@ def map_curves(task_dir: Path, task: str) -> dict:
             out["eq"][k] = column(rates[k]["flip"], eq)
     if "op" in rates:
         out["op_token"] = column(rates["op"]["flip"], labels.index("op"))
+    if task in ("two_lane", "three_lane"):
+        # every query token: how often the answer changes when that token's state comes from a source whose bracket
+        # sum differs (S_b), and from one whose digits differ with the sum kept (S_b_same)
+        out["change"] = {k: np.asarray(rates[k]["change"]["mean"]) for b in BRACKETS[task] for k in (b, f"{b}_same")}
     digits = [j for j, lab in enumerate(labels) if lab in "abcdef" and len(lab) == 1]
     for b in BRACKETS[task]:
         same = f"{b}_same"
@@ -215,7 +219,8 @@ def column_set(rate: dict) -> dict:
 
 
 def opset_arm(arm: dict) -> dict:
-    return {"n": arm["n"], "rates": {k: column_set(arm["rates"][k]["flip"]) for k in OPSET_SETS if k in arm["rates"]}}
+    """Every set of D59's family: the flip rate (mean and 95% interval) per read point."""
+    return {"n": arm["n"], "rates": {k: column_set(v["flip"]) for k, v in arm["rates"].items()}}
 
 
 def maxmin(root: Path) -> dict:

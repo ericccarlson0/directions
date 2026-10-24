@@ -5898,6 +5898,26 @@ summaries and the STATUS tables: the gathers, the operator landmarks, the D59/D6
   subspace at 0.7 or more (D48's amendment; held Y cells read as the joint code reach at most 0.60, those read as
   Y at least 0.71).
 
+Two token × depth views follow the same data (same commands, same test file), with query tokens across and relative
+depth upward:
+
+- `docs/overview/arith_tokens.png`: every query token at every read point of the D45/D51 maps. Each column has a
+  stripe per bracket, showing how often a whole-state swap of that token alone changes the answer. The stripe is
+  split into a digit part (the same-sum swap's change rate) and a value part (the sum-changing swap's rate beyond
+  that). Beside it is what DAS finds at the answer token. The digits sit at their own tokens up to G, then
+  everything collapses into the answer token as values. Visible details: the 8B's subtrahend reaches the answer
+  token two blocks early, the answer token mixes digits just before G, and the 14B's `=` takes part of the answer
+  after G.
+- `docs/overview/maxmin_tokens.png`: the six token groups of D59 (operator, a + b, c + d, the brackets/comma/space,
+  `=`, the answer position) at read points 8 to L − 4. Each group's share of the operator's (natural arm) and the
+  sums' (sums arm) set-swap effects is plotted. The share is the mean of the group's sufficiency (swapped alone) and
+  its necessity (lost when every other group is swapped), which is the Shapley value when two groups carry the
+  effect (`group_shares`, tested on known games). A last column holds what no single group carries, v(all) minus
+  the shares: one of several sets of three or more groups suffices. Shares sum to 0.74–1.05.
+  - The operator moves from its token to the answer position (4B, 8B) or to `=` and the answer position (14B, about
+    0.5 and 0.4). It passes through a hand-off where it is held jointly and partly redundantly.
+  - The sums sit half and half at `a + b` and `c + d` until they gather there. Descriptive, not a readout.
+
 ## Not yet run / known limitations
 
 - The variable map (D45) has run once per model (Qwen3 0.6B, 1.7B, 4B Base; seed 20260916) on two expression tasks

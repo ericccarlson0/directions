@@ -13,7 +13,13 @@ and 8B have 36 blocks, the 14B 40, and their landmarks line up by fraction rathe
 - `maxmin_route.png`  (B1) max/min, D55-D60, as a route map: the operator (the control) and the two sums (the
   computation) travelling through the query's token groups until they meet at `=` and the answer position;
 - `maxmin_panels.png` (B2) the same line as evidence panels: the token-set swaps of the operator and of the sums,
-  the direction's switch curve, and the max DAS (D55 -> D56) in the Cause-Isolate plane.
+  the direction's switch curve, and the max DAS (D55 -> D56) in the Cause-Isolate plane;
+- `arith_tokens.png` the arithmetic line as a token x depth view: at every query token and read point, how often a
+  whole-state swap of that token alone changes the answer, split per bracket into the part its digits carry and the
+  part its value carries (D45, D51), beside what DAS finds at the answer token;
+- `maxmin_tokens.png` the max/min line as a token-group x depth view: each group's share of the operator's and the
+  sums' set-swap effects (D59, D60; `group_shares`), with what no single group carries, beside D55's DAS at the
+  answer token.
 
 Every mark is a recorded reading: sufficiency and presence use the entries' lower-bound rules, held variables are
 the DAS summaries' own `held` sets, and the landmarks are the summaries' values (labelled `read point/L`).
@@ -36,6 +42,7 @@ JOINT = "#b9b7ae"  # the answer token's joint code: no sum separable, Y not yet 
 VAR = {"S1": BLUE, "S2": ORANGE, "S3": AQUA, "Y": INK, "T": MUTED, "U": MUTED}
 MODELS = ("qwen3_4b", "qwen3_8b", "qwen3_14b")
 SIZE = {"qwen3_4b": "4B", "qwen3_8b": "8B", "qwen3_14b": "14B"}
+TASK = {"two_lane": "(a+b) − (c+d) =", "three_lane": "(a+b) − (c+d) − (e+f) ="}
 DASH = (0, (4, 2.2))  # three brackets; the added direction
 DEPTH = "relative depth (read point / L)"
 # Y decodes from its held subspace: D48's amendment reads "Y held" as Y itself only where it does (two brackets reach
@@ -965,8 +972,253 @@ def das_key(ax) -> None:
             fontsize=7.8, color=INK2, va="center")
 
 
+# ----------------------------------------------------------------------------------------------------------------
+# Token x depth: where each variable's information sits, token by token, through the network
+
+GROUPS = ("O", "F", "S", "P", "E", "A")
+ALL_BUT = {"O": "FSPEA", "F": "OSPEA", "S": "OFPEA", "P": "OFSEA", "E": "OFSPA", "A": "OFSPE"}
+GROUP_LABELS = {"O": "max/min", "F": "a + b", "S": "c + d", "P": "( , )", "E": "=", "A": "answer", "R": "3+\ngroups"}
+
+
+def group_shares(rates: dict) -> tuple[dict, np.ndarray]:
+    """Each token group's share of a set-swap effect, per read point: the mean of what swapping the group alone does
+    (sufficiency, v({g})) and what is lost when every group but it is swapped (necessity, v(all) - v(all but g)).
+    With two groups carrying the effect this is their Shapley value. Also the remainder v(all) - the sum of the
+    shares: positive where one of several sets of three or more groups suffices (redundancy no pair resolves)."""
+    full = np.asarray(rates["OFSPEA"]["mean"], dtype=float)
+    shares = {g: (np.asarray(rates[g]["mean"], dtype=float) + full - np.asarray(rates[ALL_BUT[g]]["mean"], dtype=float))
+              / 2 for g in GROUPS}
+    return shares, full - np.sum(list(shares.values()), axis=0)
+
+
+def _rgba(color: str, a) -> np.ndarray:
+    from matplotlib.colors import to_rgb
+
+    a = np.clip(np.asarray(a, dtype=float), 0, 1)
+    return np.column_stack([np.tile(to_rgb(color), (len(a), 1)), a])
+
+
+def cell_layer(ax, x0, w, yc, h, color, alpha, hatch=False):
+    """Rectangles (x0, yc - h/2, w, h), filled with `color` at the given opacities; hatched cells get a pale fill and
+    three diagonal strokes instead."""
+    from matplotlib.collections import LineCollection, PolyCollection
+
+    x0, yc, alpha = np.broadcast_arrays(np.asarray(x0, float), np.asarray(yc, float), np.asarray(alpha, float))
+    keep = alpha > 0.02
+    x0, yc, alpha = x0[keep], yc[keep], alpha[keep]
+    if not len(x0):
+        return
+    y0 = yc - h / 2
+    rects = np.stack([np.column_stack([x0, y0]), np.column_stack([x0 + w, y0]), np.column_stack([x0 + w, y0 + h]),
+                      np.column_stack([x0, y0 + h])], axis=1)
+    if not hatch:
+        ax.add_collection(PolyCollection(rects, facecolors=_rgba(color, alpha), edgecolors="none", zorder=2))
+        return
+    ax.add_collection(PolyCollection(rects, facecolors=_rgba(color, 0.22 * alpha), edgecolors="none", zorder=2))
+    segs = []
+    for xa, ya in zip(x0, y0):
+        segs += [[(xa, ya + h / 2), (xa + w / 2, ya + h)], [(xa, ya), (xa + w, ya + h)],
+                 [(xa + w / 2, ya), (xa + w, ya + h / 2)]]
+    ax.add_collection(LineCollection(segs, colors=_rgba(color, np.repeat(alpha, 3)), linewidths=0.7, zorder=2.5))
+
+
+def answer_strip(ax, d: dict, L: int, G: int, F: int | None, brackets=("S1", "S2"), extra=None, x0=0.0):
+    """What DAS finds at the answer token, along the same depth: the joint code (gray) or Y as its own variable (ink)
+    between DAS sites, held sums as dots beside the bar, the control as a cross, F as a triangle. The strip occupies
+    x0..1 of its axes."""
+    f = 1.0 / L
+    ax.set_xlim(-x0 / (1 - x0) if x0 else 0, 1)
+    ax.axis("off")
+    sites = sorted(int(s) for s in d["sites"])
+    post = [s for s in sites if s >= G]
+    for s, nxt in zip(post, post[1:] + [None]):
+        c = d["sites"][str(s)].get("Y")
+        y_held = bool(c and c["held"])
+        own = y_held and (c.get("dec") or 0) >= Y_DECODES
+        col = INK if own else JOINT
+        if nxt is None:
+            ax.plot([0.5, 0.5], [s * f, 1.0], color=col, lw=2.2, ls=(0, (0.1, 2.2)), dash_capstyle="round")
+        else:
+            ax.plot([0.5, 0.5], [s * f, nxt * f], color=col, lw=5, solid_capstyle="butt")
+        if y_held:
+            ax.plot(0.5, s * f, "o", ms=6, mfc=INK if own else SURFACE, mec=INK, mew=1.4, zorder=5)
+        for j, b in enumerate(brackets):
+            cb = d["sites"][str(s)].get(b)
+            if cb and cb["held"]:
+                x = 0.16 if j == 0 else 0.84
+                ax.plot(x, s * f, "o", ms=7, mfc=SURFACE if "extension" in cb.get("source", "") else VAR[b],
+                        mec=VAR[b], mew=1.8, zorder=5)
+        ax.plot([0.38, 0.62], [s * f] * 2, color=INK2, lw=0.8, zorder=4)
+    ax.plot(0.5, d["control"] * f, marker="x", ms=5, mew=1.2, color=MUTED)
+    if F is not None:
+        ax.plot(0.88, F * f, marker="<", ms=6, color=INK)
+    if extra:
+        extra(ax)
+
+
+def token_axes(ax, labels, L_max, title=None, left=True):
+    ax.set_xlim(0, len(labels))
+    ax.set_ylim(-0.5 / L_max, 1 + 0.5 / L_max)
+    ax.set_xticks(np.arange(len(labels)) + 0.5)
+    ax.set_xticklabels(labels, fontsize=8.5)
+    ax.tick_params(axis="x", length=0)
+    for x in range(1, len(labels)):
+        ax.axvline(x, color=GRID, lw=0.5, zorder=0)
+    ax.set_yticks([0, 0.25, 0.5, 0.75, 1])
+    if left:
+        ax.set_ylabel(DEPTH + "\n← embedding · output →", fontsize=8)
+    else:
+        ax.set_yticklabels([])
+    ax.spines["bottom"].set_visible(False)
+    if title:
+        ax.set_title(title, fontsize=10)
+
+
+def fig_arith_tokens(data: dict, path: Path) -> None:
+    plt = style()
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
+
+    rows = {(r["task"], r["model"]): r for r in data["arith"]["rows"]}
+    das = data["arith"]["das"]
+    fig = plt.figure(figsize=(16.5, 15.5))
+    outer = fig.add_gridspec(2, 3, left=0.06, right=0.99, top=0.885, bottom=0.08, hspace=0.18, wspace=0.12)
+    for ti, task in enumerate(("two_lane", "three_lane")):
+        for mi, m in enumerate(MODELS):
+            r = rows[(task, m)]
+            L, G = r["L"], r["G"]
+            f = 1.0 / L
+            g = outer[ti, mi].subgridspec(1, 2, width_ratios=[1, 0.13], wspace=0.04)
+            ax, ax_s = fig.add_subplot(g[0]), fig.add_subplot(g[1])
+            labels = [lab.strip() or lab for lab in r["map"]["labels"]]
+            labels = ["−" if lab == "-" else "ans" if lab == "␣" else lab for lab in labels]
+            token_axes(ax, labels, 36, title=f"Qwen3-{SIZE[m]} Base   ·   {TASK[task]}", left=mi == 0)
+            ax_s.set_ylim(ax.get_ylim())
+            brackets = ("S1", "S2", "S3") if task == "three_lane" else ("S1", "S2")
+            k = len(brackets)
+            w = 0.86 / k
+            ch = r["map"]["change"]
+            mm_, tt = np.meshgrid(np.arange(L + 1), np.arange(len(labels)), indexing="ij")
+            for j, b in enumerate(brackets):
+                change = np.clip(np.asarray(ch[b], dtype=float), 0, 1)
+                same = np.clip(np.asarray(ch[f"{b}_same"], dtype=float), 0, 1)
+                digits = np.minimum(same, change)
+                value = np.clip(change - same, 0, 1)
+                x0 = tt + 0.07 + j * w
+                cell_layer(ax, x0.ravel(), w, (mm_ * f).ravel(), f, VAR[b], digits.ravel(), hatch=True)
+                cell_layer(ax, x0.ravel(), w, (mm_ * f).ravel(), f, VAR[b], value.ravel())
+            ax.axhline((G - 0.5) * f, color=INK, lw=0.9, zorder=3)
+            ax.text(0.05, (G - 0.5) * f + 0.006, f"G {G}/{L}", fontsize=7.5, color=INK, va="bottom",
+                    fontweight="semibold", bbox=dict(fc=SURFACE, ec="none", pad=0.5, alpha=0.85), zorder=6)
+            ax.axhspan(1 + 0.5 * f, 1 + 0.5 / 36, color=SURFACE, zorder=4)  # the 36-block models end below the 14B
+            answer_strip(ax_s, das[task][m], L, G, r.get("F"), brackets=brackets[:2])
+            if ti == 0:
+                ax_s.set_title("answer\ntoken (DAS)", fontsize=8, color=INK2)
+    fig.text(0.06, 0.957, "Addition and subtraction: where each bracket's information sits, token by token, "
+             "through depth", fontsize=14, fontweight="semibold", color=INK)
+    fig.text(0.06, 0.935, "Qwen3 4B, 8B and 14B Base, seed 20260916. Each cell is one query token at one read point: "
+             "its whole state swapped alone between a base and a source (D45, D51), the share of bases whose answer "
+             "changes.\nEach column has one stripe per bracket. Hatched: the bracket's digits (a source with the same "
+             "sum and other digits changes the answer). Solid: its value (the answer changes with the sum beyond "
+             "that).", fontsize=9.5, color=INK2, va="top", linespacing=1.45)
+    leg = [Patch(fc=_rgba(VAR[b], [0.22])[0], ec="none", hatch="///", label=f"{b} as digits", edgecolor=VAR[b])
+           for b in ("S1", "S2", "S3")]
+    leg += [Patch(color=VAR[b], label=f"{b} as a value") for b in ("S1", "S2", "S3")]
+    leg += [Line2D([], [], color=JOINT, lw=5, label="answer token: joint code (no sum separable)"),
+            Line2D([], [], color=INK, lw=5, label="answer token: Y held as its own variable"),
+            Line2D([], [], marker="o", ls="", mfc=SURFACE, mec=INK, mew=1.4, ms=6,
+                   label="Y test passed, Y does not decode (joint code)"),
+            Line2D([], [], marker="o", ls="", mfc=BLUE, mec=BLUE, ms=7, label="a sum held separately (ring: exploratory)"),
+            Line2D([], [], color=INK2, lw=0.8, marker="|", ms=8, ls="", label="DAS site   × control"),
+            Line2D([], [], marker="<", ls="", color=INK, ms=6, label="Y probe at 0.9 of its final accuracy")]
+    fig.legend(handles=leg, loc="lower left", bbox_to_anchor=(0.06, 0.005), ncol=6, fontsize=8, handlelength=2.2,
+               columnspacing=1.5)
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
+def fig_maxmin_tokens(data: dict, path: Path) -> None:
+    plt = style()
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
+
+    mm = data["maxmin"]
+    cols = list(GROUPS) + ["R"]
+    fig = plt.figure(figsize=(16.5, 9.4))
+    outer = fig.add_gridspec(1, 3, left=0.06, right=0.985, top=0.78, bottom=0.17, wspace=0.08)
+    for mi, m in enumerate(MODELS):
+        o = mm["operator"][m]
+        L, lm, ts, c = o["L"], o["landmarks"], o["two_site"], o["curve"]
+        f = 1.0 / L
+        g = outer[mi].subgridspec(1, 2, width_ratios=[1, 0.34], wspace=0.02)
+        ax, ax_s = fig.add_subplot(g[0]), fig.add_subplot(g[1])
+        token_axes(ax, [GROUP_LABELS[q] for q in cols], 36, title=f"Qwen3-{SIZE[m]} Base   (L = {L})", left=mi == 0)
+        ax_s.set_ylim(ax.get_ylim())
+        rp = np.asarray(o["opset"]["read_points"])
+        w = 0.43
+        for j, (arm, col) in enumerate((("natural", ORANGE), ("sums", BLUE))):
+            shares, rem = group_shares(o["opset"][arm]["rates"])
+            for i, q in enumerate(cols):
+                v = rem if q == "R" else shares[q]
+                cell_layer(ax, i + 0.07 + j * w, w, rp * f, f, col, np.clip(v, 0, 1))
+        # before the set swaps: the operator token alone (D58's twin swap); outside the sweep nothing is measured
+        cr = np.asarray(c["read_points"])
+        early = cr < rp[0]
+        cell_layer(ax, 0.07, w, cr[early] * f, f, ORANGE, np.asarray(c["arms"]["swap"]["mean"])[early])
+        for y0, y1 in (((-0.5) * f, (rp[0] - 0.5) * f), ((rp[-1] + 0.5) * f, (L + 0.5) * f)):
+            ax.fill_between([0.07 + w if y0 < 0 else 0, len(cols)], y0, y1, color="#f1f0ec", lw=0, zorder=1)
+        ax.axhspan(1 + 0.5 * f, 1 + 0.5 / 36, color=SURFACE, zorder=4)
+        ax.axvline(len(GROUPS), color=AXIS, lw=0.8, zorder=0)
+        # landmarks, in the gutter beside the grid: the operator leaves its token (O_out) and reaches `=` + answer
+        # (T2); the sums reach `=` + answer (G2)
+        for y, lab, colr in ((lm["O_out"], f"O_out {lm['O_out']}/{L}", ORANGE), (ts["T2"], f"T2 {ts['T2']}/{L}", ORANGE),
+                             (ts["G2"], f"G2 {ts['G2']}/{L}", BLUE)):
+            ax_s.plot([-0.62, -0.5], [y * f] * 2, color=colr, lw=2, solid_capstyle="butt")
+            ax_s.text(-0.46, y * f, lab, fontsize=7.5, color=INK, va="center")
+
+        def comparison(axs, m=m, L=L):
+            d55 = mm["d55"]["qwen3_14b/shared" if m == "qwen3_14b" else f"{m}/answer"]
+            for s_, site in d55["sites"].items():
+                cause = site["variables"]["C"]["fit"]["cause"]
+                axs.plot(0.86, int(s_) / L, marker="D", ms=6, mfc=_rgba(MAGENTA, [cause])[0], mec=MAGENTA, mew=1)
+
+        d55 = mm["d55"]["qwen3_14b/shared" if m == "qwen3_14b" else f"{m}/answer"]
+        strip = {"control": d55["control_site"],
+                 "sites": {s_: {"Y": {"held": "Y" in site["held"], "dec": site["variables"]["Y"]["fit"]["decodability"]}}
+                           for s_, site in d55["sites"].items()}}
+        mx = mm["max"][m]
+        G55 = mx.get("G_star", mx["G"])
+        answer_strip(ax_s, strip, L, G55, None, brackets=(), extra=comparison, x0=0.38)
+        ax_s.text(0.5, 1.035, "answer token,\nmax alone (D55)", fontsize=8, color=INK2, ha="center", va="bottom",
+                  transform=ax_s.get_xaxis_transform())
+    fig.text(0.06, 0.95, "Max and min: where the operator and the sums sit, token group by token group, through depth",
+             fontsize=14, fontweight="semibold", color=INK)
+    fig.text(0.06, 0.927, "Qwen3 4B, 8B and 14B Base, seed 20260916. Each cell is one token group at one read point: its "
+             "share of a set swap's effect (D59, D60), the mean of what swapping the group alone does and what is lost "
+             "when every\ngroup but it is swapped (with two groups involved, their Shapley value). Orange: the operator "
+             "(the twin's state switches max ↔ min). Blue: the two sums (a source with both sums changed gives its "
+             "answer).\nLast column: what no single group carries (one of several sets of three or more groups "
+             "suffices). Gray: read points the set swaps did not cover; below read point 8 the operator stripe is D58's "
+             "twin swap\nat the operator token alone. ( , ): the brackets, the comma and the space.", fontsize=9.5,
+             color=INK2, va="top", linespacing=1.45)
+    leg = [Patch(color=ORANGE, label="the operator's share"), Patch(color=BLUE, label="the sums' share"),
+           Patch(color="#f1f0ec", label="not covered by the set swaps"),
+           Line2D([], [], color=JOINT, lw=5, label="answer token (max alone): nothing separable"),
+           Line2D([], [], color=INK, lw=5, label="answer token: Y held as its own variable"),
+           Line2D([], [], marker="o", ls="", mfc=SURFACE, mec=INK, mew=1.4, ms=6,
+                  label="Y test passed, Y does not decode"),
+           Line2D([], [], marker="D", ls="", mfc=_rgba(MAGENTA, [0.6])[0], mec=MAGENTA, ms=6,
+                  label="C, the comparison: never held (fill: its Cause)"),
+           Line2D([], [], color=INK2, lw=0.8, marker="|", ms=8, ls="", label="DAS site   × control")]
+    fig.legend(handles=leg, loc="lower left", bbox_to_anchor=(0.06, 0.01), ncol=4, fontsize=8, handlelength=2.2,
+               columnspacing=1.6)
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
 FIGURES = {"arith_route.png": fig_arith_route, "arith_panels.png": fig_arith_panels,
-           "maxmin_route.png": fig_maxmin_route, "maxmin_panels.png": fig_maxmin_panels}
+           "maxmin_route.png": fig_maxmin_route, "maxmin_panels.png": fig_maxmin_panels,
+           "arith_tokens.png": fig_arith_tokens, "maxmin_tokens.png": fig_maxmin_tokens}
 
 
 def main(argv: list[str] | None = None) -> int:

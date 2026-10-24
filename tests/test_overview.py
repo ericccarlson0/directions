@@ -86,3 +86,21 @@ def test_every_figure_renders(tmp_path):
     assert figs.main([str(ROOT / "docs/overview/data.json"), "--out", str(tmp_path)]) == 0
     for name in figs.FIGURES:
         assert (tmp_path / name).stat().st_size > 50_000
+
+
+def _game(v):
+    """Rates for D59's set family from a characteristic function v(set of group letters)."""
+    names = ["O", "F", "S", "P", "E", "A", "FSPEA", "OSPEA", "OFPEA", "OFSEA", "OFSPA", "OFSPE", "OFSPEA"]
+    return {n: {"mean": [float(v(set(n)))]} for n in names}
+
+
+def test_group_shares_on_known_games():
+    figs = _load("overview_figures")
+    one = figs.group_shares(_game(lambda s: "O" in s))
+    assert one[0]["O"][0] == 1 and sum(one[0][g][0] for g in "FSPEA") == 0 and one[1][0] == 0
+    pair = figs.group_shares(_game(lambda s: {"O", "A"} <= s))  # held jointly: neither alone, both needed
+    assert pair[0]["O"][0] == pair[0]["A"][0] == 0.5 and pair[1][0] == 0
+    copies = figs.group_shares(_game(lambda s: bool({"O", "A"} & s)))  # redundant copies: either suffices
+    assert copies[0]["O"][0] == copies[0]["A"][0] == 0.5 and copies[1][0] == 0
+    vote = figs.group_shares(_game(lambda s: len({"O", "A", "E"} & s) >= 2))  # any two of three: no single share
+    assert all(vote[0][g][0] == 0 for g in "OAE") and vote[1][0] == 1
