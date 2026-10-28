@@ -3993,3 +3993,35 @@ Outcome (runs 39888184099, 39888455166; STATUS.md, "D59"):
     depths by 2 to 3 read points.
   - 1024 bases are drawn on all three models; the draw's first 256 are the original ones. That is about 180 kept on
     the 8B, and fewer on the 4B, whose few-shot accuracy on max/min is lower. Nothing else changes.
+* **Outcome (runs 40719653860, 40722778559, 40722748035; STATUS.md, "D61"; the cancelled 256-base request
+  40718734116 produced no result).**
+  - Checks on all three models, all three pairs:
+    - the additive state equals the joint state at read point 0 on every base;
+    - the joint patch gives 11's answer on at least 0.98 of the bases at every read point;
+    - the identity check and the determinism check pass.
+  - Conversion depths (K_OS, K_S1S2, K_OD): 4B 30, 27, none; 8B 28, 27, none; 14B 32, 31, none.
+  - The reading: **where the operands are combined** on the 8B and 14B (|K_OS − K_S1S2| = 1); **later than the
+    operands** on the 4B (K_OS − K_S1S2 = 3, the rule's threshold). The null is clear on all three (K_OD none).
+  - Localization (K_OS ± 2): the answer token on all three.
+    - On the 4B and 8B the additive state at the answer token alone, the rest joint, gives 11's answer on 0.42–0.58
+      of the bases; every other group gives 0.93 or more.
+    - On the 14B it gives 0.74–0.76, `=` 0.79–0.84, every other group 0.99 or more. The answer token is lowest
+      there by 0.05, and neither token alone reproduces the full patch's 0.43 at 32.
+  - What qualifies the reading (not preregistered):
+    - The two curves decline gradually and together. The O × S and S1 × S2 shares fall over read points 22–34
+      (26–38 on the 14B). They are never more than 0.12 (8B), 0.16 (14B) and 0.17 (4B) apart, with a mean gap of
+      0.04–0.08 from read point 20 on. A K is a threshold crossing of these curves, not a sharp transition. The
+      4B's "later" is O × S lying 0.10–0.17 above S1 × S2 over read points 25–31. The intervals overlap at the
+      crossing, and the bases differ between the pairs, so the gap is not a paired comparison.
+    - **The null dips without failing.** The O × D share falls to a minimum at the depth where the sums reach
+      `=` + answer (D60's G2):
+      - 4B: 0.76 at 24 (G2 24);
+      - 8B: 0.62 at 24 (G2 24);
+      - 14B: 0.57 [0.52, 0.62] at 30 (G2 29).
+      The failed patches give mostly "other" answers. On the 4B and 8B the null has recovered (0.83–0.93) by
+      K_OS. On the 14B it is still 0.65 at K_OS = 32, against O × S's 0.43. Part of the 14B's O × S failure may
+      be the sum of states leaving the model's distribution there, not only the combination. The rule (K_OD at
+      most K_OS + 2) does not trigger, because the null never fails.
+    - The order of D60's landmarks holds on all three models: the operator reaches `=` + answer (T2 20, 20, 23),
+      the sums reach it (G2 24, 24, 29), and then the additive patch fails (K_OS 30, 28, 32). In fractions of the
+      stack, K_OS is 0.83, 0.78 and 0.80, and K_S1S2 is 0.75, 0.75 and 0.78.

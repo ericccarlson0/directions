@@ -5918,6 +5918,105 @@ depth upward:
     0.5 and 0.4). It passes through a hand-off where it is held jointly and partly redundantly.
   - The sums sit half and half at `a + b` and `c + d` until they gather there. Descriptive, not a readout.
 
+### D61: where the operator is combined with the operands: the additivity test (Qwen3 4B, 8B, 14B Base, max/min, seed 20260916)
+
+```
+# workflow runs; 5.24 USD in all (balance 37.95 -> 32.71)
+#   40718734116: request d61_interact_qwen3_8b_seed20260916 (256 bases), commit cc6a056, ci-b; cancelled after the
+#     first gate line (45 of 256 bases kept), before any patch result; D61 amended to 1024 bases
+#   40719653860: request d61_interact_qwen3_8b_seed20260916_b1024, commit 9cc16a3, RTX 4090, EUR-NO-1, ci-b; 54 min
+#   40722778559: request d61_interact_qwen3_4b_seed20260916_b1024, commit b937853, RTX 4090, EUR-NO-1, ci; 30 min
+#   40722748035: request d61_interact_qwen3_14b_seed20260916_b1024, commit 6d74ae1, H100 80GB HBM3 (ADA_80_PRO),
+#     US-CA-2, ci-8b; 45 min
+# identity and determinism checks identical; additive = joint at read point 0 on every base of every pair; the joint
+# patch gives 11's answer on >= 0.98 of the bases at every read point; peak memory 11.5 / 17.7 / 33.1 GiB
+uv run python scripts/stages.py 'uv run directions interact --config configs/interact_qwen3_8b.yaml --run-id interact_qwen3_8b_seed20260916'
+# likewise the 4B (configs/interact_qwen3_4b.yaml, lane ci) and the 14B (configs/interact_qwen3_14b.yaml, H100); then:
+uv run python scripts/d61_interact.py results/remote/run-40722778559 results/remote/run-40719653860 results/remote/run-40722748035 --out docs/varmap/d61_interact.json
+```
+
+Figures: `docs/varmap/qwen3_<size>_interact.png` (per pair: the shares of 11's answer under the joint, the additive
+and the six localization patches, and the interaction ratio by token and read point).
+
+**What it measures.**
+- Four prompts per base share the base's demonstrations: the base (00), one factor changed (10), the other changed
+  (01), and both changed (11).
+- Their states h00, h10, h01, h11 are taken at every query token. The additive state h10 + h01 − h00 is swapped
+  into the base run at all query tokens at one read point.
+- While the two factors are carried separately, that state gives 11's answer. Once they have been combined, it does
+  not.
+- K is the first read point where it fails: the share of 11's answer has an upper bound below 0.5.
+- Three pairs:
+  - O × S, the operator and both sums;
+  - S1 × S2, the two sums, which must combine;
+  - O × D, the operator and the digits with the sums kept, which should not combine.
+- Bases kept where the model answers all four prompts:
+  - O × S: 193 / 179 / 337 (4B / 8B / 14B);
+  - S1 × S2: 200 / 220 / 334;
+  - O × D: 190 / 205 / 342 (of 1024 each).
+
+**Shares of 11's answer under the additive patch:**
+
+| read point | 4B O×S | 4B S1×S2 | 4B O×D | 8B O×S | 8B S1×S2 | 8B O×D | 14B O×S | 14B S1×S2 | 14B O×D |
+|---|---|---|---|---|---|---|---|---|---|
+| 16 | 0.95 | 0.90 | 0.97 | 0.93 | 0.85 | 0.97 | 0.96 | 0.92 | 0.97 |
+| 20 | 0.89 | 0.87 | 0.96 | 0.87 | 0.85 | 0.93 | 0.93 | 0.87 | 0.95 |
+| 24 | 0.66 | 0.63 | **0.76** | 0.54 | 0.61 | **0.62** | 0.88 | 0.80 | 0.92 |
+| 28 | 0.50 | 0.40 | 0.91 | 0.42 | 0.40 | 0.83 | 0.55 | 0.69 | 0.70 |
+| 30 | 0.40 | 0.24 | 0.93 | 0.33 | 0.30 | 0.91 | 0.47 | 0.46 | **0.57** |
+| 32 | 0.33 | 0.23 | 0.95 | 0.26 | 0.30 | 0.86 | 0.43 | 0.42 | 0.65 |
+| 36 | 0.06 | 0.11 | 0.93 | 0.11 | 0.16 | 0.88 | 0.31 | 0.26 | 0.82 |
+| K | **30** | **27** | none | **28** | **27** | none | **32** | **31** | none |
+
+- **D61's reading.**
+  - The 8B and the 14B: the control is combined **where the operands are combined** (K_OS − K_S1S2 = 1).
+  - The 4B: **later than the operands** (K_OS − K_S1S2 = 3, exactly the rule's threshold).
+  - The null is clear on all three: O × D never fails.
+- **The two pairs' curves fall together.** Both decline gradually over read points 22–34 (26–38 on the 14B). They
+  are never more than 0.12–0.17 apart, with a mean gap of 0.04–0.08 from read point 20 on.
+  - A K is where these slopes cross 0.5. It is not a sharp transition. The 14B's O × S has the one steep step
+    (0.84 at 26, 0.55 at 27).
+  - The 4B's "later" is O × S lying 0.10–0.17 above S1 × S2 over 25–31. The intervals overlap, and the two
+    pairs' bases differ, so this is not a paired comparison.
+  - What the result supports: the operator stops being additively separable from the sums at the depth, within
+    about 3 read points, where the two sums stop being separable from each other. That is the depth of the
+    operands' own combination, not earlier.
+- **Where: the answer token.** At K_OS ± 2, the additive state at one group's tokens alone (the joint state
+  elsewhere) gives 11's answer on:
+
+  | group | 4B | 8B | 14B |
+  |---|---|---|---|
+  | A (the answer position) | 0.42–0.58 | 0.46–0.58 | 0.74–0.76 |
+  | E (`=`) | 0.93–0.94 | 0.96–0.97 | 0.79–0.84 |
+  | any other group | ≥ 0.98 | ≥ 0.98 | ≥ 0.99 |
+
+  - On the 4B and 8B the answer token alone accounts for nearly all of the full patch's failure.
+  - On the 14B the failure is spread over `=` and the answer token. Neither alone reproduces the full patch's
+    0.43. This is the 14B's two-token site again (D60: `=` takes the operator over from read point 23).
+  - D59 and D60 predicted E or A.
+- **The null dips where the sums arrive.** O × D is lowest at the depth where the sums reach `=` + answer (D60's G2):
+  - 4B: 0.76 at 24 (G2 24);
+  - 8B: 0.62 at 24 (G2 24);
+  - 14B: 0.57 [0.52, 0.62] at 30 (G2 29).
+
+  The failed patches give "other" answers (0.22–0.33). On the 4B and 8B this is a narrow dip that has recovered
+  (0.83–0.93) by K_OS. On the 14B it is wide (27–34) and still 0.65 at K_OS = 32, against O × S's 0.43 there.
+  - The rule (K_OD at most K_OS + 2 voids the reading) does not trigger, since O × D never fails.
+  - But on the 14B, part of O × S's failure near K may be the sum of states leaving the distribution, not
+    combination. Its steep step at 27 coincides with the null's drop (0.89 to 0.73).
+  - Read as a finding rather than a nuisance: changing the operator and the digits does not add cleanly at the
+    moment the sums are formed at `=` + answer, even when the sums do not change.
+- **The order of D60's landmarks holds on all three:** the operator reaches `=` + answer (T2 20, 20, 23), then
+  the sums do (G2 24, 24, 29), then the two are combined (K_OS 30, 28, 32: 6, 4 and 3 read points after G2). In
+  fractions of the stack, K_OS is 0.83, 0.78 and 0.80.
+- **What the failed patch gives (exploratory).** Past K_OS its most frequent answer is 10's, the operator flipped
+  with the base's sums. At K_OS + 4 the shares are 0.51, 0.40 and 0.35 (4B / 8B / 14B), against 0.10–0.31 for
+  11's.
+  - So after the combination, the sum of the two changes keeps the operator's effect and loses the sums'.
+  - The interaction ratio is exactly 0 at the operator token (its state precedes the operands). At K it is
+    highest at the answer token (0.40–0.48), then `=`. It is also high at the space between the brackets in the
+    null, so it is a weak signal wherever both changes are small. The shares are the measure.
+
 ## Not yet run / known limitations
 
 - The variable map (D45) has run once per model (Qwen3 0.6B, 1.7B, 4B Base; seed 20260916) on two expression tasks
@@ -6146,6 +6245,9 @@ uv run python scripts/d59_opset.py results/remote/run-39888455166 results/remote
 # (configs/opsteer_qwen3_14b.yaml, configs/opset_qwen3_14b.yaml, written once job 1 fixed the injection read point at 8),
 # and the sums arm on the 4B and 8B; runs and the reading commands in the D60 entry above
 uv run python scripts/stages.py 'uv run directions varmap --config configs/varmap_maxmin_qwen3_14b.yaml --run-id varmap_maxmin_qwen3_14b_seed20260916' 'uv run directions varprobe --config configs/varprobe_maxmin_qwen3_14b.yaml --run-id varprobe_maxmin_qwen3_14b_seed20260916'
+# D61, the additivity test (1024 bases): the 8B first (lane ci-b), then the 14B (H100, ci-8b) and the 4B (lane ci):
+uv run python scripts/stages.py 'uv run directions interact --config configs/interact_qwen3_8b.yaml --run-id interact_qwen3_8b_seed20260916'
+uv run python scripts/d61_interact.py results/remote/run-40722778559 results/remote/run-40719653860 results/remote/run-40722748035 --out docs/varmap/d61_interact.json
 # iteration 10 (D33 amended: quarter strength, the neighbouring candidate layers, the patch test at every compared
 # layer on eighths of the depth for the learned and the head-mean vector, per-block writing), on a second seed,
 # as run (workflow runs in the iteration-10 entry): first the learned-vector protocol (D31) at seed 20260916 on
