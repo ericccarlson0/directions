@@ -37,6 +37,12 @@ def test_all_configs_load():
             cfg = load_das_config(p)
             assert cfg.sites and (cfg.control_site in cfg.sites or (cfg.control_site is None and "_b.yaml" in p.name)), p
             continue
+        if "interact" in p.name:  # the operator and the operands changed independently and together (D61)
+            from directions.config import load_interact_config
+
+            cfg = load_interact_config(p)
+            assert cfg.pairs and cfg.n_shots % 2 == 0, p
+            continue
         if "opset" in p.name:  # the operator's token-set swaps (D59)
             from directions.config import load_opset_config
 
@@ -737,3 +743,23 @@ def test_opset_configs_follow_d59():
         d58 = asdict(load_opsteer_config(CONFIGS / f"opsteer_qwen3_{size}.yaml"))
         assert c["model"] == d58["model"] and c["seed"] == d58["seed"]
         assert all(c[k] == d58[k] for k in ("n_dir", "n_bases", "n_shots", "n_demo_pool", "inject_read_point"))
+
+
+def test_interact_configs_follow_d61():
+    """D61: the 4B, 8B and 14B files differ only in model, with the batch sizes of their D57 files."""
+    from dataclasses import asdict
+
+    import yaml
+
+    from directions.config import load_interact_config
+
+    files = sorted(CONFIGS.glob("interact_qwen3_*.yaml"))
+    assert [p.name for p in files] == [f"interact_qwen3_{s}.yaml" for s in ("14b", "4b", "8b")]
+    cs = {p.name.split("_")[-1][:-5]: asdict(load_interact_config(p)) for p in files}
+    for size, c in cs.items():
+        assert dict(c, model=None) == dict(cs["8b"], model=None), size
+        assert c["model"]["name"] == f"Qwen/Qwen3-{size.upper()}-Base" and c["model"]["device"] == "cuda"
+        d57 = yaml.safe_load((CONFIGS / f"varmap_maxmin_qwen3_{size}.yaml").read_text())["model"]
+        assert c["model"]["batch_size"] == d57["batch_size"] and c["model"]["dtype"] == d57["dtype"] == "bfloat16"
+    c = cs["8b"]
+    assert c["pairs"] == ["OS", "S1S2", "OD"] and c["n_bases"] == 256 and c["read_points"] is None and c["sufficient"] == 0.5

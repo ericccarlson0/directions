@@ -1394,3 +1394,56 @@ def load_opset_config(path: str | Path) -> OpsetConfig:
     if not (0 < cfg.sufficient <= 1 and 0 < cfg.alpha < 1):
         raise ValueError("sufficient in (0, 1], alpha in (0, 1)")
     return cfg
+
+
+@dataclass
+class InteractConfig:
+    """Where control becomes computation: the operator and the operands changed independently and together
+    (docs/DECISIONS.md D61).
+
+    n_bases          bases drawn as D57's, kept per factor pair where the model answers all four prompts
+    n_shots, n_demo_pool  as in D57 (half of the demonstrations of each operator)
+    pairs            the factor pairs: "OS" (operator x both sums), "S1S2" (first sum x second sum), "OD" (operator x
+                     digits with both sums kept: the pair that should not combine)
+    read_points      the read points patched at (None: all, 0..L)
+    chunk            bases per capture chunk (the four prompts' states at every read point and query token)
+    n_boot, alpha    bootstrap intervals over bases
+    sufficient       the additive patch holds where its share's lower bound reaches this, fails where the upper bound
+                     stays below it (D61: 0.5)
+    gate             keep only the bases whose four prompts the model answers (off only for the toy smoke run)
+    identity_check   the base run's own states swapped back at every query token change nothing (bit identity)
+    determinism_check  one patch batch repeated; bit identity required (D23)
+    """
+
+    name: str = "interact"
+    seed: int = 20260916
+    output_dir: str = "results"
+    model: ModelConfig = field(default_factory=ModelConfig)
+    n_bases: int = 256
+    n_shots: int = 8
+    n_demo_pool: int = 96
+    pairs: list[str] = field(default_factory=lambda: ["OS", "S1S2", "OD"])
+    read_points: list[int] | None = None
+    chunk: int = 16
+    n_boot: int = 1000
+    alpha: float = 0.05
+    sufficient: float = 0.5
+    gate: bool = True
+    identity_check: bool = True
+    determinism_check: bool = True
+    figures: bool = True
+
+
+def load_interact_config(path: str | Path) -> InteractConfig:
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    cfg = _from_dict(InteractConfig, data)
+    if not cfg.pairs or any(x not in ("OS", "S1S2", "OD") for x in cfg.pairs) or len(set(cfg.pairs)) != len(cfg.pairs):
+        raise ValueError("pairs must be a non-empty subset of OS, S1S2, OD")
+    if cfg.n_shots % 2 or cfg.n_shots < 2 or cfg.n_demo_pool < cfg.n_shots:
+        raise ValueError("n_shots must be even and positive (half of each operator, D57), n_demo_pool at least n_shots")
+    if cfg.n_bases < 2 or cfg.chunk < 1:
+        raise ValueError("n_bases must be at least 2 and chunk at least 1")
+    if not (0 < cfg.sufficient <= 1 and 0 < cfg.alpha < 1):
+        raise ValueError("sufficient in (0, 1], alpha in (0, 1)")
+    return cfg

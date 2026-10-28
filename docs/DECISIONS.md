@@ -3928,3 +3928,60 @@ Outcome (runs 39888184099, 39888455166; STATUS.md, "D59"):
   - What it cannot exclude: an arrival at a fixed fraction of the stack, which predicts 22 against the observed 23.
     That alternative was not among the amendment's readings. With models of 36 and 40 layers only, it would need a
     model whose gather moves without its depth to separate.
+
+### D61. Where control becomes computation: the operator and the operands changed independently and together (Qwen3 4B, 8B, 14B Base)
+
+* **Why.**
+  - PROJECT.md asks how control is turned into computation and whether the two differ measurably. D57–D60 show
+    where the max/min operator and the operands travel, and that they reach the same site (`=` and the answer
+    position), the operator first. But the meeting is inferred from two curves: nothing has measured the point at
+    which the two stop being separate and are combined.
+  - A swap at one site cannot measure it. A site holding the operator and the operands separately and a site
+    holding the answer both give each source's answer when swapped (D45's limit, now for the operator).
+  - What separates the two is additivity. While the operator and the operands are carried separately, the effect
+    of changing both is the sum of the effects of changing each. Once they are combined, it is not. The depth at
+    which the sum stops reproducing the joint change is where control has become computation.
+* **The factorial.** For a base expression e = op(a+b, c+d) and a pair of factors (X, Z), four prompts with the
+  base's demonstrations: the base (00), X changed (10), Z changed (01), both changed (11). Their states at every
+  read point and query token are h00, h10, h01, h11. Three pairs:
+  - **O × S (the test):** X = the operator (the twin under the other operator), Z = both sums (a D45 both source
+    under the base's operator); 11 is that source under the other operator. The four answers are pairwise distinct.
+  - **S1 × S2 (a pair that must combine):** X = the first bracket's sum, Z = the second's, each changed with the
+    other bracket kept; 11 has both changed. Their comparison joins them, so the sum must fail by the gather. 11's
+    answer differs from the other three. (Corrected before any data: pairwise distinct answers, as first written,
+    are impossible under max and min. With max, if 01's change raises the answer to S2', 11's must exceed S2' and is
+    then also 10's answer. The code rejected every base.)
+  - **O × D (a pair that should not combine):** X = the operator, Z = both brackets' digits changed with both sums
+    kept, so the answer does not depend on Z; 11 is Z's prompt under the other operator. The prediction of 11 is
+    10's answer. Where the sum fails here, a sum of states is off the model's distribution, and the O × S reading
+    at that depth is not interpretable.
+  - Sources come from the expressions outside D57's demonstration pool, and every prompt with a changed operator
+    must also be outside it. Bases are drawn as D57's, 256 of them, kept per pair where the model answers all four
+    prompts.
+* **The patches**, at every read point m, swapped into the base run at every query token at once:
+  - **additive:** h10 + h01 − h00 (formed in float32, cast to the model's dtype);
+  - **joint:** h11 (a check: it gives 11's answer);
+  - **localization:** h11 at every token except one group of D59's (O, F, S, P, E, A), where the additive state
+    is used instead. Six patches.
+  - At read point 0 each token's state depends on its own token alone, so the additive state equals h11 exactly
+    there: a built-in check.
+  - Read: the patched run's answer as 11's, 10's, 01's or 00's answer, or other, with 95% bootstrap intervals over
+    bases.
+* **Readings.**
+  - A_P(m), the share of bases where the additive patch gives 11's answer, for each pair P. It holds at m when its
+    lower bound is at least 0.5 and fails when its upper bound is below 0.5.
+  - The conversion depth K_P is the first read point at which A_P fails (none if it never does).
+  - **The control is combined:**
+    - **where the operands are:** |K_OS − K_S1S2| ≤ 2;
+    - **earlier:** K_OS ≤ K_S1S2 − 3;
+    - **later:** K_OS ≥ K_S1S2 + 3;
+    - **never** (the operator stays additively separable from the operands to the output): K_OS none.
+  - The null: if K_OD exists and is at most K_OS + 2, the reading is not interpretable at that depth (the sum
+    fails for a pair that does not combine).
+  - Localization, at read points K_OS − 2 to K_OS + 2: the group whose additive substitution (the rest joint)
+    lowers the share of 11's answer most is where the combination sits. D59 and D60 predict E or A.
+  - Beside (exploratory): what the failed additive patch gives instead (10's, 01's or 00's answer, or other), the
+    per-token interaction ratio ‖h11 − h10 − h01 + h00‖ / (‖h10 − h00‖ + ‖h01 − h00‖), and K_OS against D60's
+    landmarks (the operator's arrival at E+A, T2 = 20, 20, 23; the two-token gather G2 = 24, 24, 29).
+* **Runs.** Seed 20260916, one execution. The 4B and 8B on RTX 4090s (EUR-NO-1), the 14B on an H100 (US-CA-2). The
+  8B goes first, the others once it has finished its first pair.

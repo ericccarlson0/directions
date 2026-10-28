@@ -12,6 +12,7 @@
     uv run directions posset   --config configs/posset_qwen3_4b.yaml --run-id posset_qwen3_4b_seed20260916
     uv run directions opsteer  --config configs/opsteer_qwen3_8b.yaml --run-id opsteer_qwen3_8b_seed20260916
     uv run directions opset    --config configs/opset_qwen3_8b.yaml --run-id opset_qwen3_8b_seed20260916
+    uv run directions interact --config configs/interact_qwen3_8b.yaml --run-id interact_qwen3_8b_seed20260916
 """
 
 from __future__ import annotations
@@ -277,6 +278,21 @@ def _cmd_opset(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_interact(args: argparse.Namespace) -> int:
+    """Where control becomes computation: the operator and the operands changed independently and together (D61)."""
+    from .config import load_interact_config
+    from .interact import run_interact
+
+    cfg = load_interact_config(args.config)
+    if args.output_dir:
+        cfg.output_dir = args.output_dir
+    if args.seed is not None:
+        cfg.seed = int(args.seed)
+    root = run_interact(cfg, run_id=args.run_id, config_path=str(args.config))
+    print(root)
+    return 0
+
+
 def _cmd_posset(args: argparse.Namespace) -> int:
     """The position-set check (docs/DECISIONS.md D52): sets of query tokens swapped together."""
     from .config import load_posset_config
@@ -422,6 +438,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--output-dir", default=None, help="override output_dir from the config")
     p.add_argument("--run-id", default=None, help="explicit run directory name")
     p.add_argument("--seed", type=int, default=None, help="override the seed (the draws, bootstraps)")
+    p = sub.add_parser("interact", help="where control becomes computation: the operator and the operands changed "
+                                        "independently and together, the additive state against the joint (D61)")
+    p.add_argument("--config", required=True, help="YAML config (configs/interact_<model>.yaml)")
+    p.add_argument("--output-dir", default=None, help="override output_dir from the config")
+    p.add_argument("--run-id", default=None, help="explicit run directory name")
+    p.add_argument("--seed", type=int, default=None, help="override the seed (the draws, bootstraps)")
     p = sub.add_parser("posset", help="the position-set check (D52): D45's whole-state swaps at sets of query tokens "
                                       "together, read against the answer token alone")
     p.add_argument("--config", required=True, help="YAML config (configs/posset_<model>.yaml)")
@@ -472,6 +494,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_opsteer(args)
     if args.command == "opset":
         return _cmd_opset(args)
+    if args.command == "interact":
+        return _cmd_interact(args)
     if args.command == "varprobe":
         return _cmd_varprobe(args)
     if args.command == "varsplit":

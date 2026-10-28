@@ -1,0 +1,27 @@
+# Where control becomes computation: the operator and the operands changed independently and together
+# (docs/DECISIONS.md D61), Qwen3-8B Base on an RTX 4090. The files of this family differ only in model (batch sizes as in
+# D57-D60) (tests/test_configs.py).
+name: interact
+seed: 20260916
+output_dir: results
+
+model:
+  backend: hf
+  name: Qwen/Qwen3-8B-Base
+  dtype: bfloat16          # model execution; states captured in the model's dtype, the additive state formed in float32
+  device: cuda             # fail fast rather than fall back to the CPU (docs/INFRA.md)
+  batch_size: 64
+
+n_bases: 256                  # drawn as D57's (its split, pool and order), kept per pair where all four prompts are answered
+n_shots: 8                    # 4 of each operator (D57)
+n_demo_pool: 96
+pairs: [OS, S1S2, OD]         # the test; a pair that must combine; a pair that should not (the null)
+read_points: null             # every read point 0..L
+chunk: 16                     # bases per capture chunk (eight patches each, so 128 rows per patched batch)
+n_boot: 1000
+alpha: 0.05
+sufficient: 0.5               # the additive patch holds at lower bound >= 0.5, fails at upper bound < 0.5 (D61)
+gate: true
+identity_check: true
+determinism_check: true
+figures: true
