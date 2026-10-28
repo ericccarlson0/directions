@@ -12,7 +12,7 @@ model:
   device: cuda             # fail fast rather than fall back to the CPU (docs/INFRA.md)
   batch_size: 64
 
-n_bases: 256                  # drawn as D57's (its split, pool and order), kept per pair where all four prompts are answered
+n_bases: 1024                 # drawn as D57's (its split, pool and order), kept per pair where all four prompts are answered (D61 amended: 256 kept 45 on the 8B)
 n_shots: 8                    # 4 of each operator (D57)
 n_demo_pool: 96
 pairs: [OS, S1S2, OD]         # the test; a pair that must combine; a pair that should not (the null)

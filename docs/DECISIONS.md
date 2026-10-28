@@ -3985,3 +3985,11 @@ Outcome (runs 39888184099, 39888455166; STATUS.md, "D59"):
     landmarks (the operator's arrival at E+A, T2 = 20, 20, 23; the two-token gather G2 = 24, 24, 29).
 * **Runs.** Seed 20260916, one execution. The 4B and 8B on RTX 4090s (EUR-NO-1), the 14B on an H100 (US-CA-2). The
   8B goes first, the others once it has finished its first pair.
+* **Amended before any outcome (2026-10-28): 1024 bases, not 256.**
+  - The first 8B request (workflow run 40718734116) kept 45 of 256 bases for O × S. Each prompt was answered on
+    0.61–0.68 of the bases, all four on 0.18, about the product of the four.
+  - It was cancelled on that line, before any patch result was written or read.
+  - With 45 bases the 95% interval on a share near 0.5 is about ±0.15. That is too wide for readings that separate
+    depths by 2 to 3 read points.
+  - 1024 bases are drawn on all three models; the draw's first 256 are the original ones. That is about 180 kept on
+    the 8B, and fewer on the 4B, whose few-shot accuracy on max/min is lower. Nothing else changes.

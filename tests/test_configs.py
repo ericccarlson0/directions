@@ -762,4 +762,4 @@ def test_interact_configs_follow_d61():
         d57 = yaml.safe_load((CONFIGS / f"varmap_maxmin_qwen3_{size}.yaml").read_text())["model"]
         assert c["model"]["batch_size"] == d57["batch_size"] and c["model"]["dtype"] == d57["dtype"] == "bfloat16"
     c = cs["8b"]
-    assert c["pairs"] == ["OS", "S1S2", "OD"] and c["n_bases"] == 256 and c["read_points"] is None and c["sufficient"] == 0.5
+    assert c["pairs"] == ["OS", "S1S2", "OD"] and c["n_bases"] == 1024 and c["read_points"] is None and c["sufficient"] == 0.5
