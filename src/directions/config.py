@@ -1494,3 +1494,72 @@ def load_screen_config(path: str | Path) -> ScreenConfig:
     if not (0 < cfg.accuracy_lo <= 1 and 0 < cfg.gap_max < 1 and 0 < cfg.alpha < 1):
         raise ValueError("accuracy_lo in (0, 1], gap_max in (0, 1), alpha in (0, 1)")
     return cfg
+
+
+COND_FORMS = ("if_gt", "ternary", "python", "if_mixed", "if_given")  # D63 (cond.FORMS)
+COND_PAIRS = ("SG", "CB", "CU", "AB", "CN")
+
+
+@dataclass
+class CondConfig:
+    """The full test of the conditional task (docs/DECISIONS.md D63); one part per run (map, sets, pairs, probe).
+
+    form             the form D62's screen selected
+    n_shots, n_demo_pool  demonstrations per prompt (balanced over the cells) and their pool (D62's)
+    n_map            bases of the variable map (whole-state swaps at every read point and query token)
+    n_sets, sets_from  bases of the token-set swaps, and their first read point
+    n_pairs, pair_cap, pairs, chunk  bases drawn for the additivity pairs, the most kept per pair, the pairs, and
+                     bases per capture chunk
+    n_probe, n_perm  examples of the conditional probes, and permutations of their null
+    n_boot, alpha    bootstrap intervals over bases
+    present          a swap's source value is present where its flip rate's lower bound reaches this (D45: 0.5)
+    value_change     ... held as a value where the same-outcome source's change rate stays below it (upper bound)
+    sufficient       an additive patch holds where its share's lower bound reaches this, fails where the upper bound
+                     stays below it (D61: 0.5)
+    """
+
+    name: str = "cond"
+    seed: int = 20260916
+    output_dir: str = "results"
+    model: ModelConfig = field(default_factory=ModelConfig)
+    form: str = "if_gt"
+    n_shots: int = 8
+    n_demo_pool: int = 192
+    n_map: int = 128
+    n_sets: int = 160
+    sets_from: int = 8
+    n_pairs: int = 512
+    pair_cap: int = 200
+    pairs: list[str] = field(default_factory=lambda: ["CB", "CU", "AB", "CN"])
+    chunk: int = 16
+    n_probe: int = 1024
+    n_perm: int = 200
+    read_points: list[int] | None = None
+    n_boot: int = 1000
+    alpha: float = 0.05
+    present: float = 0.5
+    value_change: float = 0.5
+    sufficient: float = 0.5
+    gate: bool = True
+    identity_check: bool = True
+    determinism_check: bool = True
+
+
+def load_cond_config(path: str | Path) -> CondConfig:
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    cfg = _from_dict(CondConfig, data)
+    if cfg.form not in COND_FORMS:
+        raise ValueError(f"form must be one of {', '.join(COND_FORMS)}")
+    if not cfg.pairs or any(p not in COND_PAIRS for p in cfg.pairs) or len(set(cfg.pairs)) != len(cfg.pairs):
+        raise ValueError(f"pairs must be a non-empty subset of {', '.join(COND_PAIRS)}")
+    if "SG" in cfg.pairs and cfg.form != "if_mixed":
+        raise ValueError("the SG pair needs the sign: form if_mixed")
+    cells = 8 if cfg.form == "if_mixed" else 4
+    if any(n % cells for n in (cfg.n_shots, cfg.n_demo_pool, cfg.n_map, cfg.n_sets, cfg.n_pairs, cfg.n_probe)):
+        raise ValueError(f"n_shots, n_demo_pool and the base counts must be multiples of the form's {cells} cells")
+    if cfg.pair_cap < 2 or cfg.chunk < 1 or cfg.n_perm < 1:
+        raise ValueError("pair_cap at least 2, chunk and n_perm at least 1")
+    if not (0 < cfg.present <= 1 and 0 < cfg.value_change <= 1 and 0 < cfg.sufficient <= 1 and 0 < cfg.alpha < 1):
+        raise ValueError("present, value_change, sufficient in (0, 1], alpha in (0, 1)")
+    return cfg

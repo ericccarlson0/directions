@@ -1,0 +1,26 @@
+# Smoke run of D63's conditional test on a random tiny model (CPU, no downloads): the model cannot do the task, so the
+# gate is off; checks every part's plumbing, the built-in check at read point 0, the readouts and the files.
+name: cond
+seed: 20260916
+output_dir: results
+
+model:
+  backend: toy
+  dtype: float32
+  device: cpu
+  batch_size: 64
+
+form: if_gt
+n_shots: 8
+n_demo_pool: 32
+n_map: 4
+n_sets: 4
+sets_from: 1
+n_pairs: 8
+pair_cap: 4
+chunk: 2
+n_probe: 32
+n_perm: 10
+read_points: [0, 1, 2]
+n_boot: 50
+gate: false

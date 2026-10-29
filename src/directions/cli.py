@@ -293,6 +293,21 @@ def _cmd_interact(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_cond(args: argparse.Namespace) -> int:
+    """The full test of the conditional task (D63): one part (map, sets, pairs, probe) per run."""
+    from .config import load_cond_config
+    from .cond import run_cond
+
+    cfg = load_cond_config(args.config)
+    if args.output_dir:
+        cfg.output_dir = args.output_dir
+    if args.seed is not None:
+        cfg.seed = int(args.seed)
+    root = run_cond(cfg, args.part, run_id=args.run_id, config_path=str(args.config))
+    print(root)
+    return 0
+
+
 def _cmd_screen(args: argparse.Namespace) -> int:
     """The task screen for a conditional task (D62): which form the models do, on forward passes alone."""
     from .config import load_screen_config
@@ -459,6 +474,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--output-dir", default=None, help="override output_dir from the config")
     p.add_argument("--run-id", default=None, help="explicit run directory name")
     p.add_argument("--seed", type=int, default=None, help="override the seed (the draws, bootstraps)")
+    p = sub.add_parser("cond", help="the full test of the conditional task (D63): the variable map, token-set swaps, "
+                                    "the additivity pairs or the probes, one part per run")
+    p.add_argument("--config", required=True, help="YAML config (configs/cond_<model>.yaml)")
+    p.add_argument("--part", required=True, choices=["map", "sets", "pairs", "probe"], help="the part to run")
+    p.add_argument("--output-dir", default=None, help="override output_dir from the config")
+    p.add_argument("--run-id", default=None, help="explicit run directory name")
+    p.add_argument("--seed", type=int, default=None, help="override the seed (the draws, bootstraps)")
     p = sub.add_parser("screen", help="the task screen for a conditional task (D62): accuracy, cells, gaps and "
                                       "tokenization of seven forms, forward passes only")
     p.add_argument("--config", required=True, help="YAML config (configs/screen_<model>.yaml)")
@@ -515,6 +537,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_opsteer(args)
     if args.command == "opset":
         return _cmd_opset(args)
+    if args.command == "cond":
+        return _cmd_cond(args)
     if args.command == "screen":
         return _cmd_screen(args)
     if args.command == "interact":

@@ -1,0 +1,35 @@
+# The full test of the conditional task (docs/DECISIONS.md D63), Qwen3-14B-Base on an H100: IF(g>h, a+b, c+d), D62's
+# selection. One part per run (--part map | sets | pairs | probe). The files of this family differ only in model
+# (batch sizes as in D57-D62) (tests/test_configs.py).
+name: cond
+seed: 20260916
+output_dir: results
+
+model:
+  backend: hf
+  name: Qwen/Qwen3-14B-Base
+  dtype: bfloat16          # model execution; states captured in the model's dtype, the additive state formed in float32
+  device: cuda             # fail fast rather than fall back to the CPU (docs/INFRA.md)
+  batch_size: 128
+
+form: if_gt                   # D62's rule
+n_shots: 8                    # two per cell (which branch x whether the chosen sum is the larger)
+n_demo_pool: 192
+n_map: 128                    # the variable map's bases (each source type takes its own)
+n_sets: 160                   # the token-set swaps' bases
+sets_from: 8                  # their first read point
+n_pairs: 512                  # the factorial pairs' bases drawn ...
+pair_cap: 200                 # ... at most this many kept per pair (all four prompts answered)
+pairs: [CB, CU, AB, CN]       # condition x both sums; condition x the unchosen sum; the chosen digits; the null
+chunk: 16                     # bases per capture chunk in the pairs (eight patches each: 128 rows per batch)
+n_probe: 1024                 # the probes' examples (the answered ones enter)
+n_perm: 200                   # the probes' permutation null (D46)
+read_points: null             # every read point 0..L
+n_boot: 1000
+alpha: 0.05
+present: 0.5                  # a swap's source value is present at flip lower bound >= 0.5 (D45)
+value_change: 0.5             # held as a value where the same-outcome source's change upper bound < 0.5
+sufficient: 0.5               # the additive patch holds at lower bound >= 0.5, fails at upper bound < 0.5 (D61)
+gate: true
+identity_check: true
+determinism_check: true

@@ -37,6 +37,12 @@ def test_all_configs_load():
             cfg = load_das_config(p)
             assert cfg.sites and (cfg.control_site in cfg.sites or (cfg.control_site is None and "_b.yaml" in p.name)), p
             continue
+        if p.name.startswith("cond_") or p.name == "smoke_toy_cond.yaml":  # the conditional task in full (D63)
+            from directions.config import load_cond_config
+
+            cfg = load_cond_config(p)
+            assert cfg.pairs and cfg.form, p
+            continue
         if "screen" in p.name:  # the task screen for a conditional task (D62)
             from directions.config import load_screen_config
 
@@ -793,3 +799,27 @@ def test_screen_configs_follow_d62():
     c = cs["8b"]
     assert c["formats"] == list(SCREEN_FORMATS) and c["n_queries"] == 1024 and c["n_shots"] == [8, 16]
     assert c["n_demo_pool"] == 192 and c["accuracy_lo"] == 0.70 and c["gap_max"] == 0.15 and c["seed"] == 20260916
+
+
+def test_cond_configs_follow_d63():
+    """D63: the 8B and 14B files differ only in model, with the batch sizes of their D57 files; D62's selection."""
+    from dataclasses import asdict
+
+    import yaml
+
+    from directions.cond import FORMS, PAIRS
+    from directions.config import COND_FORMS, load_cond_config
+
+    assert set(FORMS) == set(COND_FORMS)
+    files = sorted(CONFIGS.glob("cond_qwen3_*.yaml"))
+    assert [p.name for p in files] == ["cond_qwen3_14b.yaml", "cond_qwen3_8b.yaml"]
+    cs = {p.name.split("_")[-1][:-5]: asdict(load_cond_config(p)) for p in files}
+    for size, c in cs.items():
+        assert dict(c, model=None) == dict(cs["8b"], model=None), size
+        assert c["model"]["name"] == f"Qwen/Qwen3-{size.upper()}-Base" and c["model"]["device"] == "cuda"
+        d57 = yaml.safe_load((CONFIGS / f"varmap_maxmin_qwen3_{size}.yaml").read_text())["model"]
+        assert c["model"]["batch_size"] == d57["batch_size"] and c["model"]["dtype"] == d57["dtype"] == "bfloat16"
+    c = cs["8b"]
+    assert c["form"] == "if_gt" and c["n_shots"] == 8 and c["n_demo_pool"] == 192 and c["pairs"] == list(PAIRS["if_gt"])
+    assert (c["n_map"], c["n_sets"], c["n_pairs"], c["pair_cap"], c["n_probe"]) == (128, 160, 512, 200, 1024)
+    assert c["present"] == c["value_change"] == c["sufficient"] == 0.5 and c["read_points"] is None

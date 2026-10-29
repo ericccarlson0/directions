@@ -4089,3 +4089,112 @@ Outcome (runs 39888184099, 39888455166; STATUS.md, "D59"):
   - `max` calibrates against D55 and has no criterion.
 * **Runs.** Seed 20260916, one execution, forward passes only (one batch repeated for bit identity, D23). The 8B
   first (RTX 4090, EUR-NO-1, lane ci-b), then the 4B (lane ci) and the 14B (H100, US-CA-2).
+* **Outcome (runs 40818312630, 40817856893, 40818310225; `docs/screen/d62_screen.json`).**
+  - Accuracy at 8 demonstrations (4B / 8B / 14B):
+
+    | form | 4B | 8B | 14B |
+    |---|---|---|---|
+    | `max` | 0.80 | 0.75 | 0.85 |
+    | `if_gt` | 0.81 | **0.92** | **0.975** |
+    | `if_mixed` | 0.81 | 0.87 | 0.97 |
+    | `if_given` | 0.50 | 0.44 | 0.65 |
+    | `ternary` | 0.37 | 0.55 | 0.54 |
+    | `python` | 0.62 | 0.53 | 0.72 |
+    | `if_sum` | 0.46 | 0.59 | 0.56 |
+
+  - Which forms pass:
+    - `if_gt` on the 8B and 14B;
+    - `if_mixed` on the 14B only (the 8B's branch gap is 0.23 [0.19, 0.27]: it takes the first branch where the
+      second is chosen, mostly under `<`);
+    - `max` on the 4B and 14B (not selectable).
+  - The 4B passes no conditional form. Its `if_gt` is 0.81 accurate, but the branch gap is −0.14 [−0.19, −0.09] and
+    the shortcut gap 0.15 [0.10, 0.20].
+  - **The rule selects `if_gt` at 8 demonstrations, on the 8B and the 14B.** The 4B does not join. Neither arm is
+    available: `if_given` and `python` pass on no model.
+  - Not preregistered, and a result in its own right: **a condition given as a digit is not read as one.**
+    `IF(0, a+b, c+d)` gets the second branch on 0.12–0.13 of the 8B's queries and 0.34–0.37 of the 14B's.
+    `IF(1, …)` gets the first branch on 0.68–0.99. The models take the first branch by default and override that
+    for a comparison, but not for a literal 0. Sixteen demonstrations improve no form enough to change the selection (the
+    8B's `if_gt` falls to 0.84, and the branch gaps grow).
+  - Every tokenization aligned; the repeated batch was bit-identical on all three runs.
+
+### D63. The conditional task in full: where the computed condition is formed, where it meets the sums, and whether the unchosen sum is computed (Qwen3 8B, 14B Base, `IF(g>h, a+b, c+d)`)
+
+* **Why.** D62 selected `if_gt` on the 8B and 14B. Three questions:
+  - Q1: where is the condition g > h formed?
+  - Q2: where does it meet the branch values?
+  - Q3: is the unchosen branch computed?
+  
+  The fourth question, a given condition against a computed one, drops: the models do no form of the given
+  condition (D62). Everything else follows D45–D61's methods, so the results read against the max/min line.
+* **Draws.** D62's form and rendering, 8 demonstrations per prompt.
+  - The demonstrations come from a pool of 192 and are balanced over the cells (C × M). Bases are balanced over the
+    cells.
+  - Every base, source and factorial prompt is outside the pool.
+  - Each part draws its own bases (seeded by part).
+* **Part 1, the map** (D45 / D57): 128 bases. Each source type takes its bases on its own; a base enters a type when
+  the model answers the base and that source. Whole-state swaps at every (read point, query token). Four types:
+  - **cond**: g', h' flip the condition, and so do both crossings, (g', h) and (g, h'). A site holding either
+    digit alone, or the computed outcome, flips the answer to the other sum.
+  - **cond_same**: g', h' keep the condition, and the h crossing (g, h') flips. A site holding the digit h' flips
+    the answer; one holding the computed outcome does not.
+  - **chosen**: the chosen branch's sum changed (to a value other than the unchosen sum).
+  - **chosen_same**: the chosen branch's digits changed with its sum kept.
+  
+  Present: flip rate's lower bound at least 0.5. The readouts:
+  - R_C: the first read point where cond is present at the answer token alone;
+  - C_out: the last read point each condition token holds it;
+  - G_ch: the chosen sum's first read point at the answer token;
+  - the condition **held as a value** at a site: cond present and cond_same's change rate below 0.5 by its upper
+    bound;
+  - **held as a digit**: cond present and cond_same's change rate at least 0.5 by its lower bound;
+  - the route: the tokens holding cond at each read point.
+* **Part 2, the token sets** (D59): 160 bases, read points 8 to the output.
+  - Six groups: Cd (`g > h`), Bch and Bun (the chosen and the unchosen branch, per base), P (the other structure),
+    E (`=`), A (the answer position).
+  - 17 sets, each swapped whole for cond and for chosen: the six groups; E+A, Cd+A, Cd+E, Cd+E+A, P+E, P+E+A,
+    Bch+A, Bch+E+A, Cd+Bch, Cd+Bch+A; and the whole query (the check).
+  - Sufficient: lower bound at least 0.5. The gap: read points where neither Cd nor A alone is sufficient for cond.
+* **Part 3, the factorial pairs** (D61): 512 bases drawn, at most 200 kept per pair, where the model answers all
+  four prompts. The answers of 00 / 10 / 01 / 11:
+  - **CB**, the condition (cond's digits) × both sums changed: S_ch, S_un, S_ch′, S_un′, all four distinct;
+  - **CU**, the condition × the unchosen sum: S_ch, S_un, S_ch, S_un′;
+  - **AB**, the chosen branch's first digit × its second, four distinct sums: where a sum is formed;
+  - **CN**, the null: condition digits that keep the outcome × the chosen sum changed; 11's answer is 01's.
+  
+  The patches, at every read point and all query tokens at once:
+  - the joint state h11 and the additive state h10 + h01 − h00;
+  - the additive state at one group only, the joint elsewhere, for each of the six groups.
+  
+  The readouts: categories in the order 11, 10, 01, 00, other (where two prompts share an answer, the earlier
+  wins). K is the first read point where the additive patch's share of 11's answer has an upper bound below 0.5.
+  Localization: the group whose substitution gives the lowest share, at K ± 2.
+* **Part 4, the probes** (D46): 1024 bases, the answered ones. Conditional ridge probes with D46's permutation null
+  (200 permutations, family-wise over read points). Three sites: the condition's last token (h), `=`, and the
+  answer position. Three targets: C; C given Y; the unchosen sum given Y.
+* **Readings, fixed before the runs.**
+  - **Q1.**
+    - **Formed at the condition:** the condition is held as a value at h or a structural token right after it
+      (`,`, the space), at a read point below R_C.
+    - **Deferred:** it is held as a value first at E or A, or nowhere before R_C, while h holds it as a digit up to
+      that point.
+    - **Undecided:** otherwise.
+    - Predictions: the literature check (Thavarasa & Sukumar 2026, a rule "if the number is greater than 5"
+      in Qwen3-8B) predicts formed at the condition. D45's deferred operands predict deferred.
+  - **Q2.**
+    - K_CB against K_AB:
+      - **together:** |K_CB − K_AB| ≤ 2;
+      - **compute, then select:** K_CB ≥ K_AB + 3;
+      - **select, then compute:** K_CB ≤ K_AB − 3;
+      - **never:** K_CB none.
+    - Not interpretable where K_CN exists and is at most K_CB + 2.
+    - Localization at K_CB ± 2: the group, as in D61. D61 predicts "together" at A.
+  - **Q3.**
+    - **The unchosen sum is computed:** the probe of S_un given Y is carried at A at a read point from G_ch − 2 to
+      K_CB.
+    - **Not decodable:** it is not carried there. A linear null is not an absence.
+    - Beside: K_CU − K_CB, predicted near 0 under either account (the selection discards the unchosen branch). A
+      K_CU 3 or more below K_CB would mean the unchosen branch is dropped before the condition meets the chosen one.
+* **Runs.** Seed 20260916, one execution.
+  - The 8B in two jobs on two RTX 4090 lanes (EUR-NO-1): map + sets on ci-b, pairs + probe on ci.
+  - The 14B in one job on an H100 (US-CA-2, ci-8b), once the 8B has logged its first map type.
