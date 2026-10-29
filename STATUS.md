@@ -6017,6 +6017,45 @@ and the six localization patches, and the interaction ratio by token and read po
     highest at the answer token (0.40–0.48), then `=`. It is also high at the space between the brackets in the
     null, so it is a weak signal wherever both changes are small. The shares are the measure.
 
+### D62: the task screen for a conditional task (Qwen3 4B, 8B, 14B Base, seed 20260916)
+
+```
+# workflow runs; about 1 USD in all
+#   40817856893: request d62_screen_qwen3_8b_seed20260916, commit ef7b150, RTX 4090, EUR-NO-1, ci-b; 7 min of stage
+#   40818310225: request d62_screen_qwen3_14b_seed20260916, commit 78771d9, H100 80GB HBM3, US-CA-2, ci-8b; 4 min
+#   40818312630: request d62_screen_qwen3_4b_seed20260916, commit a845472, RTX 4090, EUR-NO-1, ci; 5 min
+# the repeated batch bit-identical on all three; peak memory 17.6 / 20.9 / 41.3 GiB (16 demonstrations)
+uv run python scripts/stages.py 'uv run directions screen --config configs/screen_qwen3_8b.yaml --run-id screen_qwen3_8b_seed20260916'
+# likewise the 4B and 14B (configs/screen_qwen3_{4b,14b}.yaml); then the rule:
+uv run python scripts/d62_screen.py results/remote/run-40818312630 results/remote/run-40817856893 results/remote/run-40818310225 --out docs/screen/d62_screen.json
+```
+
+Seven forms, 1024 queries each, balanced over which branch is chosen × whether the chosen sum is the larger.
+Accuracy at 8 demonstrations, with whether the form passes D62's criteria:
+
+| form | 4B | 8B | 14B |
+|---|---|---|---|
+| `max(a+b, c+d)` (baseline) | 0.80 pass | 0.75 (branch gap 0.31) | 0.85 pass |
+| `IF(g>h, a+b, c+d)` | 0.81 (gaps −0.14, 0.15) | **0.92 pass** | **0.975 pass** |
+| `IF(g>h or g<h, …)` | 0.81 | 0.87 (branch gap 0.23) | 0.97 pass |
+| `IF(1 or 0, …)` | 0.50 | 0.44 | 0.65 |
+| `g>h ? a+b : c+d` | 0.37 | 0.55 | 0.54 |
+| `(a+b if g>h else c+d)` | 0.62 | 0.53 | 0.72 |
+| `IF(g+h>9, …)` | 0.46 | 0.59 | 0.56 |
+
+- **The rule selects `IF(g>h, a+b, c+d)`, at 8 demonstrations, on the 8B and the 14B** (D63). The 4B passes no
+  conditional form: its `IF` is 0.81 accurate, but it misses the gap criterion by a few hundredths.
+- **The models take the first branch by default**, and a comparison overrides it.
+  - The failures are mostly the first branch where the second is chosen: on the 8B, `<` with the second branch
+    chosen is right on 0.59–0.73.
+  - **A literal 0 does not override it.** `IF(0, a+b, c+d)` gets the second branch on 0.12–0.13 of the 8B's queries
+    and 0.34–0.37 of the 14B's.
+  - So no given-condition arm is available. The control has to be computed to be followed.
+- The surface matters as much as the computation: the C ternary and Python's conditional expression are done at
+  0.37–0.72, against 0.81–0.975 for `IF(…)`.
+- Sixteen demonstrations improve no form enough to change the selection. The branch gaps grow (the 8B's `IF` falls
+  to 0.84).
+
 ## Not yet run / known limitations
 
 - The variable map (D45) has run once per model (Qwen3 0.6B, 1.7B, 4B Base; seed 20260916) on two expression tasks
