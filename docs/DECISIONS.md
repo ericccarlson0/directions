@@ -4025,3 +4025,67 @@ Outcome (runs 39888184099, 39888455166; STATUS.md, "D59"):
     - The order of D60's landmarks holds on all three models: the operator reaches `=` + answer (T2 20, 20, 23),
       the sums reach it (G2 24, 24, 29), and then the additive patch fails (K_OS 30, 28, 32). In fractions of the
       stack, K_OS is 0.83, 0.78 and 0.80, and K_S1S2 is 0.75, 0.75 and 0.78.
+
+### D62. The task screen for a conditional task: which form the models do, before the full tests (Qwen3 4B, 8B, 14B Base)
+
+* **Why.**
+  - D45–D61 used arithmetic whose additive parts the models flatten into one gather at the answer token (the
+    literature map's findings (1) and (2); Lin et al. 2025; Csordás et al. 2025). A third bracket added a lane, not
+    a step: the gather stayed at 24, 24 and 30.
+  - The non-linear step that does resist flattening, max/min, is where the models are weakest (0.50–0.66). The
+    factorial tests need all four prompts answered, and D61 kept only 18–33% of its bases.
+  - A conditional, `IF(g>h, a+b, c+d)`, keeps D55's two sums. The choice between them becomes a control computed
+    from separate digits. It is the smallest step that cannot be flattened, and it puts each role on its own
+    tokens: the condition's digits, each branch's digits, the answer.
+  - Whether the models do it few-shot, in which surface form and without a shortcut is not known. The screen
+    measures that on forward passes alone, before a full test is preregistered.
+* **Forms**, rendered as D45 (`{expr} = {Y}` per demonstration line, the query `{expr} = `). Every digit, sign and
+  separator is one token on the Qwen3 tokenizer.
+
+  | form | query | role |
+  |---|---|---|
+  | `max` | `max(a+b, c+d) = ` | the baseline (D55's task) |
+  | `if_gt` | `IF(g>h, a+b, c+d) = ` | the conditional |
+  | `if_mixed` | `IF(g>h, …)` or `IF(g<h, …)`, half each | the comparison's direction a given control on the computed one |
+  | `if_given` | `IF(1, a+b, c+d)` or `IF(0, …)` | the condition given, not computed: the matched arm |
+  | `ternary` | `g>h ? a+b : c+d = ` | the conditional in another surface |
+  | `python` | `(a+b if g>h else c+d) = ` | the condition after the first branch |
+  | `if_sum` | `IF(g+h>9, a+b, c+d) = ` | a condition that is itself a sum: the next rung |
+
+  - Expressions:
+    - a+b and c+d at most 9 and unequal; g ≠ h (`if_sum`: any g, h);
+    - C is whether the first branch is chosen; Y is the chosen sum.
+  - Cells: C × M, where M is whether the chosen sum is the larger. `if_mixed` also crosses the sign; `max` has C
+    only, since its chosen sum is always the larger.
+  - Draws:
+    - 1024 queries per form, balanced over the cells.
+    - Each query's demonstrations come from a pool of 192 drawn separately and disjoint from the queries, balanced
+      over the cells and in a random order.
+    - At 8 demonstrations (the project's standard). Also at 16, used only if no conditional form passes at 8; the
+      same queries.
+* **Measures**, per model, form and number of demonstrations:
+  - accuracy (the most likely next token over the whole vocabulary is Y's digit) with a 95% bootstrap interval,
+    overall and per cell;
+  - the shortcut gap: accuracy when the chosen sum is the larger minus when it is the smaller;
+  - the branch gap: the first branch chosen minus the second;
+  - for `if_mixed`, the sign gap: `>` minus `<`;
+  - each gap with a 95% interval (the two groups resampled independently);
+  - errors split into the other branch's sum, another digit, and a token that is no digit;
+  - whether every query of a form tokenizes into the same labelled tokens (the condition for token-aligned swaps).
+* **A form passes on a model** when, at that number of demonstrations:
+  1. accuracy's lower bound is at least 0.70 (all four prompts of a factorial then answered on about a quarter of
+     the bases or more);
+  2. each gap's 95% interval lies within [−0.15, 0.15];
+  3. the tokenization is the same for every query.
+* **Selection rule, fixed before the runs.**
+  - The full test's task is the first of `if_mixed`, `if_gt`, `ternary`, `python` that passes on both the 8B and
+    the 14B at 8 demonstrations.
+  - If none does, the same rule applies at 16. If none passes there either, the conditional task is not taken
+    forward and the screen is reported.
+  - The 4B joins where it passes.
+  - `if_given` is the given-condition arm on the models where it passes.
+  - `python` is the token-order arm where it passes besides the selected form.
+  - `if_sum` is reported as the harder rung and is not selected by the rule.
+  - `max` calibrates against D55 and has no criterion.
+* **Runs.** Seed 20260916, one execution, forward passes only (one batch repeated for bit identity, D23). The 8B
+  first (RTX 4090, EUR-NO-1, lane ci-b), then the 4B (lane ci) and the 14B (H100, US-CA-2).

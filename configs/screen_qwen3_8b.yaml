@@ -1,0 +1,23 @@
+# The task screen for a conditional task (docs/DECISIONS.md D62), Qwen3-8B-Base on an RTX 4090: seven forms, 1024
+# queries each, at 8 and 16 demonstrations, forward passes only. The files of this family differ only in model (batch
+# sizes as in D57-D61) (tests/test_configs.py).
+name: screen
+seed: 20260916
+output_dir: results
+
+model:
+  backend: hf
+  name: Qwen/Qwen3-8B-Base
+  dtype: bfloat16
+  device: cuda             # fail fast rather than fall back to the CPU (docs/INFRA.md)
+  batch_size: 64
+
+formats: [max, if_gt, if_mixed, if_given, ternary, python, if_sum]
+n_queries: 1024               # balanced over each form's cells (four; eight for if_mixed; two for max)
+n_shots: [8, 16]              # 8 the project's standard; 16 used only if no conditional form passes at 8 (D62)
+n_demo_pool: 192              # per form, disjoint from the queries, balanced over the cells
+n_boot: 1000
+alpha: 0.05
+accuracy_lo: 0.70             # a form passes at accuracy lower bound >= 0.70 ...
+gap_max: 0.15                 # ... with the shortcut, branch and sign gaps' 95% intervals within +-0.15 (D62)
+determinism_check: true

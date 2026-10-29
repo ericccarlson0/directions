@@ -1,0 +1,16 @@
+# Smoke run of D62's task screen on a random tiny model (CPU, no downloads): the model cannot do the task; checks the
+# draws, the rendering, the tokenization check, the measures, the determinism check and the files.
+name: screen
+seed: 20260916
+output_dir: results
+
+model:
+  backend: toy
+  dtype: float32
+  device: cpu
+  batch_size: 64
+
+n_queries: 16
+n_shots: [8]
+n_demo_pool: 32
+n_boot: 50

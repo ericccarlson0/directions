@@ -293,6 +293,21 @@ def _cmd_interact(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_screen(args: argparse.Namespace) -> int:
+    """The task screen for a conditional task (D62): which form the models do, on forward passes alone."""
+    from .config import load_screen_config
+    from .screen import run_screen
+
+    cfg = load_screen_config(args.config)
+    if args.output_dir:
+        cfg.output_dir = args.output_dir
+    if args.seed is not None:
+        cfg.seed = int(args.seed)
+    root = run_screen(cfg, run_id=args.run_id, config_path=str(args.config))
+    print(root)
+    return 0
+
+
 def _cmd_posset(args: argparse.Namespace) -> int:
     """The position-set check (docs/DECISIONS.md D52): sets of query tokens swapped together."""
     from .config import load_posset_config
@@ -444,6 +459,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--output-dir", default=None, help="override output_dir from the config")
     p.add_argument("--run-id", default=None, help="explicit run directory name")
     p.add_argument("--seed", type=int, default=None, help="override the seed (the draws, bootstraps)")
+    p = sub.add_parser("screen", help="the task screen for a conditional task (D62): accuracy, cells, gaps and "
+                                      "tokenization of seven forms, forward passes only")
+    p.add_argument("--config", required=True, help="YAML config (configs/screen_<model>.yaml)")
+    p.add_argument("--output-dir", default=None, help="override output_dir from the config")
+    p.add_argument("--run-id", default=None, help="explicit run directory name")
+    p.add_argument("--seed", type=int, default=None, help="override the seed (the draws, bootstraps)")
     p = sub.add_parser("posset", help="the position-set check (D52): D45's whole-state swaps at sets of query tokens "
                                       "together, read against the answer token alone")
     p.add_argument("--config", required=True, help="YAML config (configs/posset_<model>.yaml)")
@@ -494,6 +515,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_opsteer(args)
     if args.command == "opset":
         return _cmd_opset(args)
+    if args.command == "screen":
+        return _cmd_screen(args)
     if args.command == "interact":
         return _cmd_interact(args)
     if args.command == "varprobe":

@@ -1447,3 +1447,50 @@ def load_interact_config(path: str | Path) -> InteractConfig:
     if not (0 < cfg.sufficient <= 1 and 0 < cfg.alpha < 1):
         raise ValueError("sufficient in (0, 1], alpha in (0, 1)")
     return cfg
+
+
+SCREEN_FORMATS = ("max", "if_gt", "if_mixed", "if_given", "ternary", "python", "if_sum")  # D62 (screen.FORMATS)
+
+
+@dataclass
+class ScreenConfig:
+    """The task screen for a conditional task (docs/DECISIONS.md D62): forward passes only.
+
+    formats          the surface forms (max, if_gt, if_mixed, if_given, ternary, python, if_sum)
+    n_queries        queries per form, balanced over its cells
+    n_shots          demonstration counts, each a multiple of every form's number of cells (8 for if_mixed)
+    n_demo_pool      the demonstration pool per form, disjoint from the queries, balanced over the cells
+    n_boot, alpha    bootstrap intervals over queries
+    accuracy_lo      a form passes when accuracy's lower bound reaches this (D62: 0.70) ...
+    gap_max          ... and the shortcut, branch and sign gaps' intervals lie within [-gap_max, gap_max] (0.15)
+    determinism_check  one batch repeated; bit identity required (D23)
+    """
+
+    name: str = "screen"
+    seed: int = 20260916
+    output_dir: str = "results"
+    model: ModelConfig = field(default_factory=ModelConfig)
+    formats: list[str] = field(default_factory=lambda: list(SCREEN_FORMATS))
+    n_queries: int = 1024
+    n_shots: list[int] = field(default_factory=lambda: [8, 16])
+    n_demo_pool: int = 192
+    n_boot: int = 1000
+    alpha: float = 0.05
+    accuracy_lo: float = 0.70
+    gap_max: float = 0.15
+    determinism_check: bool = True
+
+
+def load_screen_config(path: str | Path) -> ScreenConfig:
+    with open(path) as f:
+        data = yaml.safe_load(f) or {}
+    cfg = _from_dict(ScreenConfig, data)
+    if not cfg.formats or any(x not in SCREEN_FORMATS for x in cfg.formats) or len(set(cfg.formats)) != len(cfg.formats):
+        raise ValueError(f"formats must be a non-empty subset of {', '.join(SCREEN_FORMATS)}")
+    if not cfg.n_shots or any(k < 8 or k % 8 for k in cfg.n_shots) or len(set(cfg.n_shots)) != len(cfg.n_shots):
+        raise ValueError("each n_shots must be a positive multiple of 8 (if_mixed has eight cells), without repeats")
+    if cfg.n_queries < 8 or cfg.n_queries % 8 or cfg.n_demo_pool % 8 or cfg.n_demo_pool < max(cfg.n_shots):
+        raise ValueError("n_queries and n_demo_pool must be multiples of 8, the pool at least the largest n_shots")
+    if not (0 < cfg.accuracy_lo <= 1 and 0 < cfg.gap_max < 1 and 0 < cfg.alpha < 1):
+        raise ValueError("accuracy_lo in (0, 1], gap_max in (0, 1), alpha in (0, 1)")
+    return cfg

@@ -37,6 +37,12 @@ def test_all_configs_load():
             cfg = load_das_config(p)
             assert cfg.sites and (cfg.control_site in cfg.sites or (cfg.control_site is None and "_b.yaml" in p.name)), p
             continue
+        if "screen" in p.name:  # the task screen for a conditional task (D62)
+            from directions.config import load_screen_config
+
+            cfg = load_screen_config(p)
+            assert cfg.formats and cfg.n_shots, p
+            continue
         if "interact" in p.name:  # the operator and the operands changed independently and together (D61)
             from directions.config import load_interact_config
 
@@ -763,3 +769,27 @@ def test_interact_configs_follow_d61():
         assert c["model"]["batch_size"] == d57["batch_size"] and c["model"]["dtype"] == d57["dtype"] == "bfloat16"
     c = cs["8b"]
     assert c["pairs"] == ["OS", "S1S2", "OD"] and c["n_bases"] == 1024 and c["read_points"] is None and c["sufficient"] == 0.5
+
+
+def test_screen_configs_follow_d62():
+    """D62: the 4B, 8B and 14B files differ only in model, with the batch sizes of their D57 files; every form, 1024
+    queries, 8 and 16 demonstrations, the preregistered criteria."""
+    from dataclasses import asdict
+
+    import yaml
+
+    from directions.config import SCREEN_FORMATS, load_screen_config
+    from directions.screen import FORMATS, SELECTION_ORDER
+
+    assert FORMATS == SCREEN_FORMATS and set(SELECTION_ORDER) <= set(FORMATS)
+    files = sorted(CONFIGS.glob("screen_qwen3_*.yaml"))
+    assert [p.name for p in files] == [f"screen_qwen3_{s}.yaml" for s in ("14b", "4b", "8b")]
+    cs = {p.name.split("_")[-1][:-5]: asdict(load_screen_config(p)) for p in files}
+    for size, c in cs.items():
+        assert dict(c, model=None) == dict(cs["8b"], model=None), size
+        assert c["model"]["name"] == f"Qwen/Qwen3-{size.upper()}-Base" and c["model"]["device"] == "cuda"
+        d57 = yaml.safe_load((CONFIGS / f"varmap_maxmin_qwen3_{size}.yaml").read_text())["model"]
+        assert c["model"]["batch_size"] == d57["batch_size"] and c["model"]["dtype"] == d57["dtype"] == "bfloat16"
+    c = cs["8b"]
+    assert c["formats"] == list(SCREEN_FORMATS) and c["n_queries"] == 1024 and c["n_shots"] == [8, 16]
+    assert c["n_demo_pool"] == 192 and c["accuracy_lo"] == 0.70 and c["gap_max"] == 0.15 and c["seed"] == 20260916
