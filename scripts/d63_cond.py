@@ -195,7 +195,7 @@ def figure(size: str, parts: dict[str, Path], path: Path) -> None:
         ax.axhline(0.5, color="#52514e", lw=0.5, ls=":")
         ax.set_ylim(-0.02, 1.02)
         ax.set_xlabel("read point", fontsize=8)
-        ax.set_title(f"pairs: additive state's share of the joint change's answer; {pr['reading']['order']}", fontsize=8, loc="left")
+        ax.set_title(f"pairs: the additive state's share of the joint change's answer\n{pr['reading']['order']}", fontsize=8, loc="left")
         ax.legend(fontsize=6.5, frameon=False, loc="lower left")
         ax.tick_params(labelsize=7)
     else:
