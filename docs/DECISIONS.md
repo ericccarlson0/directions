@@ -4214,3 +4214,41 @@ Outcome (runs 39888184099, 39888455166; STATUS.md, "D59"):
     - At the answer position: the same, counted from R_C on.
     - Otherwise **not one direction**, or **not interpretable** where the null switches.
   - Runs: the 8B on the first RTX 4090 lane to finish its job, the 14B after its job (lane ci-8b).
+* **Outcome (runs 40819269179, 40819272019, 40824384803 on the 8B; 40821140149, 40824386859 on the 14B; STATUS.md,
+  "D63"; `docs/cond/d63_cond.json`).**
+  - Checks:
+    - the identity and determinism checks are identical in every run that has them (the probe and steer parts
+      have none of their own);
+    - the additive state equals the joint state at read point 0 on every base of every pair;
+    - the joint patch gives 11's answer on 1.00 of the bases at every read point.
+  - **Q1: formed at the condition**, on both models. The h token holds the condition:
+    - as its digit (the same-outcome source changes the answer) through read point 12 on the 8B and 13 on the 14B;
+    - as the computed outcome (no change) from 13 and 14, until 15 and 16 (C_out).
+    - The structural tokens after it take it over: the `,` holds it as a value from 19 on the 14B, and P alone is
+      sufficient from 17 and 18.
+    - It reaches the answer token alone at R_C = 23 and 28.
+    - The value test does not apply at g: the same-outcome source keeps the g crossing by construction. The
+      reading script applies it from h on.
+  - **Q2.** K_CB, K_CU, K_AB, K_CN: 8B 24, 24, 25, none; 14B 29, 29, 33, none.
+    - The 8B reads **together** (K_CB − K_AB = −1).
+    - The 14B reads **select, then compute** (−4).
+    - The null is clear on both, and better than D61's: CN's share is 0.98–1.00 at every read point, with no dip.
+    - Localization: the answer token for every pair on both models. The one exception is the 8B's AB at K − 2, at
+      the chosen branch's own tokens.
+  - **Q3.**
+    - By the rule, **the unchosen sum is computed**: S_un given Y is carried at the answer position in the window.
+      But it is carried there from read point 1 on, in both models, and peaks early (the 8B's excess 0.28 at 8).
+      A linear probe reads a sum off the attended digits' magnitudes before any layer could compute it. The
+      reading stands as preregistered and is uninformative.
+    - K_CU − K_CB = 0 on both models, as predicted under either account.
+  - **Part 5, the direction.**
+    - At h, the class-mean direction switches the answer only where h holds the computed outcome:
+      - 8B: read points 13–15, 0.75–0.84 (lower bounds 0.65–0.75);
+      - 14B: 14–16, 0.73–0.87.
+    - Before that, while h holds the digit, the swap switches it (0.97–0.99) and the direction does not (at most
+      0.51 at 12–13).
+    - The readings: the 14B, **one direction for as long as the token holds it** (null 0.00). The 8B, **not
+      interpretable** by the rule: one random direction switches 4 of 68 bases (0.06) at read point 13, against
+      the direction's 0.75 there.
+    - At the answer position: **not one direction** on both models. The 8B's direction switches 0.24–0.40 at 22–23,
+      as the condition arrives, and nothing from 24 = K_CB on. The 14B's at most 0.08, nothing from 29 = K_CB.

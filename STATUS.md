@@ -6056,6 +6056,106 @@ Accuracy at 8 demonstrations, with whether the form passes D62's criteria:
 - Sixteen demonstrations improve no form enough to change the selection. The branch gaps grow (the 8B's `IF` falls
   to 0.84).
 
+### D63: `IF(g>h, a+b, c+d)` in full: where the computed condition is formed, where it meets the sums, and whether the unchosen sum is computed (Qwen3 8B, 14B Base, seed 20260916)
+
+```
+# workflow runs; 16.44 USD in all (balance 31.56 -> 15.12)
+#   40819269179: request d63_map_sets_qwen3_8b_seed20260916, commit c1c270a, RTX 4090, EUR-NO-1, ci-b; map 88 min, sets 38
+#   40819272019: request d63_pairs_probe_qwen3_8b_seed20260916, commit d586fac, RTX 4090, ci; pairs 90 min, probe 2
+#   40824384803: request d63_steer_qwen3_8b_seed20260916, commit ed5ca01, RTX 4090, ci; 8 min
+#   40821140149: request d63_cond_qwen3_14b_seed20260916, commit 57fcb29, H100 80GB HBM3, US-CA-2, ci-8b; map 49 min,
+#     pairs 46, sets 24, probe 1
+#   40824386859: request d63_steer_qwen3_14b_seed20260916, commit 4a04843, H100, ci-8b; 4 min
+# identity and determinism checks identical in every part that has them (the probe and steer parts have none of their
+# own); additive = joint at read point 0 on every base; peak memory 19.3 GiB (8B; one OOM warning at the map's last
+# type, recovered: the map's patch tensor was kept alive, fixed in 5684076 for later runs) and 36.3 GiB (14B)
+uv run python scripts/stages.py 'uv run directions cond --config configs/cond_qwen3_8b.yaml --part map --run-id cond_map_qwen3_8b_seed20260916' 'uv run directions cond --config configs/cond_qwen3_8b.yaml --part sets --run-id cond_sets_qwen3_8b_seed20260916'
+uv run python scripts/stages.py 'uv run directions cond --config configs/cond_qwen3_8b.yaml --part pairs --run-id cond_pairs_qwen3_8b_seed20260916' 'uv run directions cond --config configs/cond_qwen3_8b.yaml --part probe --run-id cond_probe_qwen3_8b_seed20260916'
+uv run python scripts/stages.py 'uv run directions cond --config configs/cond_qwen3_8b.yaml --part steer --run-id cond_steer_qwen3_8b_seed20260916'
+# the 14B: the same five parts from configs/cond_qwen3_14b.yaml (map, pairs, sets, probe in one job; steer in a second); then:
+uv run python scripts/d63_cond.py results/remote/run-40819269179 results/remote/run-40819272019 results/remote/run-40824384803 \
+  results/remote/run-40821140149 results/remote/run-40824386859 --out docs/cond/d63_cond.json --figures docs/cond
+```
+
+Figures: `docs/cond/qwen3_{8b,14b}_cond.png`:
+- top row, the map: the condition flipped; the same outcome with the h crossing flipped; the chosen sum changed;
+- bottom row: the four pairs' additive shares; the condition's token sets; the probes.
+
+**The route of the condition** (read points; the 8B has 36 layers, the 14B 40):
+
+| | 8B | 14B |
+|---|---|---|
+| h holds the digit h (the same-outcome source changes the answer) | 0–12 | 0–13 |
+| h holds the computed outcome (it does not) | 13–15 | 14–16 |
+| the condition's tokens alone sufficient (token sets) | 8–16 | 8–16 |
+| the structural tokens alone sufficient (`,` and the spaces) | 17 (with `=`, 18) | 18–20 |
+| the answer position alone holds the condition (R_C) | 23 (0.64 of the stack) | 28 (0.70) |
+| the chosen sum arrives at the answer position (G_ch) | 24 | 30 |
+| either branch's tokens alone carry the condition | never | never |
+| `=` alone carries it | never | never |
+
+- **Q1: the condition is formed at its own token, early.**
+  - At 0.36 of the stack h stops holding its digit and holds the outcome g > h. The `,` after it then carries it
+    (a value at 19 on the 14B).
+  - It reaches the answer position at 0.64–0.70 of the stack, before the chosen sum does.
+  - The sums never take that route. Each stays at its own branch's tokens (Bch sufficient from 8 to 23 and 28) and
+    goes straight to the answer position, as in D45.
+  - So the control is computed where its inputs are and held as a value. The computation it controls is deferred
+    to the answer position.
+- **The computed condition is one direction at h, and only while h holds it** (part 5, the class-mean direction
+  added toward the other outcome):
+
+  | | 8B | 14B |
+  |---|---|---|
+  | switch at h, where h holds the outcome | 0.75–0.84 (read points 13–15) | 0.73–0.87 (14–16) |
+  | switch at h before, where it holds the digit | at most 0.51 (swap 0.97) | at most 0.51 (swap 0.96–0.99) |
+  | null (2 random directions of the same norm) | ≤ 0.06 (4 of 68 bases at 13) | 0.00 |
+  | reading | not interpretable by the rule (null 0.06 > 0.05) | one direction for as long as the token holds it |
+  | switch at the answer position | 0.24–0.40 at 22–23, 0 from 24 | ≤ 0.08, 0 from 29 |
+
+  The digit is not one direction; the outcome is. At the answer position the direction stops working at the read
+  point where the condition is combined with the branches (K_CB).
+- **Q2: where it meets the sums** (additive state's share of 11's answer; K the first read point with an upper
+  bound below 0.5):
+
+  | pair | 8B | 14B |
+  |---|---|---|
+  | CB, the condition × both sums | 0.97 at 20 → 0.15 at 24; **K 24** | 0.94 at 25 → 0.13 at 29; **K 29** |
+  | CU, the condition × the unchosen sum | 0.90 at 23 → 0.18 at 24; **K 24** | 0.88 at 28 → 0.22 at 29; **K 29** |
+  | AB, the chosen branch's two digits | 0.93 at 24 → 0.40 at 25; **K 25** | 0.88 at 29, 0.56 at 32 → 0.24 at 33; **K 33** |
+  | CN, the null | 0.98–1.00 throughout; none | 0.98–1.00; none |
+  | reading | **together** (−1) | **select, then compute** (−4) |
+
+  - All failures sit at the answer position. At K to K+2, the additive state there alone, the joint elsewhere,
+    gives 0.13–0.57 (8B) and 0.20–0.65 (14B); every other group stays at 0.91 or more.
+  - On the 14B the order is clear.
+    - The condition is at the answer position at 27–28.
+    - The branch content arrives at 29–30, already selected: the condition and the sums stop being additively
+      separable exactly then (CB and CU at 29).
+    - The chosen branch's two digits stay separable until 32 and are combined into the sum at 33.
+    - So the sum is formed after the selection, from the chosen branch's digits. On the 8B the same steps fall
+      within two read points (23, 24, 25).
+  - What the failed patch gives:
+    - CB: the sums' change without the condition's (0.55–0.58 on the 8B) or the condition's without the sums'
+      (0.35–0.37).
+    - CU: the condition's change with the unchosen branch's change lost (0.88–0.94).
+    - After the selection the unchosen branch's digits no longer reach the answer.
+- **Q3.** CU fails with CB (K_CU − K_CB = 0 on both), as predicted. The preregistered probe reads "the unchosen sum
+  is computed", but it is uninformative: S_un given Y is decodable at the answer position from read point 1 on,
+  peaking at read point 8 on the 8B. A linear readout of attended digit magnitudes gives any sum.
+  - The condition probes are decodable from read point 0 at h for the same reason: g > h is nearly linear in the
+    digits.
+  - The causal evidence on Q3 is the order above. On the 14B the unchosen sum is never formed at the answer
+    position, because selection precedes summation. On the 8B the two cannot be separated.
+- **Against the max/min line** (D57–D61):
+  - The given operator travelled separately to `=` and the answer position and was combined where the operands were
+    combined with each other (K_OS ≈ K_S1S2).
+  - The computed condition is formed earlier and at its own position, held as a value and as a direction while it
+    sits there. It acts at the answer position as a selector of which branch's operands are combined (14B), not as
+    a parameter of one comparison.
+  - Control and computation separate by place and time here: the control at h at 0.36 of the stack, the
+    computation at the answer position at 0.67–0.83.
+
 ## Not yet run / known limitations
 
 - The variable map (D45) has run once per model (Qwen3 0.6B, 1.7B, 4B Base; seed 20260916) on two expression tasks
@@ -6287,6 +6387,10 @@ uv run python scripts/stages.py 'uv run directions varmap --config configs/varma
 # D61, the additivity test (1024 bases): the 8B first (lane ci-b), then the 14B (H100, ci-8b) and the 4B (lane ci):
 uv run python scripts/stages.py 'uv run directions interact --config configs/interact_qwen3_8b.yaml --run-id interact_qwen3_8b_seed20260916'
 uv run python scripts/d61_interact.py results/remote/run-40722778559 results/remote/run-40719653860 results/remote/run-40722748035 --out docs/varmap/d61_interact.json
+# D62, the task screen (configs/screen_qwen3_{4b,8b,14b}.yaml), and D63, IF(g>h, a+b, c+d) in full on the 8B and 14B
+# (configs/cond_qwen3_{8b,14b}.yaml, --part map | sets | pairs | probe | steer); runs and readings in the D62 and D63 entries above
+uv run python scripts/d62_screen.py results/remote/run-40818312630 results/remote/run-40817856893 results/remote/run-40818310225 --out docs/screen/d62_screen.json
+uv run python scripts/d63_cond.py results/remote/run-40819269179 results/remote/run-40819272019 results/remote/run-40824384803 results/remote/run-40821140149 results/remote/run-40824386859 --out docs/cond/d63_cond.json --figures docs/cond
 # iteration 10 (D33 amended: quarter strength, the neighbouring candidate layers, the patch test at every compared
 # layer on eighths of the depth for the learned and the head-mean vector, per-block writing), on a second seed,
 # as run (workflow runs in the iteration-10 entry): first the learned-vector protocol (D31) at seed 20260916 on
