@@ -30,6 +30,8 @@ def test_q1(d63):
     assert d63.q1({"R_C": 24, "value_C": {" =": 20}, "digit_C": {"<h>": [0, 19]}}, LABELS, rps)["reading"] == "deferred"
     assert d63.q1({"R_C": 24, "value_C": {"<c>": 15}, "digit_C": {"<h>": [0, 19]}}, LABELS, rps)["reading"] == "undecided"
     assert d63.q1({"R_C": None, "value_C": {}, "digit_C": {}}, LABELS, rps)["reading"] == "undecided"
+    # g's "value" is no test (the same-outcome source keeps the g crossing): it neither forms nor blocks a reading
+    assert d63.q1({"R_C": 24, "value_C": {"<g>": 0, "␣": 25}, "digit_C": {"<h>": [0, 22]}}, LABELS, rps)["reading"] == "deferred"
 
 
 def test_q3(d63):

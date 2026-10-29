@@ -47,8 +47,11 @@ def q1(read: dict, labels: list[str], read_points: list[int]) -> dict:
     limit = R if R is not None else read_points[-1] + 1
     h = labels.index("<h>")
     after = [labels[j] for j in range(h + 1, labels.index("<a>")) if labels[j].strip() in (",", "")]
-    local = {t: m for t, m in read.get("value_C", {}).items() if (t == "<h>" or t in after) and m < limit}
-    early = {t: m for t, m in read.get("value_C", {}).items() if m < limit}
+    # the value test holds from h on: the same-outcome source keeps the g crossing by construction, so a site holding g
+    # alone (or the sign) cannot change the answer under it whatever it holds
+    tested = {t: m for t, m in read.get("value_C", {}).items() if t not in ("<g>", "<cmp>")}
+    local = {t: m for t, m in tested.items() if (t == "<h>" or t in after) and m < limit}
+    early = {t: m for t, m in tested.items() if m < limit}
     first = min(early.items(), key=lambda kv: kv[1]) if early else None
     h_digit = read.get("digit_C", {}).get("<h>")
     if local:
