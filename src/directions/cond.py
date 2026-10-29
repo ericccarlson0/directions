@@ -422,17 +422,23 @@ class Conditional:
                 log.info("map/%s: fewer than two bases kept", k)
                 continue
             src_rows = [sp[int(np.flatnonzero(idx == i)[0])] for i in rows]
-            states = backend.capture_sites(src_rows, positions[rows])
-            ex, mm, jj = (x.ravel() for x in np.meshgrid(np.arange(n), np.arange(M), np.arange(P), indexing="ij"))
-            rp = np.asarray(rps)[mm]
-            dev = states.device
-            values = states[torch.as_tensor(ex, device=dev), torch.as_tensor(rp, device=dev), torch.as_tensor(jj, device=dev)]
-            prompts = [base_prompts[rows[e]] for e in ex]
-            patch = SitePatch(rp, positions[rows][ex, jj], values)
-            res = backend.run(prompts, site_patch=patch, token_ids=tid)
-            self._determinism(prompts, patch)
-            del values, states
-            am = res.query_argmax.reshape(n, M, P)
+            am = np.zeros((n, M, P), dtype=np.int64)
+            step = 2 * cfg.chunk  # bases per swap chunk: their states and swap values stay small on a 24 GB card
+            for c0 in range(0, n, step):
+                rc = np.arange(c0, min(c0 + step, n))
+                states = backend.capture_sites([src_rows[e] for e in rc], positions[rows[rc]])
+                ex, mm, jj = (x.ravel() for x in np.meshgrid(np.arange(len(rc)), np.arange(M), np.arange(P), indexing="ij"))
+                rp = np.asarray(rps)[mm]
+                dev = states.device
+                values = states[torch.as_tensor(ex, device=dev), torch.as_tensor(rp, device=dev), torch.as_tensor(jj, device=dev)]
+                prompts = [base_prompts[rows[rc[e]]] for e in ex]
+                patch = SitePatch(rp, positions[rows[rc]][ex, jj], values)
+                res = backend.run(prompts, site_patch=patch, token_ids=tid)
+                self._determinism(prompts, patch)
+                am[rc] = res.query_argmax.reshape(len(rc), M, P)
+                del values, states, patch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
             pred = np.array([srcs[i][k][1] for i in rows])
             flip = am == tid[pred][:, None, None]
             change = am != base_am[rows][:, None, None]
@@ -493,7 +499,9 @@ class Conditional:
                 res = backend.run(prompts, site_patch=patch, token_ids=tid)
                 self._determinism(prompts, patch)
                 flips[si] = (res.query_argmax == tid[pred][ex]).reshape(n, len(rps))
-                del vals
+                del vals, patch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
             del states
             seed = derive_seed(cfg.seed, "cond", "sets", k, "bootstrap")
             rates = {name: bootstrap_rate(flips[si], np.random.default_rng(seed + si), cfg.n_boot, cfg.alpha) for si, name in enumerate(SETS)}
