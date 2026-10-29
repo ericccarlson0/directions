@@ -4198,3 +4198,19 @@ Outcome (runs 39888184099, 39888455166; STATUS.md, "D59"):
 * **Runs.** Seed 20260916, one execution.
   - The 8B in two jobs on two RTX 4090 lanes (EUR-NO-1): map + sets on ci-b, pairs + probe on ci.
   - The 14B in one job on an H100 (US-CA-2, ci-8b), once the 8B has logged its first map type.
+* **Part 5, added before any of its data (2026-10-29): the condition's direction** (D58).
+  - The direction is the class-mean difference of the states, outcome 0 minus outcome 1. It is taken at h and at
+    the answer position, per read point, over a direction set of 256 bases (the answered ones).
+  - On 128 test bases (answered, with an answered condition-flip source), at every read point, at h and at the answer
+    position, three interventions:
+    - the direction added toward the other outcome (+v where the first branch is chosen, −v where the second is);
+    - the condition-flip source's whole state swapped in there;
+    - two random directions of the same norm (the null).
+  - The switch rate: the answer becomes the other sum.
+  - Readings:
+    - At h, **one direction** where the added direction's switch rate reaches a lower bound of 0.5, with the null's
+      mean at most 0.05 at every read point. It is one direction **for as long as the token holds it** if its last
+      such read point is no more than one before the swap's, and **only early** otherwise.
+    - At the answer position: the same, counted from R_C on.
+    - Otherwise **not one direction**, or **not interpretable** where the null switches.
+  - Runs: the 8B on the first RTX 4090 lane to finish its job, the 14B after its job (lane ci-8b).

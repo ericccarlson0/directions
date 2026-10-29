@@ -24,7 +24,7 @@ from pathlib import Path
 
 import numpy as np
 
-PARTS = ("map", "sets", "pairs", "probe")
+PARTS = ("map", "sets", "pairs", "probe", "steer")
 PAIR_COL = {"CB": "#2a78d6", "CU": "#eb6834", "AB": "#1baf7a", "CN": "#8a5cd0", "SG": "#d9a521"}
 PAIR_LABEL = {"CB": "condition x both sums", "CU": "condition x unchosen sum", "AB": "chosen branch: digit x digit",
               "CN": "same-outcome condition x chosen sum (null)", "SG": "sign x condition digits"}
@@ -35,7 +35,7 @@ def find_runs(roots: list[Path]) -> dict[str, dict[str, Path]]:
     runs: dict[str, dict[str, Path]] = {}
     for root in roots:
         for run in sorted(root.glob("cond_*_qwen3_*")):
-            m = re.match(r"cond_(map|sets|pairs|probe)_qwen3_(\d+(?:\.\d+)?b)", run.name)
+            m = re.match(r"cond_(map|sets|pairs|probe|steer)_qwen3_(\d+(?:\.\d+)?b)", run.name)
             if m and (run / "core" / f"{m.group(1)}.json").exists():
                 runs.setdefault(m.group(2), {})[m.group(1)] = run
     return runs
@@ -68,6 +68,34 @@ def q3(probe: dict | None, read_points: list[int], G_ch: int | None, K_CB: int |
     window = [m for m in carried if G_ch - 2 <= m <= K_CB]
     return {"reading": "the unchosen sum is computed" if window else "not decodable", "carried_at_A": carried,
             "window": [G_ch - 2, K_CB], "in_window": window}
+
+
+def steer_reading(st: dict, R_C: int | None, C_out_h: int | None) -> dict:
+    """D63's steering readings: at h, one direction if the added direction's switch reaches a lower bound of 0.5 with
+    the null at most 0.05 everywhere, for as long as the token holds it if its span ends no more than one read point
+    before the swap's; at the answer, the same from R_C on."""
+    out = {"n": st["n"], "n_dir": st["n_dir"]}
+    rps = st["read_points"]
+    for site, a in st.get("arms", {}).items():
+        lo = np.asarray(a["rates"]["steer"]["lo"])
+        ok = lo >= 0.5 if site == "h" else (lo >= 0.5) & (np.asarray(rps) >= (R_C if R_C is not None else 10**6))
+        clean = a["null_max"] <= 0.05
+        first = int(rps[np.flatnonzero(ok)[0]]) if ok.any() else None
+        last = int(rps[np.flatnonzero(ok)[-1]]) if ok.any() else None
+        swap_last = a["span"]["swap"][1]
+        if first is None or not clean:
+            reading = "not one direction" if clean else "not interpretable (the null switches)"
+        elif site == "h":
+            reading = ("one direction for as long as the token holds it" if swap_last is None or last >= swap_last - 1
+                       else "one direction only early")
+        else:
+            reading = "one direction at the answer"
+        out[site] = {"reading": reading, "span_steer": [first, last], "span_swap": a["span"]["swap"],
+                     "steer_max": round(a["steer_max"], 3), "null_max": round(a["null_max"], 3),
+                     "switch": {int(m): round(float(x), 2) for m, x in zip(rps, a["rates"]["steer"]["mean"]) if m % 4 == 0},
+                     "swap": {int(m): round(float(x), 2) for m, x in zip(rps, a["rates"]["swap"]["mean"]) if m % 4 == 0}}
+    out["C_out_h_from_map"] = C_out_h
+    return out
 
 
 def read_model(parts: dict[str, Path]) -> dict:
@@ -110,6 +138,8 @@ def read_model(parts: dict[str, Path]) -> dict:
         out["probe"] = {"n": pb["n"], "sites": pb["sites"],
                         "carried": {k: [m for m, c in zip(rps, v["carried"]) if c] for k, v in pb["probes"].items()},
                         "max_excess": {k: round(float(np.max(v["excess"])), 3) for k, v in pb["probes"].items()}}
+    if "steer" in data:
+        out["steer"] = steer_reading(data["steer"], out.get("map", {}).get("R_C"), out.get("map", {}).get("C_out", {}).get("<h>"))
     G_ch = out.get("map", {}).get("G_ch")
     K_CB = out.get("pairs", {}).get("reading", {}).get("K", {}).get("CB")
     out["Q3"] = q3(data.get("probe"), data["probe"]["read_points"] if "probe" in data else [], G_ch, K_CB)
@@ -222,7 +252,7 @@ def main(argv: list[str] | None = None) -> int:
         s = read_model(runs[size])
         summary[f"qwen3_{size}"] = s
         print(f"qwen3_{size}: parts {sorted(runs[size])}")
-        for q in ("Q1", "Q2", "Q3"):
+        for q in ("Q1", "Q2", "Q3", "steer"):
             if q in s:
                 print(f"  {q}: {s[q]}")
         if "map" in s:

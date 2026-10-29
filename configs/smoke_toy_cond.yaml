@@ -24,3 +24,6 @@ n_perm: 10
 read_points: [0, 1, 2]
 n_boot: 50
 gate: false
+n_dir: 16
+n_steer: 8
+n_null: 1

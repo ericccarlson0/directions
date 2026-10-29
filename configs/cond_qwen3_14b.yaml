@@ -24,6 +24,9 @@ pairs: [CB, CU, AB, CN]       # condition x both sums; condition x the unchosen 
 chunk: 16                     # bases per capture chunk in the pairs (eight patches each: 128 rows per batch)
 n_probe: 1024                 # the probes' examples (the answered ones enter)
 n_perm: 200                   # the probes' permutation null (D46)
+n_dir: 256                    # the steering part: the direction set (outcome-0 minus outcome-1 class means)
+n_steer: 128                  # its test bases
+n_null: 2                     # norm-matched random directions
 read_points: null             # every read point 0..L
 n_boot: 1000
 alpha: 0.05

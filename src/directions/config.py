@@ -1511,6 +1511,8 @@ class CondConfig:
     n_pairs, pair_cap, pairs, chunk  bases drawn for the additivity pairs, the most kept per pair, the pairs, and
                      bases per capture chunk
     n_probe, n_perm  examples of the conditional probes, and permutations of their null
+    n_dir, n_steer, n_null  the steering part (D58's construction): the direction set, the test bases, and the
+                     norm-matched random directions
     n_boot, alpha    bootstrap intervals over bases
     present          a swap's source value is present where its flip rate's lower bound reaches this (D45: 0.5)
     value_change     ... held as a value where the same-outcome source's change rate stays below it (upper bound)
@@ -1534,6 +1536,9 @@ class CondConfig:
     chunk: int = 16
     n_probe: int = 1024
     n_perm: int = 200
+    n_dir: int = 256
+    n_steer: int = 128
+    n_null: int = 2
     read_points: list[int] | None = None
     n_boot: int = 1000
     alpha: float = 0.05
@@ -1556,7 +1561,8 @@ def load_cond_config(path: str | Path) -> CondConfig:
     if "SG" in cfg.pairs and cfg.form != "if_mixed":
         raise ValueError("the SG pair needs the sign: form if_mixed")
     cells = 8 if cfg.form == "if_mixed" else 4
-    if any(n % cells for n in (cfg.n_shots, cfg.n_demo_pool, cfg.n_map, cfg.n_sets, cfg.n_pairs, cfg.n_probe)):
+    if any(n % cells for n in (cfg.n_shots, cfg.n_demo_pool, cfg.n_map, cfg.n_sets, cfg.n_pairs, cfg.n_probe, cfg.n_dir,
+                               cfg.n_steer)):
         raise ValueError(f"n_shots, n_demo_pool and the base counts must be multiples of the form's {cells} cells")
     if cfg.pair_cap < 2 or cfg.chunk < 1 or cfg.n_perm < 1:
         raise ValueError("pair_cap at least 2, chunk and n_perm at least 1")

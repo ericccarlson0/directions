@@ -477,7 +477,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("cond", help="the full test of the conditional task (D63): the variable map, token-set swaps, "
                                     "the additivity pairs or the probes, one part per run")
     p.add_argument("--config", required=True, help="YAML config (configs/cond_<model>.yaml)")
-    p.add_argument("--part", required=True, choices=["map", "sets", "pairs", "probe"], help="the part to run")
+    p.add_argument("--part", required=True, choices=["map", "sets", "pairs", "probe", "steer"], help="the part to run")
     p.add_argument("--output-dir", default=None, help="override output_dir from the config")
     p.add_argument("--run-id", default=None, help="explicit run directory name")
     p.add_argument("--seed", type=int, default=None, help="override the seed (the draws, bootstraps)")

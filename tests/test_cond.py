@@ -128,7 +128,7 @@ def test_pair_reading():
     assert CATS[0] == "11"
 
 
-@pytest.mark.parametrize("part", ["map", "sets", "pairs", "probe"])
+@pytest.mark.parametrize("part", ["map", "sets", "pairs", "probe", "steer"])
 def test_toy_run(tmp_path, part):
     cfg = load_cond_config("configs/smoke_toy_cond.yaml")
     cfg.output_dir = str(tmp_path)
@@ -143,3 +143,6 @@ def test_toy_run(tmp_path, part):
         assert meta["identity_check"] and all(meta["identity_check"].values())
     if part == "probe":
         assert set(out["probes"]) == {f"{s}/{t}" for s in ("Cd_last", "E", "A") for t in ("C", "C|Y", "Sun|Y")}
+    if part == "steer":
+        assert set(out["arms"]) == {"h", "A"} and out["sites"] == {"h": "<h>", "A": "␣"}
+        assert {"steer", "swap", "null0"} <= set(out["arms"]["h"]["rates"]) and out["n"] >= 2

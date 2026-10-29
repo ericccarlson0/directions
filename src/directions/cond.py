@@ -15,7 +15,10 @@ parts, each its own run:
   branch's two digits (AB: where a sum is formed), condition digits that keep the condition x the chosen sum (CN: the
   null), and on ``if_mixed`` the sign x the condition's digits (SG: where the condition is computed);
 - ``probe`` (D46): conditional linear probes of the condition and of the unchosen sum given the answer at the
-  condition's last token, ``=`` and the answer position.
+  condition's last token, ``=`` and the answer position;
+- ``steer`` (D58): the condition's natural direction (the outcome-0 minus the outcome-1 class mean of the states at
+  ``h`` and at the answer position, from a direction set of its own) added toward the other outcome at that token,
+  beside the condition-flip source's whole state swapped in there and norm-matched random directions.
 
     uv run directions cond --config configs/cond_qwen3_8b.yaml --part map --run-id cond_map_qwen3_8b_seed20260916
 """
@@ -35,6 +38,7 @@ from .config import CondConfig
 from .determinism import compare_arrays
 from .interact import conversion_depth
 from .model import (
+    Intervention,
     ModelBackend,
     SitePatch,
     environment_metadata,
@@ -283,7 +287,7 @@ def pair_reading(K: dict[str, int | None], localization: dict[str, Any]) -> dict
 
 class Conditional:
     def __init__(self, cfg: CondConfig, part: str, run_id: str | None = None, config_path: str | None = None) -> None:
-        if part not in ("map", "sets", "pairs", "probe"):
+        if part not in ("map", "sets", "pairs", "probe", "steer"):
             raise ValueError(f"unknown part {part!r}")
         self.cfg, self.part = cfg, part
         slug = cfg.model.name.split("/")[-1].lower() if cfg.model.backend == "hf" else "toy"
@@ -644,6 +648,86 @@ class Conditional:
                 log.info("probe %s/%s: %.0fs; carried at read points %s (max excess %.3f)", s, name, time.time() - t0,
                          [self.read_points[i] for i in np.flatnonzero(r["carried"])], float(np.max(r["excess"])))
             del x
+        return out
+
+
+    # ------------------------------------------------------------------ #
+
+    def _steer(self) -> dict[str, Any]:
+        cfg, backend, log, tid = self.cfg, self.backend, self.log, self.tid
+        dbases, ddemos = self._bases("steer_dir", cfg.n_dir)
+        tbases, tdemos = self._bases("steer_test", cfg.n_steer)
+        dprompts = [render(ddemos[i], b) for i, b in enumerate(dbases)]
+        dpos, labels, dok = self._aligned(dprompts, dbases)
+        d_ok, _ = self._answered(dprompts, dbases)
+        sites = {"h": max(j for j, lab in enumerate(labels) if lab in ("<g>", "<h>", "<k>", "<cmp>")), "A": len(labels) - 1}
+        cols = list(sites.values())
+        drows = np.flatnonzero(dok & (d_ok if cfg.gate else True))
+        st = backend.capture_sites([dprompts[i] for i in drows], dpos[drows][:, cols]).float()  # (n, L+1, 2, d)
+        C = torch.as_tensor(np.array([dbases[i].C for i in drows]), device=st.device)
+        v = st[C == 0].mean(dim=0) - st[C == 1].mean(dim=0)  # (L+1, 2, d): toward outcome 0
+        within = st.norm(dim=-1).mean(dim=0)  # the states' mean norm, (L+1, 2)
+        del st
+        rps, M = self.read_points, len(self.read_points)
+        log.info("steer: direction from %d bases (outcome 1: %d); norm at h %s, at A %s (every 4th read point)", len(drows),
+                 int((C == 1).sum()), [round(float(x), 1) for x in v[::4, 0].norm(dim=-1)],
+                 [round(float(x), 1) for x in v[::4, 1].norm(dim=-1)])
+        tprompts = [render(tdemos[i], b) for i, b in enumerate(tbases)]
+        tpos, _, tok = self._aligned(tprompts, tbases)
+        t_ok, _ = self._answered(tprompts, tbases)
+        srcs = [flip_cond(b, rng_for(cfg.seed, "cond", cfg.form, "steer", "source", i), self.pool_texts) for i, b in enumerate(tbases)]
+        idx = np.flatnonzero(np.array([x is not None for x in srcs]) & tok & (t_ok if cfg.gate else True))
+        sp = [render(tdemos[i], srcs[i]) for i in idx]
+        s_pos, _, s_ok = self._aligned(sp, [srcs[i] for i in idx])
+        src_ok, _ = self._answered(sp, [srcs[i] for i in idx])
+        keep = s_ok & np.all(s_pos == tpos[idx], axis=1) & (src_ok if cfg.gate else True)
+        rows, sp = idx[keep], [x for x, k in zip(sp, keep) if k]
+        n = len(rows)
+        log.info("steer: %d test bases, %d kept (base and condition-flip source answered)", len(tbases), n)
+        out: dict[str, Any] = {"labels": labels, "sites": {k: labels[j] for k, j in sites.items()}, "n_dir": len(drows), "n": n,
+                               "norm": v.norm(dim=-1).cpu().numpy(), "state_norm": within.cpu().numpy(), "arms": {}}
+        if n < 2:
+            return out
+        prompts = [tprompts[i] for i in rows]
+        sign = torch.as_tensor([1.0 if tbases[i].C == 1 else -1.0 for i in rows], device=v.device)[:, None]  # toward the other outcome
+        other = tid[[tbases[i].other for i in rows]]
+        src_states = backend.capture_sites(sp, tpos[rows][:, cols])  # (n, L+1, 2, d)
+        seed = derive_seed(cfg.seed, "cond", "steer", "bootstrap")
+        for si, (name, col) in enumerate(sites.items()):
+            pos = tpos[rows][:, col]
+            am = {"steer": np.zeros((n, M), dtype=np.int64)}
+            for k in range(cfg.n_null):
+                am[f"null{k}"] = np.zeros((n, M), dtype=np.int64)
+            ex = np.repeat(np.arange(n), M)
+            mm = np.tile(np.asarray(rps), n)
+            dev = src_states.device
+            vals = src_states[torch.as_tensor(ex, device=dev), torch.as_tensor(mm, device=dev), si]
+            am["swap"] = backend.run([prompts[e] for e in ex], site_patch=SitePatch(mm, pos[ex], vals),
+                                     token_ids=tid).query_argmax.reshape(n, M)
+            del vals
+            for mi, m in enumerate(rps):
+                vm = v[m, si]
+                am["steer"][:, mi] = backend.run(prompts, interventions=[Intervention(m, (sign * vm).cpu().numpy(), 1.0, pos)],
+                                                 token_ids=tid).query_argmax
+                for k in range(cfg.n_null):
+                    r = torch.as_tensor(rng_for(cfg.seed, "cond", "steer", "null", name, k, m).standard_normal(vm.shape[0]),
+                                        dtype=vm.dtype, device=vm.device)
+                    r = r * (vm.norm() / r.norm().clamp_min(1e-12))
+                    am[f"null{k}"][:, mi] = backend.run(prompts, interventions=[Intervention(m, (sign * r).cpu().numpy(), 1.0, pos)],
+                                                        token_ids=tid).query_argmax
+            switch = {k: x == other[:, None] for k, x in am.items()}
+            rates = {k: bootstrap_rate(x, np.random.default_rng(seed + 7 * si + j), cfg.n_boot, cfg.alpha)
+                     for j, (k, x) in enumerate(switch.items())}
+            nulls = [np.asarray(rates[f"null{k}"]["mean"]) for k in range(cfg.n_null)]
+            null_mean = np.max(nulls, axis=0) if nulls else np.zeros(M)
+            span = {k: [_first(np.asarray(rates[k]["lo"]) >= cfg.present, rps), _last(np.asarray(rates[k]["lo"]) >= cfg.present, rps)]
+                    for k in ("steer", "swap")}
+            out["arms"][name] = {"rates": rates, "span": span, "null_max": float(null_mean.max()),
+                                 "steer_max": float(np.max(rates["steer"]["mean"]))}
+            log.info("steer at %s: switch by the direction %s, by the swap %s, null %s (every 4th read point); spans %s",
+                     labels[col], [round(float(x), 2) for x in rates["steer"]["mean"][::4]],
+                     [round(float(x), 2) for x in rates["swap"]["mean"][::4]], [round(float(x), 2) for x in null_mean[::4]], span)
+        del src_states
         return out
 
 
