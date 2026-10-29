@@ -108,3 +108,57 @@ head carries a sum.
 ## Not found
 	No mechanistic or DAS study of (a+b)−(c+d), three brackets or max(a+b, c+d) in pretrained LMs, and none that
 	counts how many computed intermediates a model holds as separate variables, or how that count changes with size.
+
+# The conditional line (D62–D63): prior work
+
+Checked 2026-10-29: a literature search for D63's questions (Q1 where a computed condition forms, Q2 where it meets
+the branch values, Q3 whether the unchosen branch is computed). The search agent's reading is noted per entry ("read":
+the paper's text; "abstract only"). The first entry's title, authors and abstract were verified against arXiv.
+
+## Anticipates
+
+## Test, then Route: How Language Models Execute In-Context Conditional Rules Across Models and Languages (2026)
+	Thavarasa & Sukumar, arXiv. Gemma-3 4B/12B and Qwen3-8B on in-context rules ("if the number is greater than 5,
+	output dog, otherwise cat"): a mid-stack residual band carries the predicate's truth value, consistent across
+	models, languages and predicates ("test is modular"); a learned routing subspace does not transfer to new label
+	pairs ("route is not"). By the agent's reading the predicate is first computed at the number's token and later
+	carried at the last token (Qwen3-8B L23–27). No outcome-preserving patch, so the band may carry the moved digit
+	rather than the truth value; D63's same-outcome source is that test. Q1 (formed locally), Q2.
+	(https://arxiv.org/abs/2608.04183)
+
+## How does GPT-2 compute greater-than? (2023)
+	Hanna, Liu, Variengien, NeurIPS. A comparison against the output itself computed at the answer position by mid-late
+	MLPs after heads move the operand there: the deferred case of Q1 (read).
+	(https://arxiv.org/abs/2305.00586)
+
+## Interpretability at Scale (Boundless DAS) (2023)
+	Wu et al., NeurIPS (listed above): boolean bound checks extracted mid-prompt and copied to the last token: the local
+	case of Q1, on given comparands.
+
+## Multi-step arithmetic: distractors not decodable (2024/2026)
+	Kudo et al. (https://arxiv.org/abs/2412.01113; read in part): with chain-of-thought, a variable the answer does not
+	need is never linearly decodable. Points to lazy evaluation (Q3), in another setting, and a linear null is not
+	absence.
+
+## In tension
+
+## Do Language Models Use Their Depth Efficiently? (2025)
+	Csordás, Manning, Potts (listed above): no composition of sub-results in the second half. Against a serial "test,
+	then select" chain; consistent with computing both branches at once (Q2, Q3).
+
+## Method
+
+## Interaction terms in activation patching (2026)
+	Vaidyanathan et al., NeurIPS 2026 poster (https://arxiv.org/abs/2606.27510; abstract only): patching effects
+	carry an interaction term that grows with the distance between clean and patched activations, negligible where
+	the model is locally affine. The closest formal treatment of D61's and D63's additivity test, over components
+	rather than input factors.
+
+## How do Language Models Bind Entities in Context? (2024)
+	Feng & Steinhardt, ICLR (read): an additivity test of binding functions (two mean-difference interventions that
+	each reverse the behaviour and together restore it). A precedent for an additivity test on states.
+
+## Not found
+	No mechanistic study of IF(...), ternary or if-else evaluation in a pretrained LM beyond the rule paper; no test,
+	in any model, of whether the untaken branch's value is computed; no comparison of a computed with a given control
+	on one task; no 2×2 additivity test over input factors used to locate where two factors combine.
