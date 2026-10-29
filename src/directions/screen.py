@@ -188,6 +188,11 @@ def render(demos: list[CondExpr], query: CondExpr) -> Prompt:
 def query_labels(backend: ModelBackend, prompt: Prompt, query: CondExpr) -> list[str]:
     """The query's tokens, each labelled by its text with every digit or sign named by its slot (g, cmp, h, k, a, b, c,
     d); the trailing space, the answer position, is ``␣``. Equal lists across queries mean token-aligned prompts."""
+    return query_tokens(backend, prompt, query)[2]
+
+
+def query_tokens(backend: ModelBackend, prompt: Prompt, query: CondExpr) -> tuple[list[int], list[int], list[str]]:
+    """The query's token positions (absolute indices), its token ids and its labels (:func:`query_labels`)."""
     qtext = f"{query.text()} = "
     ids, _ = backend._encode_prompt(prompt)
     _, end = backend.context_span(prompt, len(prompt.prompt) - len(qtext))
@@ -201,7 +206,7 @@ def query_labels(backend: ModelBackend, prompt: Prompt, query: CondExpr) -> list
         cursor += len(piece)
     if cursor != len(qtext):
         raise ValueError(f"query tokens cover {cursor} of {len(qtext)} characters of {qtext!r}")
-    return labels
+    return list(range(end, len(ids))), list(ids[end:]), labels
 
 
 def _boot_means(x: np.ndarray, rng: np.random.Generator, n_boot: int) -> np.ndarray:
